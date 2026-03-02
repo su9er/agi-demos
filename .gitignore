@@ -145,3 +145,4 @@ local-sandbox-app/
 .copilot/
 .mypy_cache/
 .ruff_cache/
+.gitnexus

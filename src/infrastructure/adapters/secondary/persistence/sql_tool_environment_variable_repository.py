@@ -6,8 +6,8 @@ import logging
 from typing import Any, cast
 
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent.tool_environment_variable import (
     EnvVarScope,

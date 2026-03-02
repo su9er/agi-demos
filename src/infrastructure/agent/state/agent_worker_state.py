@@ -450,6 +450,13 @@ async def get_or_create_tools(
 
     # 12. Add custom tools from .memstack/tools/
     _add_custom_tools(tools, project_id)
+
+    # 13. Add Session Communication tools (agent-to-agent)
+    _add_session_comm_tools(tools, project_id, redis_client)
+
+    # 14. Add Canvas tools (A2UI)
+    _add_canvas_tools(tools)
+
     return tools
 
 
@@ -865,6 +872,10 @@ async def _add_plugin_tools(
     project_id: str,
 ) -> None:
     """Load plugin runtime and add plugin-provided tools."""
+    from src.infrastructure.agent.core.plugin_tool_adapter import (
+        adapt_plugin_tool,  # pyright: ignore[reportMissingImports]
+    )
+
     # Ensure plugin runtime is loaded before building plugin-provided tools.
     runtime_manager = get_plugin_runtime_manager()
     runtime_diagnostics = await runtime_manager.ensure_loaded()
@@ -884,11 +895,27 @@ async def _add_plugin_tools(
     for diagnostic in diagnostics:
         _log_plugin_diagnostic(diagnostic, context="tool_build")
     if plugin_tools:
-        tools.update(plugin_tools)
+        adapted_count = 0
+        for tool_name, tool_impl in plugin_tools.items():
+            plugin_name = getattr(tool_impl, "_plugin_origin", "unknown")
+            adapted = adapt_plugin_tool(
+                tool_name=tool_name,
+                tool_impl=tool_impl,
+                plugin_name=plugin_name,
+            )
+            if adapted is not None:
+                tools[tool_name] = adapted
+                adapted_count += 1
+            else:
+                logger.warning(
+                    "Agent Worker: Skipped unadaptable plugin tool '%s'",
+                    tool_name,
+                )
         logger.info(
-            "Agent Worker: Added %d plugin tools for project %s",
+            "Agent Worker: Added %d plugin tools for project %s (adapted %d)",
             len(plugin_tools),
             project_id,
+            adapted_count,
         )
 
 
@@ -985,6 +1012,41 @@ def _build_sandbox_orchestrator(
         security_gate=security_gate,
     )
 
+
+def _create_tool_execution_router(  # pyright: ignore[reportUnusedFunction]  # Phase 2.5+ prep
+    *,
+    sandbox_port: Any,
+    sandbox_id: str,
+    dep_orchestrator: Any | None = None,
+) -> Any:
+    """Create a ToolExecutionRouter for routing tools to host or sandbox.
+
+    Args:
+        sandbox_port: Interface to communicate with sandbox containers.
+        sandbox_id: ID of the target sandbox container.
+        dep_orchestrator: Optional DependencyOrchestrator for sandbox dependencies.
+
+    Returns:
+        A configured ToolExecutionRouter.
+    """
+    from src.infrastructure.agent.core.host_tool_executor import HostToolExecutor
+    from src.infrastructure.agent.core.sandbox_tool_executor import (
+        SandboxToolExecutor,  # pyright: ignore[reportMissingImports]
+    )
+    from src.infrastructure.agent.core.tool_execution_router import (
+        ToolExecutionRouter,
+    )
+
+    host_executor = HostToolExecutor()
+    sandbox_executor = SandboxToolExecutor(
+        sandbox_port=sandbox_port,
+        sandbox_id=sandbox_id,
+        dependency_orchestrator=dep_orchestrator,
+    )
+    return ToolExecutionRouter(
+        sandbox_executor=sandbox_executor,
+        host_executor=host_executor,
+    )
 
 async def _process_sandbox_factory(
     *,
@@ -1364,6 +1426,77 @@ def _add_custom_tools(tools: dict[str, Any], project_id: str) -> None:
     except Exception as e:
         logger.warning("Agent Worker: Failed to load custom tools: %s", e)
 
+
+def _add_session_comm_tools(
+    tools: dict[str, Any],
+    project_id: str,
+    redis_client: Any,
+) -> None:
+    """Configure and register agent-to-agent session communication tools.
+
+    Uses the module-level DI pattern (``configure_session_comm``) to inject
+    a ``SessionCommService`` backed by per-request DB repositories, then
+    adds the three session comm tool functions to the tool dictionary.
+    """
+    try:
+        from src.application.services.session_comm_service import SessionCommService
+        from src.infrastructure.adapters.secondary.persistence.database import (
+            async_session_factory as comm_session_factory,
+        )
+        from src.infrastructure.adapters.secondary.persistence.sql_conversation_repository import (
+            SqlConversationRepository,
+        )
+        from src.infrastructure.adapters.secondary.persistence.sql_message_repository import (
+            SqlMessageRepository,
+        )
+        from src.infrastructure.agent.tools.session_comm_tools import (
+            configure_session_comm,
+            sessions_history_tool,
+            sessions_list_tool,
+            sessions_send_tool,
+        )
+
+        session = comm_session_factory()
+        conversation_repo = SqlConversationRepository(session)
+        message_repo = SqlMessageRepository(session)
+
+        service = SessionCommService(
+            conversation_repo=conversation_repo,
+            message_repo=message_repo,
+        )
+        configure_session_comm(service)
+        tools[sessions_list_tool.name] = sessions_list_tool
+        tools[sessions_history_tool.name] = sessions_history_tool
+        tools[sessions_send_tool.name] = sessions_send_tool
+        logger.info(
+            "Agent Worker: Session comm tools added for project %s",
+            project_id,
+        )
+    except Exception as e:
+        logger.warning(
+            "Agent Worker: Failed to add session comm tools: %s", e
+        )
+
+
+def _add_canvas_tools(tools: dict[str, Any]) -> None:
+    """Add Canvas/A2UI tools (create, update, delete canvas blocks)."""
+    try:
+        from src.infrastructure.agent.canvas.manager import CanvasManager
+        from src.infrastructure.agent.canvas.tools import (
+            canvas_create,
+            canvas_delete,
+            canvas_update,
+            configure_canvas,
+        )
+
+        manager = CanvasManager()
+        configure_canvas(manager)
+        tools[canvas_create.name] = canvas_create
+        tools[canvas_update.name] = canvas_update
+        tools[canvas_delete.name] = canvas_delete
+        logger.info("Agent Worker: Canvas tools added")
+    except Exception as e:
+        logger.warning("Agent Worker: Failed to add canvas tools: %s", e)
 
 async def _load_project_sandbox_tools(
     project_id: str,
@@ -2843,11 +2976,11 @@ async def get_or_create_skill_loader_tool(
     from src.infrastructure.agent.tools.skill_loader import SkillLoaderTool
     from src.infrastructure.skill.filesystem_scanner import FileSystemSkillScanner
 
-    # Create a NullSkillRepository for SkillService.
-    # TODO(P1-Fix2): Replace with real SqlSkillRepository when a per-request
-    # DB session is available in the agent worker context.  Currently all
-    # skills come from the filesystem, so this null impl is sufficient.
-    # We only use filesystem skills (skip_database=True), so no DB operations needed.
+    # NOTE: NullSkillRepository is intentionally used here instead of SqlSkillRepository.
+    # The agent worker context has no per-request DB session available (skip_database=True).
+    # All skills are loaded from the filesystem via FileSystemSkillLoader/FileSystemSkillScanner,
+    # so database operations are never invoked. This null implementation satisfies the
+    # SkillRepositoryPort interface required by SkillService without requiring a DB connection.
     class NullSkillRepository(SkillRepositoryPort):
         """Null implementation - all methods return empty/None."""
 

@@ -6,8 +6,8 @@ import logging
 from typing import Any, cast
 
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent.tenant_agent_config import ConfigType, TenantAgentConfig
 from src.domain.ports.repositories.tenant_agent_config_repository import (

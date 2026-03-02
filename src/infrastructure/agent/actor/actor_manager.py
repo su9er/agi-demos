@@ -23,10 +23,12 @@ logger = logging.getLogger(__name__)
 ROUTER_ACTOR_NAME = "hitl-router"
 
 
-async def ensure_router_actor() -> Any | None:
+async def ensure_router_actor(*, mark_unavailable_on_failure: bool = True) -> Any | None:
     """Ensure the HITL stream router actor is running.
 
     Returns None if Ray is not available.
+    When mark_unavailable_on_failure is False, transient errors are re-raised
+    instead of marking Ray as permanently unavailable (useful for worker retry loops).
     """
     if not await init_ray_if_needed():
         return None
@@ -46,12 +48,16 @@ async def ensure_router_actor() -> Any | None:
             return actor
         except Exception as e:
             logger.warning("[ActorManager] Failed to create router actor: %s", e)
-            mark_ray_unavailable()
-            return None
+            if mark_unavailable_on_failure:
+                mark_ray_unavailable()
+                return None
+            raise
     except Exception as e:
         logger.warning("[ActorManager] Ray runtime error in ensure_router_actor: %s", e)
-        mark_ray_unavailable()
-        return None
+        if mark_unavailable_on_failure:
+            mark_ray_unavailable()
+            return None
+        raise
 
 
 async def get_or_create_actor(

@@ -5,21 +5,13 @@ import { devtools, persist } from 'zustand/middleware';
 import { agentService } from '../services/agentService';
 import {
   Message,
-  Conversation,
   AgentStreamHandler,
-  ToolCall,
   TimelineEvent,
-  AgentEvent,
-  ActEventData,
-  ObserveEventData,
   UserMessageEvent,
-  PermissionAskedEventData,
-  DoomLoopDetectedEventData,
 } from '../types/agent';
 import {
   type ConversationState,
   type HITLSummary,
-  type CostTrackingState,
   createDefaultConversationState,
   getHITLSummaryFromState,
   MAX_CONCURRENT_STREAMING_CONVERSATIONS,
@@ -30,483 +22,38 @@ import {
   deleteConversationState,
 } from '../utils/conversationDB';
 import { logger } from '../utils/logger';
-import { tabSync, type TabSyncMessage } from '../utils/tabSync';
+import { tabSync } from '../utils/tabSync';
 
+import {
+  TOKEN_BATCH_INTERVAL_MS,
+  THOUGHT_BATCH_INTERVAL_MS,
+  getDeltaBuffer,
+  clearDeltaBuffers,
+  clearAllDeltaBuffers,
+  deleteDeltaBuffer,
+} from './agent/deltaBuffers';
 import { createHITLActions } from './agent/hitlActions';
+import {
+  touchConversation,
+  evictStaleConversationStates,
+  scheduleSave,
+  cancelPendingSave,
+  removeFromAccessOrder,
+} from './agent/persistence';
 import { createStreamEventHandlers } from './agent/streamEventHandlers';
 
-import type { FileMetadata } from '../services/sandboxUploadService';
+// Extracted modules
+import { initTabSync } from './agent/tabSync';
+import {
+  updateHITLEventInTimeline,
+  mergeHITLResponseEvents,
+  timelineToMessages,
+} from './agent/timelineUtils';
 
-/**
- * Token delta batching configuration
- * Batches rapid token updates to reduce re-renders and improve performance
- */
-const TOKEN_BATCH_INTERVAL_MS = 50; // Batch tokens every 50ms for smooth streaming
-const THOUGHT_BATCH_INTERVAL_MS = 50; // Same for thought deltas
+// Re-export types for external consumers
+export type { AdditionalAgentHandlers, AgentV3State } from './agent/types';
+import type { AgentV3State } from './agent/types';
 
-/**
- * Maximum number of conversation states to keep in memory.
- * When exceeded, the least-recently-accessed non-active, non-streaming
- * conversations are evicted to prevent unbounded memory growth.
- * Evicted conversations can be re-loaded from server on demand.
- */
-const MAX_CACHED_CONVERSATIONS = 10;
-
-/**
- * Per-conversation delta buffer state
- * Using Map to isolate buffers per conversation, preventing cross-conversation contamination
- */
-interface DeltaBufferState {
-  textDeltaBuffer: string;
-  textDeltaFlushTimer: ReturnType<typeof setTimeout> | null;
-  thoughtDeltaBuffer: string;
-  thoughtDeltaFlushTimer: ReturnType<typeof setTimeout> | null;
-  actDeltaBuffer: import('../types/agent').ActDeltaEventData | null;
-  actDeltaFlushTimer: ReturnType<typeof setTimeout> | null;
-}
-
-const deltaBuffers = new Map<string, DeltaBufferState>();
-
-/**
- * Get or create delta buffer state for a conversation
- */
-function getDeltaBuffer(conversationId: string): DeltaBufferState {
-  let buffer = deltaBuffers.get(conversationId);
-  if (!buffer) {
-    buffer = {
-      textDeltaBuffer: '',
-      textDeltaFlushTimer: null,
-      thoughtDeltaBuffer: '',
-      thoughtDeltaFlushTimer: null,
-      actDeltaBuffer: null,
-      actDeltaFlushTimer: null,
-    };
-    deltaBuffers.set(conversationId, buffer);
-  }
-  return buffer;
-}
-
-/**
- * Clear delta buffers for a specific conversation
- * IMPORTANT: Call this before starting any new streaming session to prevent
- * stale buffer content from being flushed into the new session
- */
-function clearDeltaBuffers(conversationId: string): void {
-  const buffer = deltaBuffers.get(conversationId);
-  if (buffer) {
-    if (buffer.textDeltaFlushTimer) {
-      clearTimeout(buffer.textDeltaFlushTimer);
-      buffer.textDeltaFlushTimer = null;
-    }
-    if (buffer.thoughtDeltaFlushTimer) {
-      clearTimeout(buffer.thoughtDeltaFlushTimer);
-      buffer.thoughtDeltaFlushTimer = null;
-    }
-    if (buffer.actDeltaFlushTimer) {
-      clearTimeout(buffer.actDeltaFlushTimer);
-      buffer.actDeltaFlushTimer = null;
-    }
-    buffer.textDeltaBuffer = '';
-    buffer.thoughtDeltaBuffer = '';
-    buffer.actDeltaBuffer = null;
-  }
-}
-
-/**
- * Clear all delta buffers across all conversations
- * Used when switching conversations or on cleanup
- */
-function clearAllDeltaBuffers(): void {
-  deltaBuffers.forEach((_buffer, conversationId) => {
-    clearDeltaBuffers(conversationId);
-  });
-  deltaBuffers.clear();
-}
-
-/**
- * Pending save state for beforeunload flush
- */
-const pendingSaves = new Map<string, NodeJS.Timeout>();
-const SAVE_DEBOUNCE_MS = 500;
-
-/**
- * LRU access order tracking for conversation state cache eviction.
- * Most recently accessed conversation ID is at the end.
- */
-const conversationAccessOrder: string[] = [];
-
-/**
- * Record a conversation as recently accessed (move to end of LRU list)
- */
-function touchConversation(conversationId: string): void {
-  const idx = conversationAccessOrder.indexOf(conversationId);
-  if (idx !== -1) {
-    conversationAccessOrder.splice(idx, 1);
-  }
-  conversationAccessOrder.push(conversationId);
-}
-
-/**
- * Evict least-recently-used conversation states when cache exceeds limit.
- * Skips the active conversation and any currently streaming conversations.
- * Evicted conversations are persisted to IndexedDB before removal.
- */
-function evictStaleConversationStates(
-  states: Map<string, ConversationState>,
-  activeId: string | null
-): Map<string, ConversationState> {
-  if (states.size <= MAX_CACHED_CONVERSATIONS) {
-    return states;
-  }
-
-  const newStates = new Map(states);
-  const evictCount = newStates.size - MAX_CACHED_CONVERSATIONS;
-  let evicted = 0;
-
-  // Walk LRU list from oldest (front) to newest
-  for (let i = 0; i < conversationAccessOrder.length && evicted < evictCount; i++) {
-    const id = conversationAccessOrder[i];
-    if (!id || id === activeId) continue;
-    const convState = newStates.get(id);
-    if (convState?.isStreaming) continue;
-
-    // Persist to IndexedDB before eviction
-    if (convState) {
-      saveConversationState(id, convState).catch(console.error);
-    }
-    newStates.delete(id);
-    conversationAccessOrder.splice(i, 1);
-    i--;
-    evicted++;
-  }
-
-  return newStates;
-}
-
-/**
- * Schedule a debounced save for a conversation
- */
-function scheduleSave(conversationId: string, state: ConversationState): void {
-  // Clear existing timer
-  const existingTimer = pendingSaves.get(conversationId);
-  if (existingTimer) {
-    clearTimeout(existingTimer);
-  }
-
-  // Schedule new save
-  const timer = setTimeout(() => {
-    saveConversationState(conversationId, state).catch(console.error);
-    pendingSaves.delete(conversationId);
-  }, SAVE_DEBOUNCE_MS);
-
-  pendingSaves.set(conversationId, timer);
-}
-
-/**
- * Flush all pending saves immediately (for beforeunload)
- */
-async function flushPendingSaves(): Promise<void> {
-  // Clear all timers
-  pendingSaves.forEach((timer) => {
-    clearTimeout(timer);
-  });
-  pendingSaves.clear();
-
-  // Get current store state and save all conversation states
-  const state = useAgentV3Store.getState();
-  const savePromises: Promise<void>[] = [];
-
-  state.conversationStates.forEach((convState, conversationId) => {
-    savePromises.push(saveConversationState(conversationId, convState).catch(console.error));
-  });
-
-  await Promise.all(savePromises);
-}
-
-// Register beforeunload handler for reliable persistence
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    // Use synchronous approach for beforeunload
-    // Note: IndexedDB operations may not complete, but we try our best
-    flushPendingSaves();
-  });
-
-  // Also handle visibilitychange for mobile browsers
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      flushPendingSaves();
-    }
-  });
-}
-
-/**
- * Additional handlers that can be injected into sendMessage
- * for external integrations (e.g., sandbox tool detection)
- */
-export interface AdditionalAgentHandlers {
-  onAct?: ((event: AgentEvent<ActEventData>) => void) | undefined;
-  onObserve?: ((event: AgentEvent<ObserveEventData>) => void) | undefined;
-  /** File metadata for files uploaded to sandbox */
-  fileMetadata?: FileMetadata[] | undefined;
-  /** Force execution of a specific skill by name */
-  forcedSkillName?: string | undefined;
-}
-
-/**
- * Update HITL event in timeline when user responds
- * Finds the matching event by requestId and updates its answered state
- *
- * @param timeline - Current timeline array
- * @param requestId - The HITL request ID to find
- * @param eventType - Type of HITL event to match
- * @param updates - Fields to update (answered, answer/decision/values)
- * @returns Updated timeline with the HITL event marked as answered
- */
-function updateHITLEventInTimeline(
-  timeline: TimelineEvent[],
-  requestId: string,
-  eventType: 'clarification_asked' | 'decision_asked' | 'env_var_requested' | 'permission_asked',
-  updates: {
-    answered: boolean;
-    answer?: string | undefined;
-    decision?: string | undefined;
-    values?: Record<string, string> | undefined;
-    granted?: boolean | undefined;
-  }
-): TimelineEvent[] {
-  return timeline.map((event) => {
-    if (event.type === eventType && (event as any).requestId === requestId) {
-      return { ...event, ...updates };
-    }
-    return event;
-  });
-}
-
-/**
- * Merge HITL response events (_answered/_provided/_replied/_granted) into their
- * corresponding request events (_asked/_requested) so only one card renders.
- *
- * For each response event, find the matching request event by requestId,
- * mark it as answered with the response value, then remove the response event.
- */
-function mergeHITLResponseEvents(timeline: TimelineEvent[]): TimelineEvent[] {
-  // Map from response type to { requestType, field to copy }
-  const responseTypeMap: Record<
-    string,
-    { requestType: string; mapFn: (resp: any) => Record<string, unknown> }
-  > = {
-    clarification_answered: {
-      requestType: 'clarification_asked',
-      mapFn: (r) => ({ answered: true, answer: r.answer }),
-    },
-    decision_answered: {
-      requestType: 'decision_asked',
-      mapFn: (r) => ({ answered: true, decision: r.decision }),
-    },
-    env_var_provided: {
-      requestType: 'env_var_requested',
-      mapFn: (r) => ({ answered: true, providedVariables: r.variableNames, values: r.values }),
-    },
-    permission_replied: {
-      requestType: 'permission_asked',
-      mapFn: (r) => ({ answered: true, granted: r.granted }),
-    },
-    permission_granted: {
-      requestType: 'permission_asked',
-      mapFn: (r) => ({ answered: true, granted: r.granted !== undefined ? r.granted : true }),
-    },
-  };
-
-  // Collect response events keyed by requestId
-  const responsesByRequestId = new Map<string, Record<string, unknown>>();
-  const responseEventIds = new Set<string>();
-
-  for (const event of timeline) {
-    const mapping = responseTypeMap[event.type];
-    if (mapping) {
-      const requestId = (event as any).requestId;
-      if (requestId) {
-        responsesByRequestId.set(requestId, mapping.mapFn(event));
-        responseEventIds.add(event.id);
-      }
-    }
-  }
-
-  if (responsesByRequestId.size === 0) return timeline;
-
-  // Merge into request events and filter out response events
-  return timeline
-    .map((event) => {
-      const requestId = (event as any).requestId;
-      if (requestId && responsesByRequestId.has(requestId)) {
-        const requestTypes = [
-          'clarification_asked',
-          'decision_asked',
-          'env_var_requested',
-          'permission_asked',
-        ];
-        if (requestTypes.includes(event.type)) {
-          return { ...event, ...responsesByRequestId.get(requestId) };
-        }
-      }
-      return event;
-    })
-    .filter((event) => !responseEventIds.has(event.id));
-}
-
-/**
- * Convert TimelineEvent[] to Message[] - Simple 1:1 conversion without merging
- * Each timeline event maps directly to a message for natural ordering
- */
-function timelineToMessages(timeline: TimelineEvent[]): Message[] {
-  const messages: Message[] = [];
-
-  for (const event of timeline) {
-    switch (event.type) {
-      case 'user_message':
-        messages.push({
-          id: event.id,
-          conversation_id: '',
-          role: 'user',
-          content: (event as any).content || '',
-          message_type: 'text' as const,
-          created_at: new Date(event.timestamp).toISOString(),
-        });
-        break;
-
-      case 'assistant_message':
-        messages.push({
-          id: event.id,
-          conversation_id: '',
-          role: 'assistant',
-          content: (event as any).content || '',
-          message_type: 'text' as const,
-          created_at: new Date(event.timestamp).toISOString(),
-        });
-        break;
-
-      case 'text_end':
-        messages.push({
-          id: event.id,
-          conversation_id: '',
-          role: 'assistant',
-          content: (event as any).fullText || '',
-          message_type: 'text' as const,
-          created_at: new Date(event.timestamp).toISOString(),
-        });
-        break;
-
-      // Other event types are rendered directly from timeline, not as messages
-      default:
-        break;
-    }
-  }
-
-  return messages;
-}
-
-interface AgentV3State {
-  // Conversation State
-  conversations: Conversation[];
-  activeConversationId: string | null;
-  hasMoreConversations: boolean;
-  conversationsTotal: number;
-
-  // Per-conversation state (isolated for multi-conversation support)
-  conversationStates: Map<string, ConversationState>;
-
-  // Timeline State (for active conversation - backward compatibility)
-  timeline: TimelineEvent[];
-
-  // Messages State (Derived from timeline for backward compatibility)
-  messages: Message[];
-  isLoadingHistory: boolean; // For initial message load (shows loading in sidebar)
-  isLoadingEarlier: boolean; // For pagination (does NOT show loading in sidebar)
-  hasEarlier: boolean; // Whether there are earlier messages to load
-  earliestTimeUs: number | null; // For pagination
-  earliestCounter: number | null; // For pagination
-
-  // Stream State (for active conversation - backward compatibility)
-  isStreaming: boolean;
-  streamStatus: 'idle' | 'connecting' | 'streaming' | 'error';
-  error: string | null;
-  streamingAssistantContent: string; // Streaming content (used for real-time display)
-
-  // Agent Execution State (for active conversation - backward compatibility)
-  agentState:
-    | 'idle'
-    | 'thinking'
-    | 'preparing'
-    | 'acting'
-    | 'observing'
-    | 'awaiting_input'
-    | 'retrying';
-  currentThought: string;
-  streamingThought: string; // For streaming thought_delta content
-  isThinkingStreaming: boolean; // Whether thought is currently streaming
-  activeToolCalls: Map<
-    string,
-    ToolCall & {
-      status: 'preparing' | 'running' | 'success' | 'failed';
-      startTime: number;
-      partialArguments?: string | undefined;
-    }
-  >;
-  pendingToolsStack: string[]; // Track order of tool executions
-
-  // Plan Mode State
-  isPlanMode: boolean;
-
-  // UI State
-  showPlanPanel: boolean;
-  showHistorySidebar: boolean;
-  leftSidebarWidth: number;
-  rightPanelWidth: number;
-
-  // Interactivity (for active conversation - backward compatibility)
-  pendingClarification: any; // Pending clarification request from agent
-  pendingDecision: any; // Using any for brevity in this update
-  pendingEnvVarRequest: any; // Pending environment variable request from agent
-  pendingPermission: PermissionAskedEventData | null; // Pending permission request
-  doomLoopDetected: DoomLoopDetectedEventData | null;
-  costTracking: CostTrackingState | null; // Cost tracking state
-  suggestions: string[]; // Follow-up suggestions from agent
-  pinnedEventIds: Set<string>; // Pinned message event IDs (per-conversation, local only)
-
-  // Multi-conversation state helpers
-  getConversationState: (conversationId: string) => ConversationState;
-  updateConversationState: (conversationId: string, updates: Partial<ConversationState>) => void;
-  getStreamingConversationCount: () => number;
-  getConversationsWithPendingHITL: () => Array<{ conversationId: string; summary: HITLSummary }>;
-  syncActiveConversationState: () => void;
-
-  // Actions
-  setActiveConversation: (id: string | null) => void;
-  loadConversations: (projectId: string) => Promise<void>;
-  loadMoreConversations: (projectId: string) => Promise<void>;
-  loadMessages: (conversationId: string, projectId: string) => Promise<void>;
-  loadEarlierMessages: (conversationId: string, projectId: string) => Promise<boolean>;
-  createNewConversation: (projectId: string) => Promise<string | null>;
-  sendMessage: (
-    content: string,
-    projectId: string,
-    additionalHandlers?: AdditionalAgentHandlers
-  ) => Promise<string | null>;
-  deleteConversation: (conversationId: string, projectId: string) => Promise<void>;
-  renameConversation: (conversationId: string, projectId: string, title: string) => Promise<void>;
-  abortStream: (conversationId?: string) => void;
-  togglePlanPanel: () => void;
-  toggleHistorySidebar: () => void;
-  setLeftSidebarWidth: (width: number) => void;
-  setRightPanelWidth: (width: number) => void;
-  respondToClarification: (requestId: string, answer: string) => Promise<void>;
-  respondToDecision: (requestId: string, decision: string) => Promise<void>;
-  respondToEnvVar: (requestId: string, values: Record<string, string>) => Promise<void>;
-  respondToPermission: (requestId: string, granted: boolean) => Promise<void>;
-  loadPendingHITL: (conversationId: string) => Promise<void>;
-  clearError: () => void;
-  togglePinEvent: (eventId: string) => void;
-}
 
 export const useAgentV3Store = create<AgentV3State>()(
   devtools(
@@ -947,18 +494,13 @@ export const useAgentV3Store = create<AgentV3State>()(
 
             // Clear delta buffers for this conversation
             clearDeltaBuffers(conversationId);
-            deltaBuffers.delete(conversationId);
+            deleteDeltaBuffer(conversationId);
 
             // Cancel any pending save for this conversation
-            const pendingTimer = pendingSaves.get(conversationId);
-            if (pendingTimer) {
-              clearTimeout(pendingTimer);
-              pendingSaves.delete(conversationId);
-            }
+            cancelPendingSave(conversationId);
 
             // Remove from LRU tracking
-            const lruIdx = conversationAccessOrder.indexOf(conversationId);
-            if (lruIdx !== -1) conversationAccessOrder.splice(lruIdx, 1);
+            removeFromAccessOrder(conversationId);
 
             // Remove from local state and conversation states map
             set((state) => {
@@ -1829,123 +1371,9 @@ export const useAgentV3Store = create<AgentV3State>()(
   )
 );
 
-// ===== Cross-Tab Synchronization =====
-// Subscribe to tab sync messages to keep state consistent across browser tabs
-
-/**
- * Initialize cross-tab synchronization
- * This runs once when the module is loaded
- */
-function initTabSync(): void {
-  if (!tabSync.isSupported()) {
-    logger.info('[AgentV3] Cross-tab sync not supported in this browser');
-    return;
-  }
-
-  logger.info('[AgentV3] Initializing cross-tab sync');
-
-  tabSync.subscribe((message: TabSyncMessage) => {
-    const state = useAgentV3Store.getState();
-
-    switch (message.type) {
-      case 'STREAMING_STATE_CHANGED': {
-        const msg = message as TabSyncMessage & {
-          conversationId: string;
-          isStreaming: boolean;
-          streamStatus: string;
-        };
-        // Update conversation state if we have it
-        const convState = state.conversationStates.get(msg.conversationId);
-        if (convState) {
-          state.updateConversationState(msg.conversationId, {
-            isStreaming: msg.isStreaming,
-            streamStatus: msg.streamStatus as 'idle' | 'connecting' | 'streaming' | 'error',
-          });
-          logger.debug(`[TabSync] Updated streaming state for ${msg.conversationId}`);
-        }
-        break;
-      }
-
-      case 'CONVERSATION_COMPLETED': {
-        const msg = message as TabSyncMessage & { conversationId: string };
-        // If this is our active conversation, reload messages to get the latest
-        if (state.activeConversationId === msg.conversationId) {
-          // Trigger a refresh of messages
-          logger.info(
-            `[TabSync] Conversation ${msg.conversationId} completed in another tab, reloading...`
-          );
-          // Find the project ID from conversations list
-          const conv = state.conversations.find((c) => c.id === msg.conversationId);
-          if (conv) {
-            state.loadMessages(msg.conversationId, conv.project_id);
-          }
-        }
-        break;
-      }
-
-      case 'HITL_STATE_CHANGED': {
-        const msg = message as TabSyncMessage & {
-          conversationId: string;
-          hasPendingHITL: boolean;
-          hitlType?: string | undefined;
-        };
-        // Update HITL state for this conversation
-        const convState = state.conversationStates.get(msg.conversationId);
-        if (convState) {
-          // If HITL was resolved in another tab, clear our local pending state
-          if (!msg.hasPendingHITL) {
-            state.updateConversationState(msg.conversationId, {
-              pendingClarification: null,
-              pendingDecision: null,
-              pendingEnvVarRequest: null,
-            });
-          }
-          logger.debug(`[TabSync] Updated HITL state for ${msg.conversationId}`);
-        }
-        break;
-      }
-
-      case 'CONVERSATION_DELETED': {
-        const msg = message as TabSyncMessage & { conversationId: string };
-        // Remove from conversations list
-        useAgentV3Store.setState((s) => ({
-          conversations: s.conversations.filter((c) => c.id !== msg.conversationId),
-        }));
-        // Clean up conversation state
-        const newStates = new Map(state.conversationStates);
-        newStates.delete(msg.conversationId);
-        useAgentV3Store.setState({ conversationStates: newStates });
-        // Clear active conversation if it was deleted
-        if (state.activeConversationId === msg.conversationId) {
-          useAgentV3Store.setState({ activeConversationId: null });
-        }
-        logger.info(`[TabSync] Removed deleted conversation ${msg.conversationId}`);
-        break;
-      }
-
-      case 'CONVERSATION_RENAMED': {
-        const msg = message as TabSyncMessage & { conversationId: string; newTitle: string };
-        // Update title in conversations list
-        useAgentV3Store.setState((s) => ({
-          conversations: s.conversations.map((c) =>
-            c.id === msg.conversationId ? { ...c, title: msg.newTitle } : c
-          ),
-        }));
-        logger.debug(`[TabSync] Updated title for ${msg.conversationId}`);
-        break;
-      }
-    }
-  });
-}
-
 // Initialize tab sync on module load
 initTabSync();
 
-// Selector for derived messages (rerender-derived-state)
-// Messages are computed from timeline to avoid duplicate state
+// Selector for messages (backward compatible with timeline-based rendering)
 export const useMessages = () =>
-  useAgentV3Store((state) => {
-    // For now, return stored messages for backward compatibility
-    // TODO: Switch to computed derivation after verifying all consumers work correctly
-    return state.messages;
-  });
+  useAgentV3Store((state) => state.messages);

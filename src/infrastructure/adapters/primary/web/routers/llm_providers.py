@@ -60,7 +60,7 @@ async def get_current_user_with_roles(
     return result.scalar_one()
 
 
-async def require_admin(current_user: User = Depends(get_current_user_with_roles)) -> Any:
+async def require_admin(current_user: User = Depends(get_current_user_with_roles)) -> User:
     """Dependency to require admin role."""
     is_admin = any(r.role.name == "admin" for r in current_user.roles)
     if not is_admin:
@@ -389,7 +389,7 @@ async def list_tenant_assignments(
     ),
     current_user: User = Depends(get_current_user_with_roles),
     service: ProviderService = Depends(get_provider_service_with_session),
-) -> Any:
+) -> list[TenantProviderMapping]:
     """
     List all provider assignments for a tenant.
     """

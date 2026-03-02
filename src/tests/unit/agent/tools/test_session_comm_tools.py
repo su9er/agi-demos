@@ -1,0 +1,384 @@
+"""Tests for session communication tools and service."""
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
+import pytest
+
+from src.application.services.session_comm_service import (
+    SessionCommService,
+)
+from src.domain.model.agent import (
+    Conversation,
+    ConversationStatus,
+    Message,
+    MessageRole,
+    MessageType,
+)
+from src.infrastructure.agent.tools.context import ToolContext
+from src.infrastructure.agent.tools.session_comm_tools import (
+    configure_session_comm,
+    sessions_history_tool,
+    sessions_list_tool,
+    sessions_send_tool,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_conversation(
+    *,
+    conv_id: str = "conv-1",
+    project_id: str = "proj-1",
+    title: str = "Test Session",
+    status: ConversationStatus = ConversationStatus.ACTIVE,
+) -> Conversation:
+    return Conversation(
+        id=conv_id,
+        project_id=project_id,
+        tenant_id="tenant-1",
+        user_id="user-1",
+        title=title,
+        status=status,
+        message_count=5,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+
+def _make_message(
+    *,
+    msg_id: str = "msg-1",
+    conv_id: str = "conv-1",
+    role: MessageRole = MessageRole.USER,
+    content: str = "Hello",
+) -> Message:
+    return Message(
+        id=msg_id,
+        conversation_id=conv_id,
+        role=role,
+        content=content,
+        message_type=MessageType.TEXT,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+
+def _make_ctx(
+    *,
+    project_id: str = "proj-1",
+    conversation_id: str = "current-conv",
+) -> ToolContext:
+    return ToolContext(
+        session_id="sess-1",
+        message_id="msg-x",
+        call_id="call-x",
+        agent_name="test-agent",
+        conversation_id=conversation_id,
+        project_id=project_id,
+        user_id="user-1",
+    )
+
+
+def _build_service(
+    *,
+    conv_repo: AsyncMock | None = None,
+    msg_repo: AsyncMock | None = None,
+) -> SessionCommService:
+    conv_repo = conv_repo or AsyncMock()
+    msg_repo = msg_repo or AsyncMock()
+    return SessionCommService(
+        conversation_repo=conv_repo,
+        message_repo=msg_repo,
+    )
+
+
+# ---------------------------------------------------------------------------
+# SessionCommService unit tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSessionCommServiceListSessions:
+    """Tests for SessionCommService.list_sessions."""
+
+    async def test_list_returns_conversations(self) -> None:
+        conv_repo = AsyncMock()
+        conv_repo.list_by_project.return_value = [
+            _make_conversation(conv_id="c1", title="Session A"),
+            _make_conversation(conv_id="c2", title="Session B"),
+        ]
+        svc = _build_service(conv_repo=conv_repo)
+
+        result = await svc.list_sessions("proj-1")
+
+        assert len(result) == 2
+        assert result[0]["id"] == "c1"
+        assert result[1]["title"] == "Session B"
+        conv_repo.list_by_project.assert_awaited_once()
+
+    async def test_list_excludes_current_conversation(self) -> None:
+        conv_repo = AsyncMock()
+        conv_repo.list_by_project.return_value = [
+            _make_conversation(conv_id="c1"),
+            _make_conversation(conv_id="current-conv"),
+        ]
+        svc = _build_service(conv_repo=conv_repo)
+
+        result = await svc.list_sessions("proj-1", exclude_conversation_id="current-conv")
+
+        assert len(result) == 1
+        assert result[0]["id"] == "c1"
+
+    async def test_list_with_status_filter(self) -> None:
+        conv_repo = AsyncMock()
+        conv_repo.list_by_project.return_value = []
+        svc = _build_service(conv_repo=conv_repo)
+
+        await svc.list_sessions("proj-1", status_filter="active")
+
+        conv_repo.list_by_project.assert_awaited_once_with(
+            "proj-1",
+            status=ConversationStatus.ACTIVE,
+            limit=20,
+            offset=0,
+        )
+
+    async def test_list_with_invalid_status_ignores(self) -> None:
+        conv_repo = AsyncMock()
+        conv_repo.list_by_project.return_value = []
+        svc = _build_service(conv_repo=conv_repo)
+
+        await svc.list_sessions("proj-1", status_filter="nonexistent")
+
+        conv_repo.list_by_project.assert_awaited_once_with(
+            "proj-1", status=None, limit=20, offset=0
+        )
+
+
+@pytest.mark.unit
+class TestSessionCommServiceGetHistory:
+    """Tests for SessionCommService.get_session_history."""
+
+    async def test_returns_history(self) -> None:
+        conv = _make_conversation()
+        conv_repo = AsyncMock()
+        conv_repo.find_by_id.return_value = conv
+        msg_repo = AsyncMock()
+        msg_repo.list_by_conversation.return_value = [
+            _make_message(msg_id="m1", content="Hi"),
+            _make_message(
+                msg_id="m2",
+                role=MessageRole.ASSISTANT,
+                content="Hello",
+            ),
+        ]
+        svc = _build_service(conv_repo=conv_repo, msg_repo=msg_repo)
+
+        result = await svc.get_session_history("proj-1", "conv-1")
+
+        assert result["conversation"]["id"] == "conv-1"
+        assert len(result["messages"]) == 2
+        assert result["messages"][0]["content"] == "Hi"
+
+    async def test_raises_on_not_found(self) -> None:
+        conv_repo = AsyncMock()
+        conv_repo.find_by_id.return_value = None
+        svc = _build_service(conv_repo=conv_repo)
+
+        with pytest.raises(ValueError, match="not found"):
+            await svc.get_session_history("proj-1", "no-such-conv")
+
+    async def test_raises_on_cross_project_access(self) -> None:
+        conv = _make_conversation(project_id="other-project")
+        conv_repo = AsyncMock()
+        conv_repo.find_by_id.return_value = conv
+        svc = _build_service(conv_repo=conv_repo)
+
+        with pytest.raises(PermissionError, match="different project"):
+            await svc.get_session_history("proj-1", "conv-1")
+
+
+@pytest.mark.unit
+class TestSessionCommServiceSend:
+    """Tests for SessionCommService.send_to_session."""
+
+    async def test_sends_message(self) -> None:
+        conv = _make_conversation()
+        conv_repo = AsyncMock()
+        conv_repo.find_by_id.return_value = conv
+        msg_repo = AsyncMock()
+        saved_msg = _make_message(msg_id="new-msg")
+        msg_repo.save.return_value = saved_msg
+        svc = _build_service(conv_repo=conv_repo, msg_repo=msg_repo)
+
+        result = await svc.send_to_session(
+            "proj-1",
+            "conv-1",
+            "Hello peer!",
+            sender_conversation_id="my-conv",
+        )
+
+        assert result["status"] == "sent"
+        assert result["message_id"] == "new-msg"
+        msg_repo.save.assert_awaited_once()
+        saved_call = msg_repo.save.call_args[0][0]
+        assert saved_call.role == MessageRole.SYSTEM
+        assert saved_call.content == "Hello peer!"
+        assert saved_call.metadata["sender_conversation_id"] == "my-conv"
+
+    async def test_rejects_empty_content(self) -> None:
+        svc = _build_service()
+
+        with pytest.raises(ValueError, match="cannot be empty"):
+            await svc.send_to_session("proj-1", "conv-1", "  ")
+
+    async def test_rejects_cross_project(self) -> None:
+        conv = _make_conversation(project_id="other-project")
+        conv_repo = AsyncMock()
+        conv_repo.find_by_id.return_value = conv
+        svc = _build_service(conv_repo=conv_repo)
+
+        with pytest.raises(PermissionError, match="different project"):
+            await svc.send_to_session("proj-1", "conv-1", "sneaky")
+
+    async def test_rejects_not_found(self) -> None:
+        conv_repo = AsyncMock()
+        conv_repo.find_by_id.return_value = None
+        svc = _build_service(conv_repo=conv_repo)
+
+        with pytest.raises(ValueError, match="not found"):
+            await svc.send_to_session("proj-1", "missing-conv", "hello")
+
+
+# ---------------------------------------------------------------------------
+# Tool-level tests (sessions_list_tool, etc.)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSessionsListTool:
+    """Tests for the sessions_list @tool_define tool."""
+
+    async def test_returns_sessions(self) -> None:
+        conv_repo = AsyncMock()
+        conv_repo.list_by_project.return_value = [
+            _make_conversation(conv_id="c1"),
+        ]
+        svc = _build_service(conv_repo=conv_repo)
+        configure_session_comm(svc)
+        ctx = _make_ctx()
+
+        result = await sessions_list_tool.execute(ctx)
+
+        assert not result.is_error
+        data = json.loads(result.output)
+        assert data["count"] == 1
+        assert data["sessions"][0]["id"] == "c1"
+
+    async def test_error_when_no_project_id(self) -> None:
+        svc = _build_service()
+        configure_session_comm(svc)
+        ctx = _make_ctx(project_id="")
+
+        result = await sessions_list_tool.execute(ctx)
+
+        assert result.is_error
+        data = json.loads(result.output)
+        assert "project_id" in data["error"]
+
+
+@pytest.mark.unit
+class TestSessionsHistoryTool:
+    """Tests for the sessions_history @tool_define tool."""
+
+    async def test_returns_history(self) -> None:
+        conv = _make_conversation()
+        conv_repo = AsyncMock()
+        conv_repo.find_by_id.return_value = conv
+        msg_repo = AsyncMock()
+        msg_repo.list_by_conversation.return_value = [
+            _make_message(msg_id="m1"),
+        ]
+        svc = _build_service(conv_repo=conv_repo, msg_repo=msg_repo)
+        configure_session_comm(svc)
+        ctx = _make_ctx()
+
+        result = await sessions_history_tool.execute(ctx, conversation_id="conv-1")
+
+        assert not result.is_error
+        data = json.loads(result.output)
+        assert data["conversation"]["id"] == "conv-1"
+        assert len(data["messages"]) == 1
+
+    async def test_error_on_cross_project(self) -> None:
+        conv = _make_conversation(project_id="other-proj")
+        conv_repo = AsyncMock()
+        conv_repo.find_by_id.return_value = conv
+        svc = _build_service(conv_repo=conv_repo)
+        configure_session_comm(svc)
+        ctx = _make_ctx()
+
+        result = await sessions_history_tool.execute(ctx, conversation_id="conv-1")
+
+        assert result.is_error
+        data = json.loads(result.output)
+        assert "different project" in data["error"]
+
+    async def test_error_when_missing_conversation_id(self) -> None:
+        svc = _build_service()
+        configure_session_comm(svc)
+        ctx = _make_ctx()
+
+        result = await sessions_history_tool.execute(ctx, conversation_id="")
+
+        assert result.is_error
+
+
+@pytest.mark.unit
+class TestSessionsSendTool:
+    """Tests for the sessions_send @tool_define tool."""
+
+    async def test_sends_message(self) -> None:
+        conv = _make_conversation()
+        conv_repo = AsyncMock()
+        conv_repo.find_by_id.return_value = conv
+        msg_repo = AsyncMock()
+        msg_repo.save.return_value = _make_message(msg_id="new")
+        svc = _build_service(conv_repo=conv_repo, msg_repo=msg_repo)
+        configure_session_comm(svc)
+        ctx = _make_ctx()
+
+        result = await sessions_send_tool.execute(ctx, conversation_id="conv-1", content="Hi!")
+
+        assert not result.is_error
+        data = json.loads(result.output)
+        assert data["status"] == "sent"
+
+    async def test_error_on_empty_content(self) -> None:
+        svc = _build_service()
+        configure_session_comm(svc)
+        ctx = _make_ctx()
+
+        result = await sessions_send_tool.execute(ctx, conversation_id="conv-1", content="   ")
+
+        assert result.is_error
+        data = json.loads(result.output)
+        assert "empty" in data["error"]
+
+    async def test_error_on_cross_project(self) -> None:
+        conv = _make_conversation(project_id="other-proj")
+        conv_repo = AsyncMock()
+        conv_repo.find_by_id.return_value = conv
+        svc = _build_service(conv_repo=conv_repo)
+        configure_session_comm(svc)
+        ctx = _make_ctx()
+
+        result = await sessions_send_tool.execute(ctx, conversation_id="conv-1", content="sneaky")
+
+        assert result.is_error
+        data = json.loads(result.output)
+        assert "different project" in data["error"]

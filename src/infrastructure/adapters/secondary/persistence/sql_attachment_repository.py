@@ -18,8 +18,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy.engine import CursorResult
 from sqlalchemy import delete, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent.attachment import (

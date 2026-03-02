@@ -28,9 +28,14 @@ import {
   Download,
   RefreshCw,
   AlertCircle,
+  Box,
+  Power,
+  RotateCcw,
 } from 'lucide-react';
 
 import api, { projectAPI } from '../../services/api';
+import { projectSandboxService } from '../../services/projectSandboxService';
+import type { ProjectSandbox } from '../../types/sandbox';
 import { useProjectStore } from '../../stores/project';
 
 import type {
@@ -41,6 +46,7 @@ import type {
   ProjectSettingsGraphProps,
   ProjectSettingsAdvancedProps,
   ProjectSettingsDangerProps,
+  ProjectSettingsSandboxProps,
   ProjectSettingsNoProjectProps,
   ProjectSettingsProps,
 } from './settings/types';
@@ -502,6 +508,175 @@ const NoProject: React.FC<ProjectSettingsNoProjectProps> = () => (
 );
 NoProject.displayName = 'ProjectSettings.NoProject';
 
+// Sandbox Sub-Component
+const Sandbox: React.FC<ProjectSettingsSandboxProps> = ({ projectId }) => {
+  const [sandboxInfo, setSandboxInfo] = useState<ProjectSandbox | null>(null);
+  const [stats, setStats] = useState<{
+    cpu_percent?: number;
+    memory_used_mb?: number;
+    memory_limit_mb?: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const fetchSandboxInfo = useCallback(async () => {
+    try {
+      setLoading(true);
+      const info = await projectSandboxService.getProjectSandbox(projectId);
+      setSandboxInfo(info);
+      // Only fetch stats if sandbox is running
+      if (info?.status === 'running') {
+        try {
+          const statsData = await projectSandboxService.getStats(projectId);
+          setStats(statsData);
+        } catch {
+          setStats(null);
+        }
+      } else {
+        setStats(null);
+      }
+    } catch {
+      setSandboxInfo(null);
+      setStats(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    fetchSandboxInfo();
+  }, [fetchSandboxInfo]);
+
+  const handleRestart = useCallback(async () => {
+    setActionLoading(true);
+    try {
+      await projectSandboxService.restartSandbox(projectId);
+      await fetchSandboxInfo();
+    } finally {
+      setActionLoading(false);
+    }
+  }, [projectId, fetchSandboxInfo]);
+
+  const handleTerminate = useCallback(async () => {
+    setActionLoading(true);
+    try {
+      await projectSandboxService.terminateSandbox(projectId);
+      await fetchSandboxInfo();
+    } finally {
+      setActionLoading(false);
+    }
+  }, [projectId, fetchSandboxInfo]);
+
+  const statusColor = sandboxInfo?.status === 'running'
+    ? 'text-green-500'
+    : sandboxInfo?.status === 'terminated'
+      ? 'text-gray-400'
+      : sandboxInfo?.status === 'error'
+        ? 'text-red-500'
+        : 'text-yellow-500';
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-gray-200 dark:border-slate-800 p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Box className="h-5 w-5 text-purple-500" />
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+          Sandbox
+        </h3>
+      </div>
+      <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
+        Sandboxes provide isolated execution environments for tools and code.
+        They are automatically created on first use and destroyed after idle timeout.
+      </p>
+
+      {loading ? (
+        <div className="text-sm text-gray-400">Loading sandbox status...</div>
+      ) : !sandboxInfo ? (
+        <div className="text-sm text-gray-500 dark:text-slate-400">
+          No sandbox provisioned. A sandbox will be created automatically when tools are first used.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Status Row */}
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-gray-500 dark:text-slate-400">Status:</span>{' '}
+              <span className={`font-medium ${statusColor}`}>
+                {sandboxInfo.status ?? 'Unknown'}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500 dark:text-slate-400">ID:</span>{' '}
+              <span className="font-mono text-xs text-gray-600 dark:text-slate-300">
+                {sandboxInfo.sandbox_id ? sandboxInfo.sandbox_id.slice(0, 12) + '...' : '-'}
+              </span>
+            </div>
+          </div>
+
+          {/* Last Accessed */}
+          {sandboxInfo.last_accessed_at && (
+            <div className="text-sm">
+              <span className="text-gray-500 dark:text-slate-400">Last accessed:</span>{' '}
+              <span className="text-gray-700 dark:text-slate-300">
+                {new Date(sandboxInfo.last_accessed_at).toLocaleString()}
+              </span>
+            </div>
+          )}
+
+          {/* Resource Stats (only when running) */}
+          {stats && (
+            <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 dark:bg-slate-800/50 rounded-md p-3">
+              <div>
+                <span className="text-gray-500 dark:text-slate-400">CPU:</span>{' '}
+                <span className="text-gray-700 dark:text-slate-300">
+                  {stats.cpu_percent?.toFixed(1) ?? '-'}%
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-slate-400">Memory:</span>{' '}
+                <span className="text-gray-700 dark:text-slate-300">
+                  {stats.memory_used_mb?.toFixed(0) ?? '-'} / {stats.memory_limit_mb?.toFixed(0) ?? '-'} MB
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleRestart}
+              disabled={actionLoading || sandboxInfo.status === 'terminated'}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-md hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Restart
+            </button>
+            <button
+              type="button"
+              onClick={handleTerminate}
+              disabled={actionLoading || sandboxInfo.status === 'terminated'}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 bg-white dark:bg-slate-800 border border-red-300 dark:border-red-600 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <Power className="h-4 w-4" />
+              Terminate
+            </button>
+            <button
+              type="button"
+              onClick={fetchSandboxInfo}
+              disabled={actionLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-md hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+Sandbox.displayName = 'ProjectSettings.Sandbox';
+
 // ============================================================================
 // Main Component
 // ============================================================================
@@ -513,6 +688,7 @@ export const ProjectSettings: React.FC<ProjectSettingsProps> & {
   Memory: typeof Memory;
   Graph: typeof Graph;
   Advanced: typeof Advanced;
+  Sandbox: typeof Sandbox;
   Danger: typeof Danger;
   NoProject: typeof NoProject;
 } = ({ className = '' }) => {
@@ -785,6 +961,7 @@ export const ProjectSettings: React.FC<ProjectSettingsProps> & {
         onClearCache={handleClearCache}
         onRebuildCommunities={handleRebuildCommunities}
       />
+      <Sandbox projectId={currentProject.id} />
       <Danger projectName={currentProject.name} onDelete={handleDeleteProject} />
     </div>
   );
@@ -799,6 +976,7 @@ ProjectSettings.Basic = Basic;
 ProjectSettings.Memory = Memory;
 ProjectSettings.Graph = Graph;
 ProjectSettings.Advanced = Advanced;
+ProjectSettings.Sandbox = Sandbox;
 ProjectSettings.Danger = Danger;
 ProjectSettings.NoProject = NoProject;
 

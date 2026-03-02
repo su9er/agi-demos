@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import wraps
-from typing import Any, cast
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

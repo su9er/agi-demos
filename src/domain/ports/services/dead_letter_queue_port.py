@@ -247,6 +247,28 @@ class DeadLetterQueuePort(ABC):
         Returns:
             List of DeadLetterMessage
         """
+    @abstractmethod
+    async def count_messages(
+        self,
+        *,
+        status: DLQMessageStatus | None = None,
+        event_type: str | None = None,
+        error_type: str | None = None,
+        routing_key_pattern: str | None = None,
+    ) -> int:
+        """Count DLQ messages matching filters.
+
+        Args:
+            status: Filter by status
+            event_type: Filter by event type
+            error_type: Filter by error type
+            routing_key_pattern: Filter by routing key pattern
+
+        Returns:
+            Total count of messages matching filters
+        """
+
+    @abstractmethod
 
     @abstractmethod
     async def retry_message(self, message_id: str) -> bool:

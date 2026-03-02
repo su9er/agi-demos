@@ -1,4 +1,4 @@
-"""Ray adapter package - pre-initializes Ray with allow_multiple=True.
+"""Ray adapter package - pre-initializes Ray connection.
 
 If the Ray cluster is unreachable, the package still loads successfully
 but marks Ray as unavailable. Callers should use client.is_ray_available()
@@ -41,42 +41,12 @@ def _check_ray_reachable(address: str, timeout: int = 3) -> bool:
         return False
 
 
-# CRITICAL FIX: Patch Ray's auto_init_ray BEFORE importing ray
-# This prevents "allow_multiple" errors
+# Disable Ray's auto_init to prevent uncontrolled ray.init() calls.
+# All initialization goes through the module-level code below or
+# client.init_ray_if_needed().
 import ray._private.auto_init_hook as _auto_init_hook
 
-# Store original function
-_original_auto_init_ray = _auto_init_hook.auto_init_ray
-
-
-def _patched_auto_init_ray() -> None:
-    """Patched auto_init that uses allow_multiple=True."""
-    if _ray_init_failed or not _auto_init_hook.enable_auto_connect:
-        return
-
-    import ray as _ray_module
-
-    if _ray_module.is_initialized():
-        return
-
-    with _auto_init_hook.auto_init_lock:
-        if _ray_module.is_initialized():
-            return
-
-        address = os.environ.get("RAY_ADDRESS", "ray://localhost:10001")
-        namespace = os.environ.get("RAY_NAMESPACE", "memstack")
-
-        _ray_module.init(
-            address=address,
-            namespace=namespace,
-            ignore_reinit_error=True,
-            allow_multiple=True,
-            log_to_driver=False,
-        )
-
-
-# Apply the patch
-_auto_init_hook.auto_init_ray = _patched_auto_init_ray
+_auto_init_hook.enable_auto_connect = False
 
 # Now safe to import ray
 import ray as _ray
@@ -98,7 +68,6 @@ if not _ray.is_initialized():
                 address=_ray_address,
                 namespace=os.environ.get("RAY_NAMESPACE", "memstack"),
                 ignore_reinit_error=True,
-                allow_multiple=True,
                 log_to_driver=False,
             )
         except ValueError as e:

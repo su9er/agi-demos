@@ -64,11 +64,11 @@ class TestWebSocketClientLockOptimization:
         client._ws = mock_ws
 
         # Track lock acquisition timing
-        lock_acquisition_times = []
-        lock_release_times = []
+        _lock_acquisition_times = []
+        _lock_release_times = []
         send_times = []
 
-        original_lock = client._request_id_lock
+        _original_lock = client._request_id_lock
 
         # Track the actual send operation timing
         async def mock_send_json(data):
@@ -95,7 +95,6 @@ class TestWebSocketClientLockOptimization:
                 client._request_id += 1
                 request_id = client._request_id
                 request_ids.append(request_id)
-                lock_release_times.append(time.time())
 
             # Send happens outside lock
             request = {

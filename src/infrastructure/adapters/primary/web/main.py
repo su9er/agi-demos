@@ -69,11 +69,13 @@ from src.infrastructure.adapters.primary.web.startup import (
     initialize_graph_service,
     initialize_llm_providers,
     initialize_redis_client,
+    initialize_sandbox_idle_reaper,
     initialize_telemetry,
     initialize_websocket_manager,
     initialize_workflow_engine,
     shutdown_channel_manager,
     shutdown_docker_services,
+    shutdown_sandbox_idle_reaper,
     shutdown_telemetry_services,
 )
 from src.infrastructure.adapters.primary.web.startup.graph import (
@@ -151,6 +153,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
     # Initialize Docker services (sandbox sync and event monitor)
     await initialize_docker_services(container)
 
+    # Initialize sandbox idle reaper (auto-destroy idle sandboxes)
+    await initialize_sandbox_idle_reaper()
+
     # Initialize Channel Connection Manager for IM integrations
     channel_manager = await initialize_channel_manager()
     if channel_manager:
@@ -158,6 +163,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
         logger.info("Channel connection manager initialized")
 
     yield
+
+    # Stop sandbox idle reaper
+    await shutdown_sandbox_idle_reaper()
 
     # Shutdown
     logger.info("Shutting down...")

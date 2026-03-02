@@ -14,12 +14,13 @@ import { useContextStore } from '../contextStore';
 import { useUnifiedHITLStore } from '../hitlStore.unified';
 import { useLayoutModeStore } from '../layoutMode';
 
+import type { DeltaBufferState } from './deltaBuffers';
+import type { AdditionalAgentHandlers } from './types';
 import type {
   ActDeltaEventData,
   AgentEvent,
   AgentStreamHandler,
   ClarificationAskedEventData,
-  ArtifactsBatchEventData,
   CompleteEventData,
   DecisionAskedEventData,
   EnvVarRequestedEventData,
@@ -33,19 +34,9 @@ import type {
   ToolCall,
 } from '../../types/agent';
 import type { ConversationState, CostTrackingState } from '../../types/conversationState';
-import type { AdditionalAgentHandlers } from '../agentV3';
 
-/**
- * Delta buffer management interface for token batching
- */
-export interface DeltaBufferState {
-  textDeltaBuffer: string;
-  textDeltaFlushTimer: ReturnType<typeof setTimeout> | null;
-  thoughtDeltaBuffer: string;
-  thoughtDeltaFlushTimer: ReturnType<typeof setTimeout> | null;
-  actDeltaBuffer: ActDeltaEventData | null;
-  actDeltaFlushTimer: ReturnType<typeof setTimeout> | null;
-}
+// Re-export DeltaBufferState from canonical source for backward compatibility
+export type { DeltaBufferState } from './deltaBuffers';
 
 /**
  * Dependencies injected from the store into the handler factory
@@ -979,7 +970,7 @@ export function createStreamEventHandlers(
 
     onArtifactsBatch: (event) => {
       const { updateConversationState, getConversationState } = get();
-      const data = event.data as ArtifactsBatchEventData;
+      const data = event.data;
 
       if (!data.artifacts || !Array.isArray(data.artifacts)) return;
 

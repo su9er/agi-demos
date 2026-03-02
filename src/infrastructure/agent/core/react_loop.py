@@ -25,7 +25,7 @@ import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from src.domain.events.agent_events import (
     AgentCompleteEvent,
@@ -36,6 +36,9 @@ from src.domain.events.agent_events import (
     AgentStatusEvent,
     AgentThoughtEvent,
 )
+
+if TYPE_CHECKING:
+    from src.infrastructure.agent.recovery.session_recovery_service import RecoveryResult
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +110,19 @@ class CostTrackerProtocol(Protocol):
         """Get total cost."""
         ...
 
+
+class SessionRecoveryServiceProtocol(Protocol):
+    """Protocol for session recovery."""
+
+    async def attempt_recovery(
+        self,
+        session_id: str,
+        error: Exception,
+        messages: list[dict[str, Any]] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> 'RecoveryResult':
+        """Attempt recovery and return RecoveryResult."""
+        ...
 
 # ============================================================================
 # Data Classes
@@ -212,6 +228,7 @@ class ReActLoop:
         cost_tracker: CostTrackerProtocol | None = None,
         config: LoopConfig | None = None,
         debug_logging: bool = False,
+        session_recovery_service: SessionRecoveryServiceProtocol | None = None,
     ) -> None:
         """
         Initialize ReAct loop coordinator.
@@ -232,6 +249,7 @@ class ReActLoop:
         self._cost_tracker = cost_tracker
         self._config = config or LoopConfig()
         self._debug_logging = debug_logging
+        self._recovery_service = session_recovery_service
 
         # Loop state
         self._state = LoopState.IDLE
@@ -369,6 +387,50 @@ class ReActLoop:
             yield AgentErrorEvent(message="Processing cancelled", code="CANCELLED")
             self._state = LoopState.ERROR
         except Exception as e:
+            # Attempt session recovery before failing
+            if self._recovery_service and context.session_id:
+                try:
+                    from src.infrastructure.agent.recovery.session_recovery_service import (
+                        RecoveryResult,
+                    )
+
+                    recovery_result: RecoveryResult = (
+                        await self._recovery_service.attempt_recovery(
+                            session_id=context.session_id,
+                            error=e,
+                            messages=messages,
+                        )
+                    )
+                    if recovery_result.should_retry:
+                        logger.info(
+                            "Session recovery succeeded (strategy=%s), "
+                            "retrying loop for session=%s",
+                            recovery_result.strategy_used,
+                            context.session_id,
+                        )
+                        yield AgentStatusEvent(
+                            status="recovery_retry",
+                        )
+                        # Re-run the loop after recovery
+                        async for event in self.run(
+                            messages, tools, context
+                        ):
+                            yield event
+                        return
+                    else:
+                        logger.warning(
+                            "Session recovery failed (strategy=%s) "
+                            "for session=%s: %s",
+                            recovery_result.strategy_used,
+                            context.session_id,
+                            recovery_result.message,
+                        )
+                except Exception as recovery_err:
+                    logger.exception(
+                        "Recovery service itself failed for session=%s: %s",
+                        context.session_id,
+                        recovery_err,
+                    )
             logger.error(f"ReAct loop error: {e}", exc_info=True)
             yield AgentErrorEvent(message=str(e), code=type(e).__name__)
             self._state = LoopState.ERROR

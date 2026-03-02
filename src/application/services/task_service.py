@@ -8,8 +8,8 @@ Temporal's built-in mechanisms.
 
 import logging
 from datetime import UTC, datetime
-
 from typing import Any, cast
+
 from src.domain.model.task.task_log import TaskLog, TaskLogStatus
 from src.domain.ports.repositories.task_repository import TaskRepository
 

@@ -212,6 +212,11 @@ class AgentEventType(str, Enum):
     ELICITATION_ASKED = "elicitation_asked"
     ELICITATION_ANSWERED = "elicitation_answered"
 
+    # =========================================================================
+    # Canvas events (A2UI dynamic UI blocks)
+    # =========================================================================
+    CANVAS_UPDATED = "canvas_updated"
+
 
 # =============================================================================
 # Event Type Utilities
@@ -312,6 +317,8 @@ EVENT_CATEGORIES: dict[AgentEventType, EventCategory] = {
     AgentEventType.TASK_COMPLETE: EventCategory.AGENT,
     # Tool update events
     AgentEventType.TOOLS_UPDATED: EventCategory.AGENT,
+    # Canvas events
+    AgentEventType.CANVAS_UPDATED: EventCategory.AGENT,
 }
 
 

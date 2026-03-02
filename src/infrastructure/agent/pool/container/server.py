@@ -21,11 +21,11 @@ import os
 import signal
 import sys
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from concurrent import futures
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 from aiohttp import web
 
@@ -197,7 +197,8 @@ class AgentContainerServer:
                 ],
             )
 
-            # TODO: Add generated servicer when proto is compiled
+            # gRPC servicer registration requires proto compilation
+            # Uncomment after running: protoc agent_pool.proto
             # agent_pool_pb2_grpc.add_AgentWorkerServiceServicer_to_server(
             #     AgentWorkerServicer(self), self._grpc_server
             # )

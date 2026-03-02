@@ -157,10 +157,10 @@ export const useContextStore = create<ContextState>()(
           status: {
             ...(prev ?? { ...defaultStatus }),
             compressionLevel: data.compression_level,
-            fromCache: data.from_cache,
-            messagesInSummary: data.messages_in_summary,
+            fromCache: data.from_cache ?? false,
+            messagesInSummary: data.messages_in_summary ?? 0,
             // Preserve live token data if we have it, otherwise use summary tokens
-            currentTokens: prev?.currentTokens ?? data.summary_tokens,
+            currentTokens: prev?.currentTokens ?? data.summary_tokens ?? 0,
           },
         });
       },

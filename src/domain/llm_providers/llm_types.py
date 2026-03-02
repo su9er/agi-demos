@@ -8,10 +8,10 @@ This module serves as the unified LLM abstraction layer, replacing LangChain dep
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-from collections.abc import AsyncGenerator
 
 from pydantic import BaseModel
 

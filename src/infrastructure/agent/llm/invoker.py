@@ -180,6 +180,10 @@ class InvocationResult:
 # ============================================================================
 
 
+class _FailoverSuccess:
+    """Internal sentinel yielded by _attempt_failover to signal success."""
+
+
 class LLMInvoker:
     """
     High-level LLM invocation handler.
@@ -197,6 +201,7 @@ class LLMInvoker:
         retry_policy: RetryPolicyProtocol,
         cost_tracker: CostTrackerProtocol,
         debug_logging: bool = False,
+        failover_chain: Any | None = None,
     ) -> None:
         """
         Initialize LLM invoker.
@@ -205,10 +210,14 @@ class LLMInvoker:
             retry_policy: Policy for retry decisions and delays
             cost_tracker: Tracker for cost calculation
             debug_logging: Enable verbose debug logging
+            failover_chain: Optional FailoverChain for cross-provider failover.
+                When provided and an error is failover-worthy, the invoker
+                will attempt alternate providers before exhausting retries.
         """
         self._retry_policy = retry_policy
         self._cost_tracker = cost_tracker
         self._debug_logging = debug_logging
+        self._failover_chain = failover_chain
         self._state = InvokerState.IDLE
 
     @property
@@ -283,16 +292,9 @@ class LLMInvoker:
         while True:
             try:
                 # Build step-specific langfuse context
-                step_langfuse_context = None
-                if context.langfuse_context:
-                    step_langfuse_context = {
-                        **context.langfuse_context,
-                        "extra": {
-                            **context.langfuse_context.get("extra", {}),
-                            "step_number": context.step_count,
-                            "model": config.model,
-                        },
-                    }
+                step_langfuse_context = self._build_step_langfuse_context(
+                    context, config.model,
+                )
 
                 async for event in llm_stream.generate(
                     messages, langfuse_context=step_langfuse_context
@@ -324,26 +326,49 @@ class LLMInvoker:
                 raise
 
             except Exception as e:
-                # Check if retryable
-                if self._retry_policy.is_retryable(e) and attempt < config.max_attempts:
-                    attempt += 1
-                    delay_ms = self._retry_policy.calculate_delay(attempt, e)
+                # -- Failover: try alternate providers --
+                _failover_ok = False
+                async for fo_ev in self._try_failover_on_error(
+                    error=e,
+                    config=config,
+                    context=context,
+                    messages=messages,
+                    tools=tools,
+                    current_message=current_message,
+                    pending_tool_calls=pending_tool_calls,
+                    work_plan_steps=work_plan_steps,
+                    tool_to_step_mapping=tool_to_step_mapping,
+                    execute_tool_callback=execute_tool_callback,
+                    result=result,
+                    current_plan_step=current_plan_step,
+                ):
+                    if isinstance(fo_ev, _FailoverSuccess):
+                        _failover_ok = True
+                        break
+                    yield fo_ev
+                if _failover_ok:
+                    break
 
+                # -- Standard retry logic --
+                if (
+                    self._retry_policy.is_retryable(e)
+                    and attempt < config.max_attempts
+                ):
+                    attempt += 1
+                    delay_ms = self._retry_policy.calculate_delay(
+                        attempt, e,
+                    )
                     self._state = InvokerState.RETRYING
                     yield AgentRetryEvent(
                         attempt=attempt,
                         delay_ms=delay_ms,
                         message=str(e),
                     )
-
-                    # Wait before retry
                     await asyncio.sleep(delay_ms / 1000)
                     continue
-                else:
-                    # Not retryable or max retries exceeded
-                    self._state = InvokerState.ERROR
-                    raise
 
+                self._state = InvokerState.ERROR
+                raise
         # Update message metadata
         current_message.tokens = result.tokens.to_dict()  # type: ignore[attr-defined]
         current_message.cost = result.cost  # type: ignore[attr-defined]
@@ -354,6 +379,81 @@ class LLMInvoker:
         _trace_url = self._build_trace_url(context)
 
         self._state = InvokerState.COMPLETE
+
+    def _build_step_langfuse_context(
+        self,
+        context: InvocationContext,
+        model: str,
+    ) -> dict[str, Any] | None:
+        """Build step-specific Langfuse context if available."""
+        if not context.langfuse_context:
+            return None
+        return {
+            **context.langfuse_context,
+            "extra": {
+                **context.langfuse_context.get("extra", {}),
+                "step_number": context.step_count,
+                "model": model,
+            },
+        }
+
+    async def _try_failover_on_error(
+        self,
+        *,
+        error: Exception,
+        config: InvocationConfig,
+        context: InvocationContext,
+        messages: list[dict[str, Any]],
+        tools: dict[str, ToolProtocol],
+        current_message: MessageProtocol,
+        pending_tool_calls: dict[str, ToolPartProtocol],
+        work_plan_steps: list[dict[str, Any]],
+        tool_to_step_mapping: dict[str, int],
+        execute_tool_callback: Callable[..., Any],
+        result: InvocationResult,
+        current_plan_step: int | None,
+    ) -> AsyncIterator[
+        AgentDomainEvent | _FailoverSuccess
+    ]:
+        """Try failover to alternate providers on error.
+
+        Yields domain events from failover attempts.
+        Yields ``_FailoverSuccess`` sentinel if failover succeeded.
+        Returns without yielding the sentinel if failover was
+        not attempted or all alternates failed.
+        """
+        if self._failover_chain is None:
+            return
+
+        from src.infrastructure.llm.failover_chain import (
+            is_failover_worthy,
+        )
+
+        if not is_failover_worthy(error):
+            return
+
+        logger.info(
+            "[LLMInvoker] Attempting failover for %s: %s",
+            type(error).__name__,
+            str(error)[:200],
+        )
+        async for fo_event in self._attempt_failover(
+            original_error=error,
+            messages=messages,
+            config=config,
+            context=context,
+            tools=tools,
+            current_message=current_message,
+            pending_tool_calls=pending_tool_calls,
+            work_plan_steps=work_plan_steps,
+            tool_to_step_mapping=tool_to_step_mapping,
+            execute_tool_callback=execute_tool_callback,
+            result=result,
+            current_plan_step=current_plan_step,
+        ):
+            yield fo_event
+            if isinstance(fo_event, _FailoverSuccess):
+                return
 
     async def _process_stream_event(
         self,
@@ -619,6 +719,145 @@ class LLMInvoker:
 
         return None
 
+    async def _attempt_failover(
+        self,
+        *,
+        original_error: Exception,
+        messages: list[dict[str, Any]],
+        config: InvocationConfig,
+        context: InvocationContext,
+        tools: dict[str, ToolProtocol],
+        current_message: MessageProtocol,
+        pending_tool_calls: dict[str, ToolPartProtocol],
+        work_plan_steps: list[dict[str, Any]],
+        tool_to_step_mapping: dict[str, int],
+        execute_tool_callback: Callable[..., Any],
+        result: InvocationResult,
+        current_plan_step: int | None,
+    ) -> AsyncIterator[AgentDomainEvent | _FailoverSuccess]:
+        """Attempt failover to alternate providers.
+
+        Tries each healthy provider in the failover chain. On success,
+        yields all stream events from the successful provider and then
+        yields a ``_FailoverSuccess`` sentinel so the caller can break
+        out of the retry loop.
+
+        On total failure, returns without yielding the sentinel and the
+        caller falls through to standard retry/raise logic.
+        """
+        from src.infrastructure.agent.core.llm_stream import LLMStream, StreamConfig
+        from src.infrastructure.llm.failover_chain import FailoverChain
+
+        assert self._failover_chain is not None  # guarded by caller
+        chain: FailoverChain = self._failover_chain
+        healthy_seq = chain.get_healthy_sequence()
+        if not healthy_seq:
+            healthy_seq = chain.fallback_sequence
+
+        # Skip the primary (index 0) — it already failed.
+        alternates = [
+            (p, m) for p, m in healthy_seq
+            if not (p == config.model.split("/")[0]
+                    if "/" in config.model else False)
+        ]
+        if not alternates:
+            alternates = healthy_seq[1:] if len(healthy_seq) > 1 else []
+
+        if not alternates:
+            logger.debug("[LLMInvoker] No alternate providers for failover")
+            return
+
+        for fo_provider, fo_model in alternates:
+            logger.info(
+                "[LLMInvoker] Failover attempt: %s/%s",
+                fo_provider,
+                fo_model,
+            )
+
+            yield AgentRetryEvent(
+                attempt=0,
+                delay_ms=0,
+                message=(
+                    f"Failing over to {fo_provider}/{fo_model} "
+                    f"after {type(original_error).__name__}"
+                ),
+            )
+
+            tools_for_llm = (
+                [t.to_openai_format() for t in tools.values()]
+                if tools
+                else None
+            )
+            fo_stream_config = StreamConfig(
+                model=fo_model,
+                api_key=config.api_key,
+                base_url=config.base_url,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+                tools=tools_for_llm,
+            )
+            fo_stream = LLMStream(fo_stream_config, llm_client=config.llm_client)
+
+            try:
+                step_langfuse_context = None
+                if context.langfuse_context:
+                    step_langfuse_context = {
+                        **context.langfuse_context,
+                        "extra": {
+                            **context.langfuse_context.get("extra", {}),
+                            "step_number": context.step_count,
+                            "model": fo_model,
+                            "failover_from": config.model,
+                        },
+                    }
+
+                async for event in fo_stream.generate(
+                    messages, langfuse_context=step_langfuse_context
+                ):
+                    if context.abort_event and context.abort_event.is_set():
+                        raise asyncio.CancelledError("Aborted")
+
+                    async for domain_event in self._process_stream_event(
+                        event=event,
+                        result=result,
+                        config=config,
+                        context=context,
+                        current_message=current_message,
+                        pending_tool_calls=pending_tool_calls,
+                        work_plan_steps=work_plan_steps,
+                        tool_to_step_mapping=tool_to_step_mapping,
+                        execute_tool_callback=execute_tool_callback,
+                        current_plan_step_holder=[current_plan_step],
+                    ):
+                        yield domain_event
+
+                # Failover succeeded.
+                chain.mark_provider_recovered(fo_provider, fo_model)
+                logger.info(
+                    "[LLMInvoker] Failover succeeded: %s/%s",
+                    fo_provider,
+                    fo_model,
+                )
+                self._state = InvokerState.COMPLETE
+                yield _FailoverSuccess()
+                return
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as fo_err:
+                chain.mark_provider_failed(fo_provider, fo_model)
+                logger.warning(
+                    "[LLMInvoker] Failover to %s/%s failed: %s",
+                    fo_provider,
+                    fo_model,
+                    fo_err,
+                )
+                continue
+
+        logger.warning(
+            "[LLMInvoker] All failover providers exhausted"
+        )
+
 
 # ============================================================================
 # Singleton Management
@@ -656,6 +895,7 @@ def create_llm_invoker(
     retry_policy: RetryPolicyProtocol,
     cost_tracker: CostTrackerProtocol,
     debug_logging: bool = False,
+    failover_chain: Any | None = None,
 ) -> LLMInvoker:
     """
     Create and set singleton LLMInvoker.
@@ -664,6 +904,7 @@ def create_llm_invoker(
         retry_policy: Retry policy instance
         cost_tracker: Cost tracker instance
         debug_logging: Enable debug logging
+        failover_chain: Optional FailoverChain for multi-provider failover
 
     Returns:
         Created LLMInvoker instance
@@ -673,5 +914,6 @@ def create_llm_invoker(
         retry_policy=retry_policy,
         cost_tracker=cost_tracker,
         debug_logging=debug_logging,
+        failover_chain=failover_chain,
     )
     return _invoker

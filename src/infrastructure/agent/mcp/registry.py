@@ -8,8 +8,9 @@ providing efficient tool lookup and server health monitoring.
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 from src.infrastructure.agent.mcp.client import MCPClient
 

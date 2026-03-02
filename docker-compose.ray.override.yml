@@ -24,19 +24,12 @@ services:
       # Mount logs directory for debugging
       - ./logs:/app/logs
     # Override command to enable development mode with auto-reload
-    command: >
-      bash -c "
+    command:
+      - bash
+      - -c
+      - |
         pip install -e . --quiet 2>/dev/null || true &&
-        ray start --head
-        --port=6379
-        --dashboard-host=0.0.0.0
-        --dashboard-port=8265
-        --ray-client-server-port=10001
-        --object-store-memory=1073741824
-        --memory=4294967296
-        --disable-usage-stats
-        --block
-      "
+        ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 --ray-client-server-port=10001 --object-store-memory=1073741824 --memory=4294967296 --disable-usage-stats --block
     # Add development labels
     labels:
       - "memstack.environment=development"
@@ -50,14 +43,12 @@ services:
       # Mount logs directory for debugging
       - ./logs:/app/logs
     # Override command to reinstall package on start
-    command: >
-      bash -c "
+    command:
+      - bash
+      - -c
+      - |
         pip install -e . --quiet 2>/dev/null || true &&
-        ray start --address=ray-head:6379
-        --object-store-memory=1073741824
-        --memory=4294967296
-        --block
-      "
+        ray start --address=ray-head:6379 --object-store-memory=1073741824 --memory=4294967296 --block
     # Add development labels
     labels:
       - "memstack.environment=development"

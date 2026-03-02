@@ -1,5 +1,7 @@
 """Project management API endpoints."""
 
+from __future__ import annotations
+
 import logging
 import re
 from datetime import UTC, datetime, timedelta
@@ -116,7 +118,7 @@ async def create_project(
 
 
 @router.get("/", response_model=ProjectListResponse)
-async def list_projects(
+async def list_projects(  # noqa: C901,PLR0912,PLR0915
     tenant_id: str | None = Query(None, description="Filter by tenant ID"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Page size"),
@@ -208,14 +210,33 @@ async def list_projects(
             row.project_id: int(row._mapping["count"]) for row in member_stats_result.fetchall()
         }
 
-        # Graph stats for active nodes
+        # Graph stats: bulk fetch entity counts per project via Cypher
         node_stats: dict[str, int] = {}
-        # TODO: Implement bulk stats fetch if possible, or skip for performance
-        # For now we assume we might skip or do it individually if critical
-        # The original code called graphiti_service.get_graph_stats(project_id)
-        # We can use graphiti_client.driver.execute_query to get counts directly
-        # But for now, let's keep it simple and default to 0 to avoid complex async loops
-        # or implement simple query if easy.
+        if graphiti_client and project_ids_in_page:
+            try:
+                count_query = """
+                    MATCH (n:Entity)
+                    WHERE n.project_id IN $project_ids
+                    RETURN n.project_id AS project_id, count(n) AS cnt
+                """
+                result = await graphiti_client.driver.execute_query(
+                    count_query, project_ids=project_ids_in_page
+                )
+                if hasattr(result, "records") and result.records:
+                    for record in result.records:
+                        pid = record.get("project_id")
+                        if pid is not None:
+                            node_stats[str(pid)] = int(record.get("cnt", 0))
+                elif result:
+                    for record in result:
+                        if hasattr(record, "get"):
+                            pid = record.get("project_id")
+                            if pid is not None:
+                                node_stats[str(pid)] = int(
+                                    record.get("cnt", 0)
+                                )
+            except Exception as exc:
+                logger.warning("Failed to fetch bulk graph stats: %s", exc)
 
         for project in projects:
             p_resp = ProjectResponse.model_validate(project)

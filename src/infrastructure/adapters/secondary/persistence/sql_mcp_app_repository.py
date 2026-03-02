@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.mcp.app import (
     MCPApp,

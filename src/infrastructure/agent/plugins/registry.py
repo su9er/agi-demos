@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping
@@ -10,6 +11,8 @@ from threading import RLock
 from typing import Any
 
 import jsonschema
+
+from src.infrastructure.agent.tools.define import ToolInfo
 
 logger = logging.getLogger(__name__)
 
@@ -673,6 +676,10 @@ class AgentPluginRegistry:
                         )
                         continue
                     plugin_tools[tool_name] = tool_impl
+                    # Tag tool with originating plugin name for downstream adaptation
+                    if not isinstance(tool_impl, ToolInfo):
+                        with contextlib.suppress(AttributeError, TypeError):
+                            tool_impl._plugin_origin = plugin_name
                 diagnostics.append(
                     PluginDiagnostic(
                         plugin_name=plugin_name,

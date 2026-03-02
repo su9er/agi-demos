@@ -1,3 +1,11 @@
 """Backward compatibility - re-exports from skill subpackage."""
 
-from src.domain.model.agent.skill.tool_environment_variable import *
+from src.domain.model.agent.skill.tool_environment_variable import (
+    EnvVarScope,
+    ToolEnvironmentVariable,
+)
+
+__all__ = [
+    "EnvVarScope",
+    "ToolEnvironmentVariable",
+]

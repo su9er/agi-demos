@@ -1,3 +1,11 @@
 """Backward compatibility - re-exports from execution subpackage."""
 
-from src.domain.model.agent.execution.execution_checkpoint import *
+from src.domain.model.agent.execution.execution_checkpoint import (
+    CheckpointType,
+    ExecutionCheckpoint,
+)
+
+__all__ = [
+    "CheckpointType",
+    "ExecutionCheckpoint",
+]

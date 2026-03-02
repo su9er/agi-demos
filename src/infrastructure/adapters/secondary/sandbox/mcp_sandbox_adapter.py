@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import socket
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -21,8 +22,11 @@ from docker.errors import ImageNotFound, NotFound
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from src.application.services.workspace_sync_service import WorkspaceSyncService
+
 import contextlib
 
+from src.configuration.config import get_settings
 from src.domain.ports.services.sandbox_port import (
     CodeExecutionRequest,
     CodeExecutionResult,
@@ -44,6 +48,7 @@ from src.infrastructure.adapters.secondary.sandbox.url_service import (
     SandboxInstanceInfo,
     SandboxUrlService,
 )
+from src.infrastructure.agent.workspace.manifest import WorkspaceManifest
 from src.infrastructure.mcp.clients.websocket_client import MCPWebSocketClient
 
 logger = logging.getLogger(__name__)
@@ -230,6 +235,20 @@ class MCPSandboxAdapter(SandboxPort):
                 message=f"Failed to connect to Docker: {e}",
                 operation="init",
             ) from e
+
+        # Optional workspace sync service (set after construction)
+        self._workspace_sync_service: WorkspaceSyncService | None = None
+
+    def set_workspace_sync_service(self, service: WorkspaceSyncService) -> None:
+        """Attach the workspace sync service for lifecycle hooks.
+
+        The adapter is typically created before the sync service can be
+        wired, so this setter enables late binding.
+
+        Args:
+            service: WorkspaceSyncService instance to use in hooks.
+        """
+        self._workspace_sync_service = service
 
     def _is_port_available(self, port: int) -> bool:
         """Check if a port is available on the host.
@@ -574,6 +593,14 @@ class MCPSandboxAdapter(SandboxPort):
             for host_path, container_path in config.rw_volumes.items():
                 if host_path and container_path:
                     volumes[host_path] = {"bind": container_path, "mode": "rw"}
+            # Pip cache volume (shared across containers)
+            settings = get_settings()
+            if settings.sandbox_pip_cache_enabled:
+                os.makedirs(settings.sandbox_pip_cache_path, exist_ok=True)
+                volumes[settings.sandbox_pip_cache_path] = {
+                    "bind": "/root/.cache/pip",
+                    "mode": "rw",
+                }
             if volumes:
                 container_config["volumes"] = cast("dict[str, Any]", volumes)
 
@@ -648,6 +675,9 @@ class MCPSandboxAdapter(SandboxPort):
                 f"Created MCP sandbox: {sandbox_id} "
                 f"(MCP: {host_mcp_port}, Desktop: {host_desktop_port}, Terminal: {host_terminal_port})"
             )
+
+            # Persist sandbox state for crash recovery
+            self._persist_sandbox_state(sandbox_id, SandboxStatus.RUNNING.value, project_id)
 
             return instance
 
@@ -982,6 +1012,138 @@ class MCPSandboxAdapter(SandboxPort):
         # Invalidate health check cache
         await self._last_healthy_at.delete(sandbox_id)
 
+        # Persist terminated state for crash recovery
+        project_id = (
+            instance.labels.get("memstack.project_id") or instance.labels.get("memstack.project.id")
+            if instance
+            else None
+        )
+        self._persist_sandbox_state(sandbox_id, SandboxStatus.TERMINATED.value, project_id)
+
+    async def _pre_destroy_hook(self, sandbox_id: str, project_id: str) -> None:
+        """Capture workspace state before sandbox container destruction.
+
+        If a WorkspaceSyncService is attached, delegates to it for manifest
+        scanning and optional S3 backup.  Falls back to basic manifest logic
+        if the service is absent or raises an error.
+
+        Args:
+            sandbox_id: ID of the sandbox being destroyed.
+            project_id: Project that owns the workspace.
+        """
+        if self._workspace_sync_service is not None:
+            try:
+                await self._workspace_sync_service.pre_destroy_sync(
+                    sandbox_id=sandbox_id,
+                    project_id=project_id,
+                )
+                return  # Sync service handled everything
+            except Exception:
+                logger.warning(
+                    "WorkspaceSyncService.pre_destroy_sync failed, "
+                    "falling back to basic manifest save",
+                    exc_info=True,
+                )
+
+        # Fallback: basic manifest logic
+        workspace_path = f"{self._workspace_base}/{project_id}"
+        try:
+            manifest = WorkspaceManifest.scan(workspace_path, project_id=project_id)
+            manifest.update_sandbox_id(sandbox_id)
+            manifest.save(workspace_path)
+            logger.info(
+                "Pre-destroy hook: saved manifest for sandbox %s (project %s, %d files)",
+                sandbox_id,
+                project_id,
+                len(manifest.files),
+            )
+        except Exception:
+            logger.warning(
+                "Pre-destroy hook failed for sandbox %s (project %s)",
+                sandbox_id,
+                project_id,
+                exc_info=True,
+            )
+
+    async def _post_create_hook(self, sandbox_id: str, project_id: str) -> None:
+        """Restore/initialize workspace state after sandbox container creation.
+
+        If a WorkspaceSyncService is attached, delegates to it for manifest
+        loading/creation and optional S3 restore.  Falls back to basic manifest
+        logic if the service is absent or raises an error.
+
+        Args:
+            sandbox_id: ID of the newly created sandbox.
+            project_id: Project that owns the workspace.
+        """
+        if self._workspace_sync_service is not None:
+            try:
+                await self._workspace_sync_service.post_create_restore(
+                    sandbox_id=sandbox_id,
+                    project_id=project_id,
+                )
+                return  # Sync service handled everything
+            except Exception:
+                logger.warning(
+                    "WorkspaceSyncService.post_create_restore failed, "
+                    "falling back to basic manifest logic",
+                    exc_info=True,
+                )
+
+        # Fallback: basic manifest logic
+        workspace_path = f"{self._workspace_base}/{project_id}"
+        try:
+            manifest = WorkspaceManifest.load(workspace_path)
+            if manifest is None:
+                manifest = WorkspaceManifest.create(workspace_path, project_id=project_id)
+            manifest.update_sandbox_id(sandbox_id)
+            manifest.save(workspace_path)
+            logger.info(
+                "Post-create hook: manifest ready for sandbox %s (project %s, %d files)",
+                sandbox_id,
+                project_id,
+                len(manifest.files),
+            )
+        except Exception:
+            logger.warning(
+                "Post-create hook failed for sandbox %s (project %s)",
+                sandbox_id,
+                project_id,
+                exc_info=True,
+            )
+
+    def _persist_sandbox_state(self, sandbox_id: str, state: str, project_id: str | None) -> None:
+        """Persist sandbox state to workspace manifest for crash recovery.
+
+        This is a best-effort, fire-and-forget helper. Errors are logged but
+        never propagated so callers can proceed without risk.
+
+        TODO: Replace with Redis-based persistence when redis_client is wired
+        into MCPSandboxAdapter for faster reads and cross-process visibility.
+        """
+        if not project_id:
+            return
+        workspace_path = f"{self._workspace_base}/{project_id}"
+        try:
+            manifest = WorkspaceManifest.load(workspace_path)
+            if manifest is None:
+                manifest = WorkspaceManifest.create(workspace_path, project_id=project_id)
+            manifest.update_sandbox_id(sandbox_id)
+            manifest.update_sandbox_state(state)
+            manifest.save(workspace_path)
+            logger.debug(
+                "Persisted sandbox state %s for %s (project %s)",
+                state,
+                sandbox_id,
+                project_id,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to persist sandbox state for %s",
+                sandbox_id,
+                exc_info=True,
+            )
+
     @override
     async def terminate_sandbox(self, sandbox_id: str) -> bool:
         """Terminate a sandbox container with proper cleanup and locking."""
@@ -991,6 +1153,12 @@ class MCPSandboxAdapter(SandboxPort):
                 logger.warning(f"Cleanup already in progress for sandbox: {sandbox_id}")
                 return False
             self._cleanup_in_progress.add(sandbox_id)
+
+        # Run pre-destroy hook to capture workspace state
+        instance = self._active_sandboxes.get(sandbox_id)
+        hook_project_id = getattr(instance, "project_id", None) if instance else None
+        if hook_project_id:
+            await self._pre_destroy_hook(sandbox_id, hook_project_id)
 
         try:
             # Disconnect MCP client first
@@ -1144,6 +1312,8 @@ class MCPSandboxAdapter(SandboxPort):
         try:
             container = self._docker.containers.get(container_id)
             container_name = container.name or container_id
+            # Run pre-destroy hook to capture workspace state before cleanup
+            await self._pre_destroy_hook(container_name, project_id)
             await self._safe_stop_and_remove_container(
                 container, container_name, stop_timeout=5, overall_timeout=10.0
             )
@@ -2185,6 +2355,19 @@ class MCPSandboxAdapter(SandboxPort):
         }
         if project_path:
             container_config["volumes"] = {project_path: {"bind": "/workspace", "mode": "rw"}}
+        # Pip cache volume (shared across containers)
+        settings = get_settings()
+        if settings.sandbox_pip_cache_enabled:
+            os.makedirs(settings.sandbox_pip_cache_path, exist_ok=True)
+            volumes = cast(
+                "dict[str, dict[str, str]]",
+                container_config.get("volumes", {}),
+            )
+            volumes[settings.sandbox_pip_cache_path] = {
+                "bind": "/root/.cache/pip",
+                "mode": "rw",
+            }
+            container_config["volumes"] = cast("dict[str, Any]", volumes)
         if config.network_isolated:
             container_config["network_mode"] = "bridge"
         return container_config
@@ -3058,6 +3241,9 @@ class MCPSandboxAdapter(SandboxPort):
 
             # 3. Connect MCP
             await self.connect_mcp(sandbox.id)
+
+            # Run post-create hook to initialize/restore workspace state
+            await self._post_create_hook(sandbox.id, project_id)
 
             logger.info(f"Created and connected sandbox {sandbox.id} for project {project_id}")
             return sandbox

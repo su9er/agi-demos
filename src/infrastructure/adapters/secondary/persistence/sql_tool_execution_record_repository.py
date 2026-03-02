@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent import ToolExecutionRecord
 from src.domain.ports.agent.tool_executor_port import ToolExecutionStatus
-
 from src.domain.ports.repositories.agent_repository import ToolExecutionRecordRepository
 from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
 from src.infrastructure.adapters.secondary.persistence.models import (

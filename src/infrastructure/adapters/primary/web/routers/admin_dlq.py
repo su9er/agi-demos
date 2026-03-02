@@ -217,9 +217,17 @@ async def list_messages(
         offset=offset,
     )
 
+    # Get total count of all matching messages for pagination
+    total = await dlq.count_messages(
+        status=status_filter,
+        event_type=event_type,
+        error_type=error_type,
+        routing_key_pattern=routing_key,
+    )
+
     return DLQListResponse(
         messages=[DLQMessageResponse.from_domain(m) for m in messages],
-        total=len(messages),  # TODO: Add total count to port
+        total=total,
         limit=limit,
         offset=offset,
     )

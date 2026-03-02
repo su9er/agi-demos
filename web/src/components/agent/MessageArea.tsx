@@ -35,7 +35,6 @@ import {
   useState,
   memo,
   Children,
-  createContext,
   useMemo,
   isValidElement,
 } from 'react';
@@ -45,24 +44,41 @@ import ReactMarkdown from 'react-markdown';
 
 import { LoadingOutlined } from '@ant-design/icons';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Pin, PinOff, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { Pin, PinOff, ChevronDown, ChevronUp } from 'lucide-react';
 
-import { useConversationsStore } from '../../stores/agent/conversationsStore';
 import { useAgentV3Store } from '../../stores/agentV3';
 
-import { ConversationSummaryCard } from './chat/ConversationSummaryCard';
 import { useMarkdownPlugins, safeMarkdownComponents } from './chat/markdownPlugins';
 import { SuggestionChips } from './chat/SuggestionChips';
 import { ThinkingBlock } from './chat/ThinkingBlock';
+import { ConversationSummaryCardWrapper } from './message/ConversationSummaryCardWrapper';
+import { groupTimelineEvents } from './message/groupTimelineEvents';
+import { estimateGroupedItemHeight } from './message/heightEstimation';
+import {
+  MessageAreaContext,
+  useMessageArea,
+  isNearBottom,
+  LOADING_SYMBOL,
+  EMPTY_SYMBOL,
+  SCROLL_INDICATOR_SYMBOL,
+  SCROLL_BUTTON_SYMBOL,
+  CONTENT_SYMBOL,
+  STREAMING_CONTENT_SYMBOL,
+  LoadingMarker,
+  EmptyMarker,
+  ScrollIndicatorMarker,
+  ScrollButtonMarker,
+  ContentMarker,
+  StreamingContentMarker,
+} from './message/markers';
+import { StreamingToolPreparation } from './message/StreamingToolPreparation';
 import { MessageBubble } from './MessageBubble';
 import { MARKDOWN_PROSE_CLASSES } from './styles';
 import { ExecutionTimeline } from './timeline/ExecutionTimeline';
 import { MemoryRecalledStep, MemoryCapturedStep } from './timeline/MemoryRecalledStep';
 import { SubAgentTimeline } from './timeline/SubAgentTimeline';
 
-import type { TimelineStep } from './timeline/ExecutionTimeline';
-import type { SubAgentGroup } from './timeline/SubAgentTimeline';
-import type { TimelineEvent, ObserveEvent } from '../../types/agent';
+import type { TimelineEvent } from '../../types/agent';
 
 // Import and re-export types from separate file
 export type {
@@ -77,365 +93,8 @@ export type {
   MessageAreaCompound,
 } from './message/types';
 
-/**
- * Groups consecutive act/observe timeline events into ExecutionTimeline groups.
- * Non-tool events pass through as individual items.
- */
-type GroupedItem =
-  | { kind: 'event'; event: TimelineEvent; index: number }
-  | { kind: 'timeline'; steps: TimelineStep[]; startIndex: number }
-  | { kind: 'subagent'; group: SubAgentGroup; startIndex: number };
-
-function groupTimelineEvents(timeline: TimelineEvent[]): GroupedItem[] {
-  const result: GroupedItem[] = [];
-  let currentSteps: TimelineStep[] = [];
-  let groupStartIndex = 0;
-
-  // SubAgent event types that should be grouped
-  const SUBAGENT_EVENT_TYPES = new Set([
-    'subagent_routed',
-    'subagent_started',
-    'subagent_completed',
-    'subagent_failed',
-    'parallel_started',
-    'parallel_completed',
-    'chain_started',
-    'chain_step_started',
-    'chain_step_completed',
-    'chain_completed',
-    'background_launched',
-  ]);
-
-  // Build observe lookup by execution_id
-  const observeByExecId = new Map<string, ObserveEvent>();
-  // Fallback: build observe lookup by toolName for events without execution_id
-  const observeByToolName = new Map<string, ObserveEvent[]>();
-  for (const ev of timeline) {
-    if (ev.type === 'observe') {
-      const obsEv = ev;
-      if (obsEv.execution_id) {
-        observeByExecId.set(obsEv.execution_id, obsEv);
-      }
-      const name = obsEv.toolName || 'unknown';
-      const list = observeByToolName.get(name) || [];
-      list.push(obsEv);
-      observeByToolName.set(name, list);
-    }
-  }
-
-  // Track which observe events have been consumed by fallback matching
-  const consumedObserves = new Set<string>();
-
-  const flushGroup = () => {
-    if (currentSteps.length >= 1) {
-      result.push({ kind: 'timeline', steps: currentSteps, startIndex: groupStartIndex });
-    }
-    currentSteps = [];
-  };
-
-  for (let i = 0; i < timeline.length; i++) {
-    const event = timeline[i];
-    if (!event) continue;
-
-    // SubAgent event grouping
-    if (SUBAGENT_EVENT_TYPES.has(event.type)) {
-      flushGroup();
-      const subGroup = buildSubAgentGroup(timeline, i);
-      result.push({ kind: 'subagent', group: subGroup.group, startIndex: i });
-      i = subGroup.endIndex;
-      continue;
-    }
-
-    if (event.type === 'act') {
-      if (currentSteps.length === 0) groupStartIndex = i;
-
-      const act = event;
-      // Priority 1: match by execution_id
-      let obs: ObserveEvent | undefined = act.execution_id
-        ? observeByExecId.get(act.execution_id)
-        : undefined;
-      // Priority 2: fallback to toolName matching
-      if (!obs) {
-        const candidates = observeByToolName.get(act.toolName) || [];
-        for (const cand of candidates) {
-          if (!consumedObserves.has(cand.id) && cand.timestamp >= act.timestamp) {
-            obs = cand;
-            consumedObserves.add(cand.id);
-            break;
-          }
-        }
-      }
-
-      const step: TimelineStep = {
-        id: act.execution_id || act.id || `step-${String(i)}`,
-        toolName: act.toolName || 'unknown',
-        status: obs ? (obs.isError ? 'error' : 'success') : 'running',
-        input: act.toolInput,
-        output: obs?.toolOutput,
-        isError: obs?.isError,
-        duration: obs && act.timestamp && obs.timestamp ? obs.timestamp - act.timestamp : undefined,
-        mcpUiMetadata: obs?.mcpUiMetadata,
-      };
-      currentSteps.push(step);
-    } else if (event.type === 'observe') {
-      // Skip - handled as part of act
-      continue;
-    } else {
-      flushGroup();
-      result.push({ kind: 'event', event, index: i });
-    }
-  }
-  flushGroup();
-
-  return result;
-}
-
-/**
- * Build a SubAgentGroup from consecutive SubAgent events starting at index.
- * Returns the group and the last consumed event index.
- */
-function buildSubAgentGroup(
-  timeline: TimelineEvent[],
-  startIdx: number
-): { group: SubAgentGroup; endIndex: number } {
-  const SUBAGENT_EVENT_TYPES = new Set([
-    'subagent_routed',
-    'subagent_started',
-    'subagent_completed',
-    'subagent_failed',
-    'parallel_started',
-    'parallel_completed',
-    'chain_started',
-    'chain_step_started',
-    'chain_step_completed',
-    'chain_completed',
-    'background_launched',
-  ]);
-
-  const events: TimelineEvent[] = [];
-  let endIndex = startIdx;
-
-  // Collect consecutive SubAgent events
-  for (let i = startIdx; i < timeline.length; i++) {
-    const item = timeline[i];
-    if (!item) break;
-    if (SUBAGENT_EVENT_TYPES.has(item.type)) {
-      events.push(item);
-      endIndex = i;
-      // Stop after terminal events
-      const t = item.type;
-      if (
-        t === 'subagent_completed' ||
-        t === 'subagent_failed' ||
-        t === 'parallel_completed' ||
-        t === 'chain_completed' ||
-        t === 'background_launched'
-      ) {
-        break;
-      }
-    } else {
-      break;
-    }
-  }
-
-  // Build group from events
-  const group: SubAgentGroup = {
-    kind: 'subagent',
-    subagentId: '',
-    subagentName: '',
-    status: 'running',
-    events,
-    startIndex: startIdx,
-    mode: 'single',
-  };
-
-  for (const ev of events) {
-    switch (ev.type) {
-      case 'subagent_routed': {
-        const d = ev;
-        group.subagentId = d.subagentId || '';
-        group.subagentName = d.subagentName || '';
-        group.confidence = d.confidence;
-        group.reason = d.reason;
-        break;
-      }
-      case 'subagent_started': {
-        const d = ev;
-        group.subagentId = group.subagentId || d.subagentId || '';
-        group.subagentName = group.subagentName || d.subagentName || '';
-        group.task = d.task;
-        break;
-      }
-      case 'subagent_completed': {
-        const d = ev;
-        group.status = 'success';
-        group.summary = d.summary;
-        group.tokensUsed = d.tokensUsed;
-        group.executionTimeMs = d.executionTimeMs;
-        break;
-      }
-      case 'subagent_failed': {
-        const d = ev;
-        group.status = 'error';
-        group.error = d.error;
-        break;
-      }
-      case 'parallel_started': {
-        const d = ev;
-        group.mode = 'parallel';
-        group.parallelInfo = {
-          taskCount: d.taskCount,
-          subtasks: d.subtasks,
-        };
-        break;
-      }
-      case 'parallel_completed': {
-        const d = ev;
-        group.status = 'success';
-        if (group.parallelInfo) {
-          group.parallelInfo.results = d.results;
-          group.parallelInfo.totalTimeMs = d.totalTimeMs;
-        }
-        group.executionTimeMs = d.totalTimeMs;
-        break;
-      }
-      case 'chain_started': {
-        const d = ev;
-        group.mode = 'chain';
-        group.chainInfo = {
-          stepCount: d.stepCount || 0,
-          chainName: d.chainName || '',
-          steps: [],
-        };
-        break;
-      }
-      case 'chain_step_started': {
-        const d = ev;
-        if (group.chainInfo) {
-          group.chainInfo.steps.push({
-            index: d.stepIndex,
-            name: d.stepName || '',
-            subagentName: d.subagentName || '',
-            status: 'running',
-          });
-        }
-        break;
-      }
-      case 'chain_step_completed': {
-        const d = ev;
-        if (group.chainInfo) {
-          const idx = d.stepIndex;
-          const step = group.chainInfo.steps.find((s) => s.index === idx);
-          if (step) {
-            step.summary = d.summary;
-            step.success = d.success;
-            step.status = d.success !== false ? 'success' : 'error';
-          }
-        }
-        break;
-      }
-      case 'chain_completed': {
-        const d = ev;
-        group.status = d.success !== false ? 'success' : 'error';
-        if (group.chainInfo) {
-          group.chainInfo.totalTimeMs = d.totalTimeMs;
-        }
-        group.executionTimeMs = d.totalTimeMs;
-        break;
-      }
-      case 'background_launched': {
-        const d = ev;
-        group.status = 'background';
-        group.subagentName = group.subagentName || d.subagentName || '';
-        group.task = d.task;
-        break;
-      }
-    }
-  }
-
-  return { group, endIndex };
-}
-
-/**
- * Estimate item height for the virtualizer based on item type.
- * Better estimates reduce scroll jumping when items are measured for real.
- */
-function estimateGroupedItemHeight(item: GroupedItem): number {
-  if (item.kind === 'timeline') {
-    return 80 + item.steps.length * 52;
-  }
-  if (item.kind === 'subagent') {
-    const base = 60;
-    const g = item.group;
-    if (g.mode === 'parallel' && g.parallelInfo) return base + g.parallelInfo.taskCount * 36;
-    if (g.mode === 'chain' && g.chainInfo) return base + g.chainInfo.steps.length * 40;
-    return base + (g.summary ? 60 : 0);
-  }
-  const { event } = item;
-  switch (event.type) {
-    case 'user_message':
-      return 100;
-    case 'assistant_message': {
-      const content = event.content || '';
-      return estimateMarkdownHeight(content);
-    }
-    default:
-      return 80;
-  }
-}
-
-/**
- * Estimate rendered height of markdown content by analyzing structure.
- * Counts code blocks, line breaks, and text density for better accuracy.
- * More accurate estimates reduce virtualizer scroll jumping.
- */
-function estimateMarkdownHeight(content: string): number {
-  if (!content) return 80;
-
-  const LINE_HEIGHT = 24;
-  const CODE_LINE_HEIGHT = 20;
-  const BASE_PADDING = 60; // bubble chrome (avatar, margins, padding)
-  let height = BASE_PADDING;
-
-  // Count fenced code blocks and estimate their height
-  const codeBlockRegex = /```[\s\S]*?```/g;
-  let remaining = content;
-  let match: RegExpExecArray | null;
-  while ((match = codeBlockRegex.exec(content)) !== null) {
-    const block = match[0];
-    const lines = block.split('\n').length;
-    // Code block: header(32) + lines + padding(24)
-    height += 32 + lines * CODE_LINE_HEIGHT + 24;
-    remaining = remaining.replace(block, '');
-  }
-
-  // Count lines in remaining non-code text
-  const textLines = remaining.split('\n');
-  for (const line of textLines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      height += 8; // empty line spacing
-    } else if (trimmed.startsWith('#')) {
-      height += 36; // heading
-    } else if (trimmed.startsWith('|')) {
-      height += 32; // table row
-    } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || /^\d+\./.test(trimmed)) {
-      height += LINE_HEIGHT; // list item
-    } else if (trimmed.startsWith('![')) {
-      height += 200; // image placeholder
-    } else if (trimmed.startsWith('> ')) {
-      // Blockquote: estimate wrapped text + border/padding
-      const quoteText = trimmed.slice(2);
-      height += Math.max(1, Math.ceil(quoteText.length / 70)) * LINE_HEIGHT + 16;
-    } else {
-      // Regular text: wrap estimate (~80 chars per visual line)
-      height += Math.max(1, Math.ceil(trimmed.length / 80)) * LINE_HEIGHT;
-    }
-  }
-
-  // Add margin for markdown elements that expand (e.g. nested lists, tables with wide content)
-  return Math.max(80, Math.round(height * 1.05));
-}
+// Re-export useMessageArea for external consumers
+export { useMessageArea };
 
 // Define local type aliases to avoid TS6192 (unused imports)
 // These reference the same types as exported above
@@ -518,79 +177,8 @@ interface _MessageAreaCompound extends React.FC<_MessageAreaRootProps> {
   Root: React.FC<_MessageAreaRootProps>;
 }
 
-// ========================================
-// Marker Symbols for Sub-Components
-// ========================================
-
-const LOADING_SYMBOL = Symbol('MessageAreaLoading');
-const EMPTY_SYMBOL = Symbol('MessageAreaEmpty');
-const SCROLL_INDICATOR_SYMBOL = Symbol('MessageAreaScrollIndicator');
-const SCROLL_BUTTON_SYMBOL = Symbol('MessageAreaScrollButton');
-const CONTENT_SYMBOL = Symbol('MessageAreaContent');
-const STREAMING_CONTENT_SYMBOL = Symbol('MessageAreaStreamingContent');
-
-// ========================================
-// Context
-// ========================================
-
-const MessageAreaContext = createContext<_MessageAreaContextValue | null>(null);
-
-// eslint-disable-next-line react-refresh/only-export-components
-export const useMessageArea = () => {
-  return MessageAreaContext;
-};
-
-// ========================================
-// Utility Functions
-// ========================================
-
-// Check if scroll is near bottom
-const isNearBottom = (element: HTMLElement, threshold = 100): boolean => {
-  const { scrollHeight, scrollTop, clientHeight } = element;
-  return scrollHeight - scrollTop - clientHeight < threshold;
-};
-
-// ========================================
-// Sub-Components (Marker Components)
-// ========================================
-
-function LoadingMarker(_props: _MessageAreaLoadingProps) {
-  return null;
-}
-function EmptyMarker(_props: _MessageAreaEmptyProps) {
-  return null;
-}
-function ScrollIndicatorMarker(_props: _MessageAreaScrollIndicatorProps) {
-  return null;
-}
-function ScrollButtonMarker(_props: _MessageAreaScrollButtonProps) {
-  return null;
-}
-function ContentMarker(_props: _MessageAreaContentProps) {
-  return null;
-}
-function StreamingContentMarker(_props: _MessageAreaStreamingContentProps) {
-  return null;
-}
-
 // Helper type for marker components with symbol tags and displayName
 type _SymbolTagged = Record<symbol, boolean> & { displayName?: string };
-
-// Attach symbols
-(LoadingMarker as unknown as _SymbolTagged)[LOADING_SYMBOL] = true;
-(EmptyMarker as unknown as _SymbolTagged)[EMPTY_SYMBOL] = true;
-(ScrollIndicatorMarker as unknown as _SymbolTagged)[SCROLL_INDICATOR_SYMBOL] = true;
-(ScrollButtonMarker as unknown as _SymbolTagged)[SCROLL_BUTTON_SYMBOL] = true;
-(ContentMarker as unknown as _SymbolTagged)[CONTENT_SYMBOL] = true;
-(StreamingContentMarker as unknown as _SymbolTagged)[STREAMING_CONTENT_SYMBOL] = true;
-
-// Set display names for testing
-(LoadingMarker as unknown as _SymbolTagged).displayName = 'MessageAreaLoading';
-(EmptyMarker as unknown as _SymbolTagged).displayName = 'MessageAreaEmpty';
-(ScrollIndicatorMarker as unknown as _SymbolTagged).displayName = 'MessageAreaScrollIndicator';
-(ScrollButtonMarker as unknown as _SymbolTagged).displayName = 'MessageAreaScrollButton';
-(ContentMarker as unknown as _SymbolTagged).displayName = 'MessageAreaContent';
-(StreamingContentMarker as unknown as _SymbolTagged).displayName = 'MessageAreaStreamingContent';
 
 // ========================================
 // Actual Sub-Component Implementations
@@ -628,105 +216,6 @@ const InternalEmpty: React.FC<_MessageAreaEmptyProps & { context: _MessageAreaCo
     </div>
   );
 };
-
-// ========================================
-// Streaming Tool Preparation Indicator
-// ========================================
-
-const StreamingToolPreparation: React.FC = memo(() => {
-  const agentState = useAgentV3Store((s) => s.agentState);
-  const activeToolCalls = useAgentV3Store((s) => s.activeToolCalls);
-
-  if (agentState !== 'preparing') return null;
-
-  const preparingTools = Array.from(activeToolCalls.entries()).filter(
-    ([, call]) => call.status === 'preparing'
-  );
-  if (preparingTools.length === 0) return null;
-
-  return (
-    <>
-      {preparingTools.map(([toolName, call]) => (
-        <StreamingToolCard
-          key={toolName}
-          toolName={toolName}
-          partialArguments={call.partialArguments}
-        />
-      ))}
-    </>
-  );
-});
-StreamingToolPreparation.displayName = 'StreamingToolPreparation';
-
-const StreamingToolCard: React.FC<{ toolName: string; partialArguments?: string | undefined }> =
-  memo(({ toolName, partialArguments }) => {
-    const argsRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-      if (argsRef.current) {
-        argsRef.current.scrollTop = argsRef.current.scrollHeight;
-      }
-    }, [partialArguments]);
-
-    return (
-      <div className="flex items-start gap-2 mb-2 animate-fade-in-up">
-        <div className="flex flex-col items-center flex-shrink-0">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center border-2 border-blue-400 bg-blue-50 dark:bg-blue-950/50">
-            <Loader2 size={11} className="text-blue-500 animate-spin" />
-          </div>
-        </div>
-        <div className="flex-1 min-w-0 max-w-[85%] md:max-w-[75%] lg:max-w-[70%]">
-          <div className="rounded-md border px-2.5 py-1.5 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800/40">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-700 dark:text-slate-300 flex-1 truncate">
-                {toolName}
-              </span>
-              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 text-[10px] font-bold uppercase tracking-wider">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                Preparing
-              </div>
-            </div>
-            {partialArguments && (
-              <div
-                ref={argsRef}
-                className="mt-1.5 px-2 py-1.5 bg-blue-50/50 dark:bg-blue-500/5 border border-blue-200/50 dark:border-blue-500/20 rounded text-[11px] font-mono text-slate-600 dark:text-slate-400 overflow-x-auto max-h-24 overflow-y-auto"
-              >
-                <pre className="whitespace-pre-wrap break-words">
-                  {partialArguments}
-                  <span className="inline-block w-1.5 h-3 bg-blue-500 animate-pulse ml-0.5 align-middle" />
-                </pre>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  });
-StreamingToolCard.displayName = 'StreamingToolCard';
-
-// ========================================
-// Conversation Summary Wrapper
-// ========================================
-
-const ConversationSummaryCardWrapper: React.FC<{
-  conversationId?: string | null | undefined;
-}> = memo(({ conversationId }) => {
-  const currentConversation = useConversationsStore((s) => s.currentConversation);
-  const generateConversationSummary = useConversationsStore((s) => s.generateConversationSummary);
-
-  if (!conversationId || !currentConversation || currentConversation.id !== conversationId) {
-    return null;
-  }
-
-  return (
-    <ConversationSummaryCard
-      summary={currentConversation.summary ?? null}
-      conversationId={conversationId}
-      onRegenerate={generateConversationSummary}
-    />
-  );
-});
-ConversationSummaryCardWrapper.displayName = 'ConversationSummaryCardWrapper';
 
 // ========================================
 // Main Component

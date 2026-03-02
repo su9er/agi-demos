@@ -55,7 +55,7 @@ class TestTerminalConfig:
 
     def test_custom_config(self):
         """Test custom configuration values."""
-        config = TerminalConfig(
+        config = TerminalConfig(  # noqa: S604
             port=8081,
             shell="/bin/zsh",
         )

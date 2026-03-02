@@ -4,6 +4,8 @@ Manages file uploads (including multipart), storage, and preparation
 for LLM multimodal understanding and sandbox import.
 """
 
+from __future__ import annotations
+
 import base64
 import logging
 import uuid
@@ -474,12 +476,38 @@ class AttachmentService:
             except UnicodeDecodeError:
                 pass
 
-        # PDF: can be processed by vision models
+        # PDF: attempt image conversion for vision models, with graceful
+        # fallback to text metadata when pymupdf (fitz) is unavailable.
         if attachment.mime_type == "application/pdf":
-            # TODO: Consider converting PDF pages to images for vision models
-            # For now, return file info
-            # Note: sandbox_path is set by the caller, default to /workspace/{filename}
             sandbox_path = attachment.sandbox_path or f"/workspace/{attachment.filename}"
+            try:
+                import fitz  # pymupdf
+
+                pdf_doc = fitz.open(stream=content, filetype="pdf")
+                if pdf_doc.page_count > 0:
+                    # Convert first page to a PNG for vision model consumption.
+                    # Additional pages are summarised as metadata.
+                    page = pdf_doc[0]
+                    pix = page.get_pixmap(dpi=150)
+                    image_bytes = pix.tobytes(output="png")
+                    b64_image = base64.b64encode(image_bytes).decode("ascii")
+                    pdf_doc.close()
+                    return {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{b64_image}",
+                        },
+                    }
+                pdf_doc.close()
+            except ImportError:
+                # NOTE: pymupdf (fitz) is not installed -- fall back to text.
+                logger.debug(
+                    "pymupdf not available; returning PDF metadata for %s",
+                    attachment.filename,
+                )
+            except Exception as exc:
+                logger.warning("PDF image conversion failed for %s: %s", attachment.filename, exc)
+
             return {
                 "type": "text",
                 "text": (

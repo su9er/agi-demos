@@ -108,10 +108,8 @@ def is_transient_error(error: Exception) -> bool:
     if isinstance(error, RuntimeError) and _is_transient_by_message(error, _transient_keywords):
         return True
 
-    if isinstance(error, ValueError) and _is_transient_by_message(error, ["deadlock", "lock"]):
-        return True
-    # Default to non-transient for unknown error types
-    return False
+    return isinstance(error, ValueError) and _is_transient_by_message(error, ["deadlock", "lock"])
+
 
 
 def _calculate_delay(

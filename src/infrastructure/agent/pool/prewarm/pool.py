@@ -4,6 +4,8 @@
 提供多级预热池，加速实例创建。
 """
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import logging
@@ -392,10 +394,35 @@ class PrewarmPool:
             l1_target = self.config.l1_pool_size
 
             if l1_count < l1_target * self.config.low_watermark_pct:
+                deficit = l1_target - l1_count
                 logger.debug(
-                    f"[PrewarmPool] L1 pool low: tier={tier.value}, count={l1_count}/{l1_target}"
+                    f"[PrewarmPool] L1 pool low: tier={tier.value}, "
+                    f"count={l1_count}/{l1_target}, creating {deficit} instances"
                 )
-                # TODO: 触发预热创建
+                for _ in range(deficit):
+                    try:
+                        config = AgentInstanceConfig(
+                            project_id="__prewarm__",
+                            tenant_id="__prewarm__",
+                            agent_mode="default",
+                            tier=tier,
+                            quota=ResourceQuota(),
+                        )
+                        instance = AgentInstance(config=config)
+                        prewarmed = PrewarmedInstance(
+                            instance=instance,
+                            tier=tier,
+                            level=1,
+                            ttl_seconds=self.config.l1_ttl_seconds,
+                        )
+                        self._l1_pool[tier].append(prewarmed)
+                        self._stats["total_prewarmed"] += 1
+                    except Exception as e:
+                        logger.warning(
+                            f"[PrewarmPool] Failed to create prewarmed instance: "
+                            f"tier={tier.value}, error={e}"
+                        )
+                        break
 
     def get_stats(self) -> dict[str, Any]:
         """获取统计信息.

@@ -232,6 +232,53 @@ class RedisDLQAdapter(DeadLetterQueuePort):
         except redis.RedisError as e:
             logger.error(f"[DLQ] Failed to get messages: {e}")
             return []
+    async def count_messages(
+        self,
+        *,
+        status: DLQMessageStatus | None = None,
+        event_type: str | None = None,
+        error_type: str | None = None,
+        routing_key_pattern: str | None = None,
+    ) -> int:
+        """Count DLQ messages matching filters."""
+        try:
+            # Determine which index to use
+            if error_type:
+                index_key = self._error_type_index_key(error_type)
+            elif event_type:
+                index_key = self._event_type_index_key(event_type)
+            else:
+                index_key = self.PENDING_INDEX
+
+            # Get all message IDs for the index
+            message_ids = await self._redis.zrevrange(index_key, 0, -1)
+
+            if not message_ids:
+                return 0
+
+            count = 0
+            for msg_id in message_ids:
+                if isinstance(msg_id, bytes):
+                    msg_id = msg_id.decode("utf-8")
+
+                message = await self.get_message(msg_id)
+                if message:
+                    # Apply filters
+                    if status and message.status != status:
+                        continue
+                    if routing_key_pattern:
+                        import fnmatch
+
+                        if not fnmatch.fnmatch(message.routing_key, routing_key_pattern):
+                            continue
+                    count += 1
+
+            return count
+
+        except redis.RedisError as e:
+            logger.error(f"[DLQ] Failed to count messages: {e}")
+            return 0
+
 
     async def retry_message(self, message_id: str) -> bool:
         """Retry a DLQ message."""
@@ -447,9 +494,45 @@ class RedisDLQAdapter(DeadLetterQueuePort):
         older_than_hours: int = 24,
     ) -> int:
         """Clean up resolved DLQ messages."""
-        # For resolved messages, we can delete them entirely
-        # This is a simplified implementation
-        return 0  # TODO: Implement full resolved cleanup
+        cutoff = datetime.now(UTC).timestamp() - (older_than_hours * 3600)
+
+        try:
+            # Get resolved message IDs older than cutoff
+            resolved_ids = await self._redis.zrangebyscore(
+                self.PENDING_INDEX,
+                "-inf",
+                cutoff,
+            )
+
+            if not resolved_ids:
+                return 0
+
+            count = 0
+            for msg_id in resolved_ids:
+                if isinstance(msg_id, bytes):
+                    msg_id = msg_id.decode("utf-8")
+
+                message = await self.get_message(msg_id)
+                if message and message.status == DLQMessageStatus.RESOLVED:
+                    # Delete message data and indexes
+                    message_key = self._message_key(message.id)
+                    await self._redis.delete(message_key)
+                    await self._remove_from_indexes(message)
+                    count += 1
+
+            # Update stats
+            if count > 0:
+                await cast(
+                    Awaitable[int],
+                    self._redis.hincrby(self.STATS_KEY, "resolved_count", -count),
+                )
+
+            logger.info(f"[DLQ] Cleaned up {count} resolved messages")
+            return count
+
+        except redis.RedisError as e:
+            logger.error(f"[DLQ] Resolved cleanup failed: {e}")
+            return 0
 
     async def _update_message(self, message: DeadLetterMessage) -> None:
         """Update a message in Redis."""

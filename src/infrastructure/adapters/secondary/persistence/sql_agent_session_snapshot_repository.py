@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from typing import Any, cast
+
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.adapters.secondary.persistence.models import AgentSessionSnapshot
 

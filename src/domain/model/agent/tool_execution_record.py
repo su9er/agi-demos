@@ -1,3 +1,7 @@
 """Backward compatibility - re-exports from skill subpackage."""
 
-from src.domain.model.agent.skill.tool_execution_record import *
+from src.domain.model.agent.skill.tool_execution_record import (
+    ToolExecutionRecord,
+)
+
+__all__ = ["ToolExecutionRecord"]

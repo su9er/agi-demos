@@ -6,7 +6,9 @@ Supports cache tokens, reasoning tokens, and context overflow pricing.
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, ClassVar, Optional
+from typing import Any, Optional
+
+from .pricing_loader import get_default_cost, get_model_costs
 
 
 @dataclass
@@ -100,161 +102,6 @@ class CostTracker:
         print(f"Cost: ${result.cost:.6f}")
         print(f"Total session cost: ${tracker.total_cost:.6f}")
     """
-
-    # Model cost configurations (per million tokens in USD)
-    # Updated as of January 2025
-    MODEL_COSTS: ClassVar[dict[str, ModelCost]] = {
-        # OpenAI models
-        "gpt-4o": ModelCost(
-            input=Decimal("2.50"),
-            output=Decimal("10.00"),
-        ),
-        "gpt-4o-mini": ModelCost(
-            input=Decimal("0.15"),
-            output=Decimal("0.60"),
-        ),
-        "gpt-4-turbo": ModelCost(
-            input=Decimal("10.00"),
-            output=Decimal("30.00"),
-        ),
-        "gpt-4": ModelCost(
-            input=Decimal("30.00"),
-            output=Decimal("60.00"),
-        ),
-        "gpt-3.5-turbo": ModelCost(
-            input=Decimal("0.50"),
-            output=Decimal("1.50"),
-        ),
-        "o1": ModelCost(
-            input=Decimal("15.00"),
-            output=Decimal("60.00"),
-            reasoning=Decimal("60.00"),
-        ),
-        "o1-mini": ModelCost(
-            input=Decimal("3.00"),
-            output=Decimal("12.00"),
-            reasoning=Decimal("12.00"),
-        ),
-        "o3-mini": ModelCost(
-            input=Decimal("1.10"),
-            output=Decimal("4.40"),
-            reasoning=Decimal("4.40"),
-        ),
-        # Anthropic models
-        "claude-3-5-sonnet": ModelCost(
-            input=Decimal("3.00"),
-            output=Decimal("15.00"),
-            cache_read=Decimal("0.30"),
-            cache_write=Decimal("3.75"),
-        ),
-        "claude-3-5-haiku": ModelCost(
-            input=Decimal("0.80"),
-            output=Decimal("4.00"),
-            cache_read=Decimal("0.08"),
-            cache_write=Decimal("1.00"),
-        ),
-        "claude-3-opus": ModelCost(
-            input=Decimal("15.00"),
-            output=Decimal("75.00"),
-            cache_read=Decimal("1.50"),
-            cache_write=Decimal("18.75"),
-        ),
-        "claude-3-sonnet": ModelCost(
-            input=Decimal("3.00"),
-            output=Decimal("15.00"),
-            cache_read=Decimal("0.30"),
-            cache_write=Decimal("3.75"),
-        ),
-        "claude-3-haiku": ModelCost(
-            input=Decimal("0.25"),
-            output=Decimal("1.25"),
-            cache_read=Decimal("0.03"),
-            cache_write=Decimal("0.30"),
-        ),
-        # Google models
-        "gemini-2.0-flash": ModelCost(
-            input=Decimal("0.10"),
-            output=Decimal("0.40"),
-        ),
-        "gemini-1.5-pro": ModelCost(
-            input=Decimal("1.25"),
-            output=Decimal("5.00"),
-        ),
-        "gemini-1.5-flash": ModelCost(
-            input=Decimal("0.075"),
-            output=Decimal("0.30"),
-        ),
-        "gemini-1.0-pro": ModelCost(
-            input=Decimal("0.50"),
-            output=Decimal("1.50"),
-        ),
-        # Alibaba Qwen models
-        "qwen-turbo": ModelCost(
-            input=Decimal("0.30"),
-            output=Decimal("0.60"),
-        ),
-        "qwen-plus": ModelCost(
-            input=Decimal("0.80"),
-            output=Decimal("2.00"),
-        ),
-        "qwen-max": ModelCost(
-            input=Decimal("2.40"),
-            output=Decimal("9.60"),
-        ),
-        "qwen-long": ModelCost(
-            input=Decimal("0.14"),
-            output=Decimal("0.28"),
-        ),
-        # DeepSeek models
-        "deepseek-chat": ModelCost(
-            input=Decimal("0.14"),
-            output=Decimal("0.28"),
-            cache_read=Decimal("0.014"),
-        ),
-        "deepseek-coder": ModelCost(
-            input=Decimal("0.14"),
-            output=Decimal("0.28"),
-            cache_read=Decimal("0.014"),
-        ),
-        "deepseek-reasoner": ModelCost(
-            input=Decimal("0.55"),
-            output=Decimal("2.19"),
-            reasoning=Decimal("2.19"),
-            cache_read=Decimal("0.14"),
-        ),
-        # Mistral models
-        "mistral-large": ModelCost(
-            input=Decimal("2.00"),
-            output=Decimal("6.00"),
-        ),
-        "mistral-medium": ModelCost(
-            input=Decimal("2.70"),
-            output=Decimal("8.10"),
-        ),
-        "mistral-small": ModelCost(
-            input=Decimal("0.20"),
-            output=Decimal("0.60"),
-        ),
-        "codestral": ModelCost(
-            input=Decimal("0.20"),
-            output=Decimal("0.60"),
-        ),
-        # ZhipuAI models
-        "glm-4": ModelCost(
-            input=Decimal("1.40"),
-            output=Decimal("1.40"),
-        ),
-        "glm-4-flash": ModelCost(
-            input=Decimal("0.01"),
-            output=Decimal("0.01"),
-        ),
-    }
-
-    # Default cost for unknown models
-    DEFAULT_COST = ModelCost(
-        input=Decimal("0.15"),
-        output=Decimal("0.60"),
-    )
 
     def __init__(
         self,
@@ -466,22 +313,23 @@ class CostTracker:
             ModelCost configuration
         """
         model_lower = model_name.lower()
+        model_costs = get_model_costs()
 
         # Exact match first
-        if model_lower in self.MODEL_COSTS:
-            return self.MODEL_COSTS[model_lower]
+        if model_lower in model_costs:
+            return model_costs[model_lower]
 
-        # Fuzzy match - find model key that's contained in the model name
-        for key, cost in self.MODEL_COSTS.items():
+        # Fuzzy match - find model key contained in the model name
+        for key, cost in model_costs.items():
             if key in model_lower:
                 return cost
 
         # Check for common prefixes
-        for key, cost in self.MODEL_COSTS.items():
+        for key, cost in model_costs.items():
             if model_lower.startswith(key.split("-")[0]):
                 return cost
 
-        return self.DEFAULT_COST
+        return get_default_cost()
 
     def needs_compaction(self, tokens: TokenUsage) -> bool:
         """

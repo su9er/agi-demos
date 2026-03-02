@@ -3,6 +3,14 @@
  *
  * This component allows users to switch between project-scoped
  * agent conversations from within the Agent UI.
+ *
+ * Migrated to agentV3 store API:
+ * - useAgentV3Store replaces useAgentStore
+ * - activeConversationId + conversations replaces currentConversation
+ * - isLoadingHistory replaces conversationsLoading
+ * - error replaces conversationsError
+ * - setActiveConversation replaces setCurrentConversation
+ * - loadConversations replaces listConversations
  */
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -10,10 +18,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import '@testing-library/jest-dom/vitest';
 import { ProjectSelector } from '../../../components/agent/ProjectSelector';
-import { useAgentV3Store as useAgentStore } from '../../../stores/agentV3';
+import { useAgentV3Store } from '../../../stores/agentV3';
 import { useProjectStore } from '../../../stores/project';
-// FIXME: This test was written for the old agent store (agent.ts).
-// The new agentV3 store has a different API. This test needs to be migrated.
 import { useTenantStore } from '../../../stores/tenant';
 
 // Mock stores
@@ -21,8 +27,8 @@ vi.mock('../../../stores/project', () => ({
   useProjectStore: vi.fn(),
 }));
 
-vi.mock('../../../stores/agent', () => ({
-  useAgentStore: vi.fn(),
+vi.mock('../../../stores/agentV3', () => ({
+  useAgentV3Store: vi.fn(),
 }));
 
 vi.mock('../../../stores/tenant', () => ({
@@ -44,12 +50,12 @@ describe('ProjectSelector', () => {
   };
 
   const mockAgentStore = {
-    currentConversation: null,
-    setCurrentConversation: vi.fn(),
-    clearMessages: vi.fn(),
-    listConversations: vi.fn(),
-    conversationsLoading: false,
-    conversationsError: null,
+    activeConversationId: null,
+    conversations: [],
+    isLoadingHistory: false,
+    error: null,
+    setActiveConversation: vi.fn(),
+    loadConversations: vi.fn(),
   };
 
   const mockTenantStore = {
@@ -59,7 +65,7 @@ describe('ProjectSelector', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (useProjectStore as any).mockReturnValue(mockProjectStore);
-    (useAgentStore as any).mockReturnValue(mockAgentStore);
+    (useAgentV3Store as any).mockReturnValue(mockAgentStore);
     (useTenantStore as any).mockReturnValue(mockTenantStore);
   });
 
@@ -120,17 +126,20 @@ describe('ProjectSelector', () => {
 
   describe('Conversation Context Preservation', () => {
     it('should show confirmation dialog when modal opens', async () => {
-      // Mock active conversation
+      // Mock active conversation via agentV3 API
       const storeWithConversation = {
         ...mockAgentStore,
-        currentConversation: {
-          id: 'conv-123',
-          project_id: 'proj-1',
-          title: 'Active Chat',
-          message_count: 5,
-        } as any,
+        activeConversationId: 'conv-123',
+        conversations: [
+          {
+            id: 'conv-123',
+            project_id: 'proj-1',
+            title: 'Active Chat',
+            message_count: 5,
+          } as any,
+        ],
       };
-      (useAgentStore as any).mockReturnValue(storeWithConversation);
+      (useAgentV3Store as any).mockReturnValue(storeWithConversation);
 
       const handleChange = vi.fn();
       render(<ProjectSelector currentProjectId="proj-1" onProjectChange={handleChange} />);
@@ -142,16 +151,18 @@ describe('ProjectSelector', () => {
     it('should handle confirmation modal correctly', async () => {
       const storeWithConversation = {
         ...mockAgentStore,
-        currentConversation: {
-          id: 'conv-123',
-          project_id: 'proj-1',
-          title: 'Active Chat',
-        } as any,
-        clearMessages: vi.fn(),
-        setCurrentConversation: vi.fn(),
-        listConversations: vi.fn().mockResolvedValue([]),
+        activeConversationId: 'conv-123',
+        conversations: [
+          {
+            id: 'conv-123',
+            project_id: 'proj-1',
+            title: 'Active Chat',
+          } as any,
+        ],
+        setActiveConversation: vi.fn(),
+        loadConversations: vi.fn().mockResolvedValue(undefined),
       };
-      (useAgentStore as any).mockReturnValue(storeWithConversation);
+      (useAgentV3Store as any).mockReturnValue(storeWithConversation);
 
       const handleChange = vi.fn();
       render(<ProjectSelector currentProjectId="proj-1" onProjectChange={handleChange} />);
@@ -163,15 +174,17 @@ describe('ProjectSelector', () => {
     it('should preserve conversations after switch', async () => {
       const storeWithConversation = {
         ...mockAgentStore,
-        currentConversation: {
-          id: 'conv-123',
-          project_id: 'proj-1',
-        } as any,
-        clearMessages: vi.fn(),
-        setCurrentConversation: vi.fn(),
-        listConversations: vi.fn().mockResolvedValue([]),
+        activeConversationId: 'conv-123',
+        conversations: [
+          {
+            id: 'conv-123',
+            project_id: 'proj-1',
+          } as any,
+        ],
+        setActiveConversation: vi.fn(),
+        loadConversations: vi.fn().mockResolvedValue(undefined),
       };
-      (useAgentStore as any).mockReturnValue(storeWithConversation);
+      (useAgentV3Store as any).mockReturnValue(storeWithConversation);
 
       const handleChange = vi.fn();
       render(<ProjectSelector currentProjectId="proj-1" onProjectChange={handleChange} />);
@@ -245,9 +258,9 @@ describe('ProjectSelector', () => {
     it('should show loading state while fetching conversations', async () => {
       const loadingStore = {
         ...mockAgentStore,
-        conversationsLoading: true,
+        isLoadingHistory: true,
       };
-      (useAgentStore as any).mockReturnValue(loadingStore);
+      (useAgentV3Store as any).mockReturnValue(loadingStore);
 
       render(<ProjectSelector currentProjectId="proj-1" onProjectChange={vi.fn()} />);
 
@@ -258,9 +271,9 @@ describe('ProjectSelector', () => {
     it('should show error state when project switch fails', async () => {
       const errorStore = {
         ...mockAgentStore,
-        conversationsError: 'Failed to load conversations',
+        error: 'Failed to load conversations',
       };
-      (useAgentStore as any).mockReturnValue(errorStore);
+      (useAgentV3Store as any).mockReturnValue(errorStore);
 
       render(<ProjectSelector currentProjectId="proj-1" onProjectChange={vi.fn()} />);
 

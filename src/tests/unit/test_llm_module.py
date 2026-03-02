@@ -2,6 +2,8 @@
 
 import pytest
 
+pytest.importorskip("memstack_agent", reason="memstack_agent package not installed")
+
 from memstack_agent.llm import (
     ChatResponse,
     LLMConfig,

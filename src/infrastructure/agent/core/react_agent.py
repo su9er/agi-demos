@@ -573,6 +573,12 @@ class ReActAgent:
         self.skill_execution_timeout = skill_execution_timeout
         self._filesystem_skills_loaded = False
 
+        # Skill-embedded MCP manager (lazy import to avoid circular deps)
+        from ..mcp.skill_mcp_manager import SkillMCPManager
+
+        self._skill_mcp_manager = SkillMCPManager()
+        self._skill_mcp_tools: list[ToolDefinition] = []
+
     async def _load_filesystem_skills(
         self,
         tenant_id: str,
@@ -2089,6 +2095,98 @@ class ReActAgent:
         if should_inject_prompt and matched_skill:
             await self._stream_sync_skill_resources(matched_skill)
 
+        # Phase 5c: Activate skill-embedded MCP servers
+        self._skill_mcp_tools = []
+        if matched_skill and matched_skill.metadata:
+            mcp_servers_raw = matched_skill.metadata.get("mcp_servers")
+            if mcp_servers_raw and isinstance(mcp_servers_raw, list):
+                from ..mcp.skill_mcp_manager import SkillMCPConfig
+
+                mcp_configs = [
+                    SkillMCPConfig(
+                        server_name=cfg["server_name"],
+                        command=cfg["command"],
+                        args=cfg.get("args", []),
+                        env=cfg.get("env", {}),
+                        auto_start=cfg.get("auto_start", True),
+                    )
+                    for cfg in mcp_servers_raw
+                    if isinstance(cfg, dict)
+                    and "server_name" in cfg
+                    and "command" in cfg
+                ]
+                if mcp_configs:
+                    try:
+                        self._skill_mcp_manager.register_skill_mcps(
+                            matched_skill.name, mcp_configs
+                        )
+                        mcp_tools = await self._skill_mcp_manager.activate_skill(
+                            matched_skill.name
+                        )
+                        # Convert MCPTool objects to ToolDefinition for injection
+                        for mcp_tool in mcp_tools:
+                            if not mcp_tool.schema.is_model_visible:
+                                continue
+                            client = (
+                                self._skill_mcp_manager
+                                ._active_clients
+                                .get(mcp_tool.server_name)
+                            )
+
+                            async def _make_mcp_exec(
+                                _client: Any,
+                                _tool_name: str,
+                            ) -> Any:
+                                async def _exec(**kwargs: Any) -> Any:
+                                    if _client is None:
+                                        return (
+                                            f"MCP server not available"
+                                            f" for tool {_tool_name}"
+                                        )
+                                    result = await _client.call_tool(
+                                        _tool_name, kwargs
+                                    )
+                                    if isinstance(result, dict):
+                                        return result.get(
+                                            "content", str(result)
+                                        )
+                                    return result
+
+                                return _exec
+
+                            td = ToolDefinition(
+                                name=mcp_tool.schema.name,
+                                description=(
+                                    mcp_tool.schema.description
+                                    or f"MCP tool: {mcp_tool.schema.name}"
+                                ),
+                                parameters=(
+                                    mcp_tool.schema.input_schema
+                                    or {
+                                        "type": "object",
+                                        "properties": {},
+                                    }
+                                ),
+                                execute=await _make_mcp_exec(
+                                    client, mcp_tool.schema.name
+                                ),
+                            )
+                            self._skill_mcp_tools.append(td)
+                        if self._skill_mcp_tools:
+                            logger.info(
+                                "[ReActAgent] Activated %d MCP tool(s)"
+                                " for skill '%s': %s",
+                                len(self._skill_mcp_tools),
+                                matched_skill.name,
+                                [t.name for t in self._skill_mcp_tools],
+                            )
+                    except Exception:
+                        logger.exception(
+                            "[ReActAgent] Failed to activate MCP"
+                            " servers for skill '%s'",
+                            matched_skill.name,
+                        )
+
         # Phase 6: Mode/selection context setup
         effective_mode, selection_context = self._stream_resolve_mode(
             plan_mode=plan_mode,
@@ -2158,6 +2256,17 @@ class ReActAgent:
             yield event
         tools_to_use = self._stream_tools_to_use
 
+        # Phase 10b: Inject skill-embedded MCP tools
+        if self._skill_mcp_tools:
+            existing_names = {t.name for t in tools_to_use}
+            for mcp_td in self._skill_mcp_tools:
+                if mcp_td.name not in existing_names:
+                    tools_to_use.append(mcp_td)
+            logger.info(
+                "[ReActAgent] Injected %d skill MCP tool(s) into tool set",
+                len(self._skill_mcp_tools),
+            )
+
         # Phase 11: SubAgent-as-Tool injection
         tools_to_use = self._stream_inject_subagent_tools(
             tools_to_use=tools_to_use,
@@ -2185,6 +2294,7 @@ class ReActAgent:
             "tenant_id": tenant_id,
             "project_id": project_id,
             "message_id": message_id,
+            "sandbox_id": self._extract_sandbox_id_from_tools(),
         }
 
         # Phase 13: Event processing
@@ -2222,6 +2332,20 @@ class ReActAgent:
         execution_time_ms = int((end_time - start_time) * 1000)
         logger.debug(f"[ReActAgent] Stream finished in {execution_time_ms}ms")
         self._stream_record_skill_usage(matched_skill, self._stream_success)
+
+        # Cleanup: Deactivate skill MCP servers
+        if matched_skill and self._skill_mcp_manager.active_skills:
+            try:
+                await self._skill_mcp_manager.deactivate_skill(
+                    matched_skill.name
+                )
+            except Exception:
+                logger.exception(
+                    "[ReActAgent] Failed to deactivate MCP servers"
+                    " for skill '%s'",
+                    matched_skill.name,
+                )
+        self._skill_mcp_tools = []
 
     async def _subagent_fetch_memory_context(
         self,

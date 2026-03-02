@@ -12,13 +12,11 @@ import logging
 import re
 import uuid
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from src.domain.events.agent_events import (
     AgentArtifactCreatedEvent,
-    AgentArtifactErrorEvent,
     AgentArtifactOpenEvent,
-    AgentArtifactReadyEvent,
     AgentDomainEvent,
 )
 from src.infrastructure.adapters.secondary.sandbox.artifact_integration import (
@@ -247,7 +245,7 @@ class ArtifactHandler:
         project_id = ctx.get("project_id")
         tenant_id = ctx.get("tenant_id")
         conversation_id = ctx.get("conversation_id")
-        message_id = ctx.get("message_id")
+        sandbox_id: str | None = ctx.get("sandbox_id")
 
         if not project_id or not tenant_id:
             logger.warning(
@@ -351,26 +349,24 @@ class ArtifactHandler:
                     except (UnicodeDecodeError, ValueError):
                         pass  # Binary content, skip canvas open
 
-                # Upload artifact in a background thread to avoid event loop
-                # contention. aioboto3 upload hangs when the event loop is busy
-                # with LLM streaming, so we use synchronous boto3 in a thread.
+                # Schedule background upload via ArtifactService.
                 logger.warning(
-                    f"[ArtifactUpload] Scheduling threaded upload: filename={filename}, "
+                    f"[ArtifactUpload] Scheduling background upload: filename={filename}, "
                     f"size={len(file_content)}, project_id={project_id}"
                 )
 
-                _schedule_threaded_upload(
+                _schedule_artifact_upload(
+                    artifact_service=self._artifact_service,
                     file_content=file_content,
                     filename=filename,
                     project_id=project_id,
                     tenant_id=tenant_id,
                     tool_execution_id=tool_execution_id or "",
                     conversation_id=conversation_id or "",
-                    message_id=message_id or "",
                     tool_name=tool_name,
                     artifact_id=artifact_id,
-                    mime_type=mime_type,
-                    category_value=category.value,
+                    source_path=artifact_info.get("path"),
+                    sandbox_id=sandbox_id,
                 )
                 return
 
@@ -442,23 +438,23 @@ class ArtifactHandler:
                         except (UnicodeDecodeError, ValueError):
                             pass  # Binary content, skip canvas open
 
-                    # Upload in background thread
+                    # Schedule background upload via ArtifactService.
                     logger.warning(
                         f"[ArtifactUpload] Scheduling batch upload: filename={filename}, "
                         f"size={len(file_content)}, project_id={project_id}"
                     )
-                    _schedule_threaded_upload(
+                    _schedule_artifact_upload(
+                        artifact_service=self._artifact_service,
                         file_content=file_content,
                         filename=filename,
                         project_id=project_id,
                         tenant_id=tenant_id,
                         tool_execution_id=tool_execution_id or "",
                         conversation_id=conversation_id or "",
-                        message_id=message_id or "",
                         tool_name=tool_name,
                         artifact_id=artifact_id,
-                        mime_type=mime_type,
-                        category_value=category.value,
+                        source_path=batch_item.get("path"),
+                        sandbox_id=sandbox_id,
                     )
 
                 except Exception as e:
@@ -490,7 +486,7 @@ class ArtifactHandler:
                         filename=artifact_data["filename"],
                         project_id=project_id,
                         tenant_id=tenant_id,
-                        sandbox_id=None,  # TODO: Get sandbox_id if available
+                        sandbox_id=sandbox_id,
                         tool_execution_id=tool_execution_id,
                         conversation_id=conversation_id,
                         source_tool=tool_name,
@@ -542,229 +538,43 @@ class ArtifactHandler:
 
 
 # -----------------------------------------------------------------------
-# Background upload helpers (module-level to avoid closure issues)
+# Background upload helper
 # -----------------------------------------------------------------------
 
 
-def _sync_upload(  # noqa: PLR0913
-    content: bytes,
-    fname: str,
-    pid: str,
-    tid: str,
-    texec_id: str,
-    tname: str,
-    art_id: str,
-    bucket: str,
-    endpoint: str,
-    access_key: str,
-    secret_key: str,
-    region: str,
-    mime: str,
-    no_proxy: bool = False,
-) -> dict[str, Any]:
-    """Synchronous S3 upload in a thread pool."""
-    from datetime import date
-    from urllib.parse import quote
-
-    import boto3  # pyright: ignore[reportMissingTypeStubs]
-    from botocore.config import Config as BotoConfig  # pyright: ignore[reportMissingTypeStubs]
-
-    config_kwargs: dict[str, Any] = {
-        "connect_timeout": 10,
-        "read_timeout": 30,
-        "retries": {"max_attempts": 5, "mode": "standard"},
-    }
-    if no_proxy:
-        config_kwargs["proxies"] = {"http": None, "https": None}
-
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name=region,
-        config=BotoConfig(**config_kwargs),
-    )
-
-    date_part = date.today().strftime("%Y/%m/%d")
-    unique_id = art_id[:8]
-    safe_fname = fname.replace("/", "_")
-    object_key = (
-        f"artifacts/{tid}/{pid}/{date_part}/{texec_id or 'direct'}/{unique_id}_{safe_fname}"
-    )
-
-    metadata = {
-        "artifact_id": art_id,
-        "project_id": pid,
-        "tenant_id": tid,
-        "filename": quote(fname, safe=""),
-        "source_tool": tname or "",
-    }
-
-    s3.put_object(
-        Bucket=bucket,
-        Key=object_key,
-        Body=content,
-        ContentType=mime,
-        Metadata=metadata,
-    )
-
-    url = s3.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": bucket, "Key": object_key},
-        ExpiresIn=7 * 24 * 3600,
-    )
-
-    return {
-        "url": url,
-        "object_key": object_key,
-        "size_bytes": len(content),
-    }
-
-
-async def _threaded_upload(
-    content: bytes,
-    fname: str,
-    pid: str,
-    tid: str,
-    texec_id: str,
-    conv_id: str,
-    msg_id: str,
-    tname: str,
-    art_id: str,
-    mime: str,
-    cat: str,
-) -> None:
-    """Run sync upload in thread, then publish result to Redis and DB."""
-    import time as _time
-
-    from src.configuration.config import get_settings
-    from src.infrastructure.agent.actor.execution import (
-        _persist_events,  # pyright: ignore[reportPrivateUsage]
-        _publish_event_to_stream,  # pyright: ignore[reportPrivateUsage]
-    )
-
-    settings = get_settings()
-
-    try:
-        result = await asyncio.to_thread(
-            _sync_upload,
-            content=content,
-            fname=fname,
-            pid=pid,
-            tid=tid,
-            texec_id=texec_id,
-            tname=tname,
-            art_id=art_id,
-            bucket=settings.s3_bucket_name,
-            endpoint=settings.s3_endpoint_url or "",
-            access_key=settings.aws_access_key_id or "",
-            secret_key=settings.aws_secret_access_key or "",
-            region=settings.aws_region,
-            mime=mime,
-            no_proxy=settings.s3_no_proxy,
-        )
-        logger.warning(
-            f"[ArtifactUpload] Threaded upload SUCCESS: filename={fname}, url={result['url'][:80]}"
-        )
-
-        ready_event = AgentArtifactReadyEvent(
-            artifact_id=art_id,
-            filename=fname,
-            mime_type=mime,
-            category=cat,
-            size_bytes=result["size_bytes"],
-            url=result["url"],
-            tool_execution_id=texec_id,
-            source_tool=tname,
-        )
-        ready_event_dict = ready_event.to_event_dict()
-        ready_time_us = int(_time.time() * 1_000_000)
-        await _publish_event_to_stream(
-            conversation_id=conv_id,
-            event=cast(dict[str, Any], ready_event_dict),
-            message_id=msg_id,
-            event_time_us=ready_time_us,
-            event_counter=0,
-        )
-        # Persist to DB so history loading can merge URL into artifact_created
-        await _persist_events(
-            conversation_id=conv_id,
-            message_id=msg_id,
-            events=[
-                {
-                    **ready_event_dict,
-                    "event_time_us": ready_time_us,
-                    "event_counter": 0,
-                }
-            ],
-        )
-    except Exception as upload_err:
-        logger.error(f"[ArtifactUpload] Threaded upload failed: {fname}: {upload_err}")
-        error_event = AgentArtifactErrorEvent(
-            artifact_id=art_id,
-            filename=fname,
-            tool_execution_id=texec_id,
-            error=f"Upload failed: {upload_err}",
-        )
-        error_event_dict = error_event.to_event_dict()
-        error_time_us = int(_time.time() * 1_000_000)
-        try:
-            await _publish_event_to_stream(
-                conversation_id=conv_id,
-                event=cast(dict[str, Any], error_event_dict),
-                message_id=msg_id,
-                event_time_us=error_time_us,
-                event_counter=0,
-            )
-        except Exception:
-            logger.error("[ArtifactUpload] Failed to publish error event")
-        # Persist to DB so history loading shows error instead of uploading
-        try:
-            await _persist_events(
-                conversation_id=conv_id,
-                message_id=msg_id,
-                events=[
-                    {
-                        **error_event_dict,
-                        "event_time_us": error_time_us,
-                        "event_counter": 0,
-                    }
-                ],
-            )
-        except Exception:
-            logger.error("[ArtifactUpload] Failed to persist error event")
-
-
-def _schedule_threaded_upload(
+def _schedule_artifact_upload(
     *,
+    artifact_service: ArtifactService,
     file_content: bytes,
     filename: str,
     project_id: str,
     tenant_id: str,
     tool_execution_id: str,
     conversation_id: str,
-    message_id: str,
     tool_name: str,
     artifact_id: str,
-    mime_type: str,
-    category_value: str,
+    source_path: str | None = None,
+    sandbox_id: str | None = None,
 ) -> None:
-    """Schedule a background upload task, preventing GC."""
-    _upload_task = asyncio.create_task(
-        _threaded_upload(
-            content=file_content,
-            fname=filename,
-            pid=project_id,
-            tid=tenant_id,
-            texec_id=tool_execution_id,
-            conv_id=conversation_id,
-            msg_id=message_id,
-            tname=tool_name,
-            art_id=artifact_id,
-            mime=mime_type,
-            cat=category_value,
-        )
-    )
-    _artifact_bg_tasks.add(_upload_task)
-    _upload_task.add_done_callback(_artifact_bg_tasks.discard)
+    """Schedule a background upload task via ArtifactService, preventing GC."""
+
+    async def _do_upload() -> None:
+        try:
+            await artifact_service.create_artifact(
+                file_content=file_content,
+                filename=filename,
+                project_id=project_id,
+                tenant_id=tenant_id,
+                sandbox_id=sandbox_id,
+                tool_execution_id=tool_execution_id,
+                conversation_id=conversation_id,
+                source_tool=tool_name,
+                source_path=source_path,
+                metadata={"upload_source": "artifact_handler"},
+            )
+        except Exception as e:
+            logger.error(f"[ArtifactUpload] Background upload failed: {filename}: {e}")
+
+    task = asyncio.create_task(_do_upload())
+    _artifact_bg_tasks.add(task)
+    task.add_done_callback(_artifact_bg_tasks.discard)

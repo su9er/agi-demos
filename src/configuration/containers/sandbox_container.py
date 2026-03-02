@@ -104,6 +104,14 @@ class SandboxContainer:
             host_memstack_volume=self._resolve_memstack_volume(),
         )
 
+    def workspace_sync_service(self) -> Any:
+        """Get WorkspaceSyncService for workspace state persistence across sandbox lifecycles."""
+        from src.application.services.workspace_sync_service import WorkspaceSyncService
+
+        return WorkspaceSyncService(
+            workspace_base=self._settings.sandbox_workspace_base if self._settings else "/tmp",
+        )
+
     def project_sandbox_lifecycle_service(self) -> Any:
         """Get ProjectSandboxLifecycleService for project-dedicated sandbox management."""
         from src.application.services.project_sandbox_lifecycle_service import (
@@ -136,6 +144,7 @@ class SandboxContainer:
                 else None
             ),
             host_memstack_volume=self._resolve_memstack_volume(),
+            workspace_sync=self.workspace_sync_service(),
         )
 
     def sandbox_mcp_server_manager(self) -> Any:

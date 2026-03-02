@@ -408,9 +408,7 @@ class StructuredOutputValidator:
         **kwargs: Any,
     ) -> ValidationResult:
         """Execute a single generation + validation attempt."""
-        temperature = (
-            self.config.retry_temperature if attempt > 0 else kwargs.get("temperature", 0.0)
-        )
+
 
         response = await llm_client.generate_response(
             messages=[m for m in working_messages if isinstance(m, Message)],

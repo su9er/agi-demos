@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from src.infrastructure.agent.hitl.ray_hitl_handler import RayHITLHandler
+if TYPE_CHECKING:
+    from src.infrastructure.agent.hitl.ray_hitl_handler import RayHITLHandler
+
 from src.infrastructure.agent.tools.base import AgentTool
 from src.infrastructure.agent.tools.context import ToolContext
 from src.infrastructure.agent.tools.define import tool_define

@@ -1,26 +1,20 @@
 /**
- * Unit tests for concurrent agent conversation switching.
+ * Unit tests for concurrent agent conversation switching (agentV3).
  *
- * TDD: Tests written first (RED phase) for concurrent conversation support.
- *
- * Feature: Allow users to switch between conversations while one is actively
- * streaming, without interrupting the active conversation's execution.
- *
- * Key requirements:
- * 1. Each conversation maintains its own streaming state
- * 2. Switching conversations should not stop active streams
- * 3. Multiple conversations can stream simultaneously
- * 4. State is properly isolated per conversation
+ * Tests verify that the agentV3 store properly supports:
+ * 1. Per-conversation state isolation via conversationStates Map
+ * 2. Multiple conversations streaming simultaneously
+ * 3. Proper state management when switching active conversation
+ * 4. API surface for concurrent conversation support
  */
 
 import { act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// FIXME: This test was written for the old agent store (agent.ts).
-// The new agentV3 store has a different API. This test needs to be migrated.
 import { useAgentV3Store as useAgentStore } from '../../stores/agentV3';
 
-import type { TimelineEvent, WorkPlan, ToolExecution } from '../../types/agent';
+import type { Conversation } from '../../types/agent';
+
 // Mock agent service
 vi.mock('../../services/agentService', () => ({
   agentService: {
@@ -32,353 +26,292 @@ vi.mock('../../services/agentService', () => ({
   },
 }));
 
-// Helper function to create mock response with all required properties
-function createMockResponse(conversationId: string, timeline: TimelineEvent[]) {
-  return {
-    conversationId,
-    timeline,
-    total: timeline.length,
-    has_more: false,
-    first_sequence: null as number | null,
-    last_sequence: null as number | null,
-  };
-}
-
-describe.skip('Agent Store - Concurrent Conversation Switching (RED Phase)', () => {
+describe('Agent Store - Concurrent Conversation Support (agentV3)', () => {
   beforeEach(() => {
-    // Reset store before each test
-    const { reset } = useAgentStore.getState();
-    reset();
+    // Reset store to initial state
+    useAgentStore.setState({
+      conversations: [],
+      activeConversationId: null,
+      conversationStates: new Map(),
+      timeline: [],
+      messages: [],
+      isStreaming: false,
+      streamStatus: 'idle',
+      error: null,
+      currentThought: '',
+      streamingThought: '',
+      isThinkingStreaming: false,
+      activeToolCalls: new Map(),
+      pendingToolsStack: [],
+      agentState: 'idle',
+      isLoadingHistory: false,
+      isLoadingEarlier: false,
+      hasEarlier: false,
+      earliestTimeUs: null,
+      earliestCounter: null,
+    });
     vi.clearAllMocks();
   });
 
-  describe('Current behavior analysis', () => {
-    it('demonstrates global isStreaming is shared across conversations', async () => {
-      // This test documents CURRENT behavior (global state)
-      // After implementation, this behavior should change
-
+  describe('Per-conversation state isolation', () => {
+    it('should maintain isolated state per conversation via conversationStates Map', () => {
       const conv1Id = 'conv-1';
       const conv2Id = 'conv-2';
 
-      const mockTimeline: TimelineEvent[] = [
-        {
-          id: '1',
-          type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
-          content: 'Hello',
-          role: 'user',
-        },
-      ];
-      const mockResponse = createMockResponse(conv1Id, mockTimeline);
-      vi.mocked(agentService.getConversationMessages).mockResolvedValue(mockResponse);
+      // Update conversation state for conv1
+      const { updateConversationState } = useAgentStore.getState();
 
-      // Set conv1 as streaming
+      act(() => {
+        updateConversationState(conv1Id, { isStreaming: true });
+        updateConversationState(conv2Id, { isStreaming: false });
+      });
+
+      // Verify states are isolated
+      const state = useAgentStore.getState();
+      const conv1State = state.getConversationState(conv1Id);
+      const conv2State = state.getConversationState(conv2Id);
+
+      expect(conv1State.isStreaming).toBe(true);
+      expect(conv2State.isStreaming).toBe(false);
+    });
+
+    it('should return default state for unknown conversation', () => {
+      const state = useAgentStore.getState();
+      const unknownState = state.getConversationState('unknown-conv');
+
+      // Should return a default ConversationState (not throw)
+      expect(unknownState).toBeDefined();
+      expect(unknownState.isStreaming).toBe(false);
+    });
+
+    it('should preserve global isStreaming for active conversation backward compatibility', () => {
+      const convId = 'conv-1';
+
       useAgentStore.setState({
-        currentConversation: { id: conv1Id, project_id: 'proj-1', title: 'Conv 1' } as any,
+        activeConversationId: convId,
         isStreaming: true,
-      });
-
-      // Verify global isStreaming is true
-      let state = useAgentStore.getState();
-      expect(state.isStreaming).toBe(true);
-
-      // Switch to conv2
-      const mockTimeline2: TimelineEvent[] = [];
-      const mockResponse2 = createMockResponse(conv2Id, mockTimeline2);
-      vi.mocked(agentService.getConversationMessages).mockResolvedValue(mockResponse2);
-
-      const { setCurrentConversation } = useAgentStore.getState();
-
-      await act(async () => {
-        setCurrentConversation({ id: conv2Id, project_id: 'proj-1', title: 'Conv 2' } as any);
-      });
-
-      // CURRENTLY: isStreaming is still true (global state)
-      // This is the problem we need to fix
-      state = useAgentStore.getState();
-      expect(state.isStreaming).toBe(true); // Current behavior - global state
-
-      // After implementation, we expect:
-      // - A per-conversation streaming status map
-      // - Ability to check streaming status for any conversation
-      // - Current conversation's streaming status reflects its actual state
-    });
-
-    it('demonstrates global currentThought is shared across conversations', async () => {
-      const conv1Id = 'conv-1';
-      const conv2Id = 'conv-2';
-
-      // Set conv1 with a thought
-      useAgentStore.setState({
-        currentConversation: { id: conv1Id, project_id: 'proj-1', title: 'Conv 1' } as any,
-        currentThought: 'Thinking in conv 1',
-      });
-
-      let state = useAgentStore.getState();
-      expect(state.currentThought).toBe('Thinking in conv 1');
-
-      // Switch to conv2
-      const mockTimeline2: TimelineEvent[] = [];
-      const mockResponse2 = createMockResponse(conv2Id, mockTimeline2);
-      vi.mocked(agentService.getConversationMessages).mockResolvedValue(mockResponse2);
-
-      const { setCurrentConversation } = useAgentStore.getState();
-
-      await act(async () => {
-        setCurrentConversation({ id: conv2Id, project_id: 'proj-1', title: 'Conv 2' } as any);
-      });
-
-      // CURRENTLY: thought is cleared when switching (not persisted)
-      state = useAgentStore.getState();
-      expect(state.currentThought).toBe(null);
-
-      // After implementation, we expect:
-      // - Thoughts to be persisted per conversation
-      // - Switching back to conv1 would restore its thought
-    });
-
-    it('demonstrates global workPlan is shared across conversations', async () => {
-      const conv1Id = 'conv-1';
-      const conv2Id = 'conv-2';
-
-      const mockWorkPlan: WorkPlan = {
-        id: 'plan-1',
-        conversation_id: conv1Id,
-        status: 'in_progress',
-        steps: [
-          {
-            step_number: 1,
-            description: 'Step 1',
-            thought_prompt: '',
-            required_tools: [],
-            expected_output: '',
-            dependencies: [],
-          },
-        ],
-        current_step_index: 0,
-        created_at: new Date().toISOString(),
-      };
-
-      // Set conv1 with a work plan
-      useAgentStore.setState({
-        currentConversation: { id: conv1Id, project_id: 'proj-1', title: 'Conv 1' } as any,
-        currentWorkPlan: mockWorkPlan,
-      });
-
-      let state = useAgentStore.getState();
-      expect(state.currentWorkPlan?.id).toBe('plan-1');
-
-      // Switch to conv2
-      const mockTimeline2: TimelineEvent[] = [];
-      const mockResponse2 = createMockResponse(conv2Id, mockTimeline2);
-      vi.mocked(agentService.getConversationMessages).mockResolvedValue(mockResponse2);
-
-      const { setCurrentConversation } = useAgentStore.getState();
-
-      await act(async () => {
-        setCurrentConversation({ id: conv2Id, project_id: 'proj-1', title: 'Conv 2' } as any);
-      });
-
-      // CURRENTLY: work plan is lost when switching
-      state = useAgentStore.getState();
-      expect(state.currentWorkPlan).toBe(null);
-
-      // After implementation, we expect:
-      // - Work plans to be persisted per conversation
-      // - Switching back to conv1 would restore its work plan
-    });
-
-    it('demonstrates per-conversation sendMessageLock allows concurrent conversations', async () => {
-      const conv1Id = 'conv-1';
-      const conv2Id = 'conv-2';
-
-      const mockResponse = createMockResponse(conv1Id, []);
-      vi.mocked(agentService.getConversationMessages).mockResolvedValue(mockResponse);
-
-      // Create a handler reference to track if sendMessage was called
-      let sendMessageCallCount = 0;
-      let chatResolver: () => void = () => {};
-
-      // Mock chat to simulate long-running stream
-      vi.mocked(agentService.chat).mockImplementation(async () => {
-        sendMessageCallCount++;
-        return new Promise<void>((resolve) => {
-          chatResolver = resolve;
-        });
-      });
-
-      const { sendMessage, setCurrentConversation } = useAgentStore.getState();
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-      // Start message for conv1 - don't await, let it run
-      sendMessage(conv1Id, 'Message 1', 'proj-1').catch(() => {});
-
-      // Wait a tick for state to update
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
       });
 
       const state = useAgentStore.getState();
       expect(state.isStreaming).toBe(true);
+    });
+  });
 
-      // Try to send message to conv2 - this should NOT be blocked with per-conversation locks
-      await act(async () => {
-        setCurrentConversation({ id: conv2Id, project_id: 'proj-1', title: 'Conv 2' } as any);
-        await sendMessage(conv2Id, 'Message 2', 'proj-1');
+  describe('Current behavior: global state for active conversation', () => {
+    it('demonstrates global isStreaming reflects active conversation state', () => {
+      const conv1Id = 'conv-1';
+
+      // Set active conversation as streaming
+      useAgentStore.setState({
+        activeConversationId: conv1Id,
+        isStreaming: true,
       });
 
-      // NEW BEHAVIOR: Second sendMessage should succeed because it's for a different conversation
-      const warnCalls = consoleWarnSpy.mock.calls.filter((call) =>
-        call.some((arg) => typeof arg === 'string' && arg.includes('already in progress'))
-      );
+      const state = useAgentStore.getState();
+      expect(state.isStreaming).toBe(true);
+      expect(state.activeConversationId).toBe(conv1Id);
+    });
 
-      // Verify lock did NOT block second call (different conversation)
-      expect(warnCalls.length).toBe(0);
-      // chat should be called twice (both conversations can stream concurrently)
-      expect(sendMessageCallCount).toBe(2);
+    it('demonstrates global currentThought is for active conversation', () => {
+      const conv1Id = 'conv-1';
 
-      consoleWarnSpy.mockRestore();
+      useAgentStore.setState({
+        activeConversationId: conv1Id,
+        currentThought: 'Thinking in conv 1',
+      });
 
-      // Cleanup
-      chatResolver();
+      const state = useAgentStore.getState();
+      expect(state.currentThought).toBe('Thinking in conv 1');
+    });
 
-      // Verify per-conversation streaming status
-      const streamingStatuses = useAgentStore.getState().getStreamingStatuses();
-      expect(streamingStatuses.get(conv1Id)).toBe(true);
-      expect(streamingStatuses.get(conv2Id)).toBe(true);
+    it('demonstrates activeToolCalls is a Map for concurrent tool tracking', () => {
+      const toolCallId = 'tool-call-1';
+
+      useAgentStore.setState({
+        activeToolCalls: new Map([
+          [
+            toolCallId,
+            {
+              id: toolCallId,
+              tool_name: 'search',
+              arguments: { query: 'test' },
+              status: 'running' as const,
+              startTime: Date.now(),
+            },
+          ],
+        ]),
+      });
+
+      const state = useAgentStore.getState();
+      expect(state.activeToolCalls).toBeInstanceOf(Map);
+      expect(state.activeToolCalls.get(toolCallId)?.status).toBe('running');
     });
   });
 
   describe('API verification', () => {
-    it('verifies per-conversation streaming status API exists', () => {
+    it('verifies getConversationState method exists and is a function', () => {
       const state = useAgentStore.getState();
-
-      // New methods should now be available
-      expect(typeof state.isConversationStreaming).toBe('function');
-      expect(typeof state.getStreamingStatuses).toBe('function');
+      expect(typeof state.getConversationState).toBe('function');
     });
 
-    it('verifies per-conversation state management API exists', () => {
+    it('verifies updateConversationState method exists and is a function', () => {
       const state = useAgentStore.getState();
+      expect(typeof state.updateConversationState).toBe('function');
+    });
 
-      // New state management methods should be available
-      expect(typeof state.getConversationState).toBe('function');
-      expect(typeof state.saveConversationState).toBe('function');
-      expect(typeof state.restoreConversationState).toBe('function');
-      expect(typeof state.deleteConversationState).toBe('function');
+    it('verifies getStreamingConversationCount method exists and is a function', () => {
+      const state = useAgentStore.getState();
+      expect(typeof state.getStreamingConversationCount).toBe('function');
+    });
+
+    it('verifies syncActiveConversationState method exists and is a function', () => {
+      const state = useAgentStore.getState();
+      expect(typeof state.syncActiveConversationState).toBe('function');
     });
 
     it('verifies conversationStates is a Map', () => {
       const state = useAgentStore.getState();
-
-      // conversationStates should be a Map
       expect(state.conversationStates).toBeInstanceOf(Map);
+    });
+
+    it('verifies setActiveConversation method exists and is a function', () => {
+      const state = useAgentStore.getState();
+      expect(typeof state.setActiveConversation).toBe('function');
+    });
+  });
+
+  describe('getStreamingConversationCount', () => {
+    it('should return 0 when no conversations are streaming', () => {
+      const state = useAgentStore.getState();
+      expect(state.getStreamingConversationCount()).toBe(0);
+    });
+
+    it('should count streaming conversations correctly', () => {
+      const { updateConversationState } = useAgentStore.getState();
+
+      act(() => {
+        updateConversationState('conv-1', { isStreaming: true });
+        updateConversationState('conv-2', { isStreaming: true });
+        updateConversationState('conv-3', { isStreaming: false });
+      });
+
+      const state = useAgentStore.getState();
+      expect(state.getStreamingConversationCount()).toBe(2);
+    });
+  });
+
+  describe('Conversation switching', () => {
+    it('should switch active conversation via setActiveConversation', () => {
+      const conv1: Conversation = {
+        id: 'conv-1',
+        project_id: 'proj-1',
+        tenant_id: 'tenant-1',
+        user_id: 'user-1',
+        title: 'Conv 1',
+        status: 'active',
+        message_count: 2,
+        created_at: '2024-01-01T00:00:00Z',
+      };
+
+      useAgentStore.setState({
+        conversations: [conv1],
+        activeConversationId: null,
+      });
+
+      act(() => {
+        useAgentStore.getState().setActiveConversation('conv-1');
+      });
+
+      const state = useAgentStore.getState();
+      expect(state.activeConversationId).toBe('conv-1');
+    });
+
+    it('should handle switching to null (deselecting conversation)', () => {
+      useAgentStore.setState({
+        activeConversationId: 'conv-1',
+      });
+
+      act(() => {
+        useAgentStore.getState().setActiveConversation(null);
+      });
+
+      const state = useAgentStore.getState();
+      expect(state.activeConversationId).toBeNull();
     });
   });
 
   describe('Edge cases for concurrent conversations', () => {
-    it('handles switching while tool execution is in progress', async () => {
-      const conv1Id = 'conv-1';
-      const conv2Id = 'conv-2';
-
-      const mockToolExecution: ToolExecution = {
+    it('handles activeToolCalls isolation for active conversation', () => {
+      const toolCall1 = {
         id: 'tool-1',
-        toolName: 'search',
-        input: { query: 'test' },
-        status: 'running',
-        startTime: new Date().toISOString(),
+        tool_name: 'search',
+        arguments: { query: 'test' },
+        status: 'running' as const,
+        startTime: Date.now(),
       };
 
-      // Set conv1 with active tool execution
+      // Set active tool call for active conversation
       useAgentStore.setState({
-        currentConversation: { id: conv1Id, project_id: 'proj-1', title: 'Conv 1' } as any,
-        currentToolExecution: mockToolExecution,
+        activeConversationId: 'conv-1',
+        activeToolCalls: new Map([['tool-1', toolCall1]]),
         isStreaming: true,
       });
 
-      // Switch to conv2
-      const mockTimeline2: TimelineEvent[] = [];
-      const mockResponse2 = createMockResponse(conv2Id, mockTimeline2);
-      vi.mocked(agentService.getConversationMessages).mockResolvedValue(mockResponse2);
+      let state = useAgentStore.getState();
+      expect(state.activeToolCalls.size).toBe(1);
+      expect(state.activeToolCalls.get('tool-1')?.tool_name).toBe('search');
 
-      const { setCurrentConversation } = useAgentStore.getState();
-
-      await act(async () => {
-        setCurrentConversation({ id: conv2Id, project_id: 'proj-1', title: 'Conv 2' } as any);
+      // Switching active conversation should not affect stored tool calls
+      // (global activeToolCalls reflects what's in the current active conversation)
+      act(() => {
+        useAgentStore.setState({
+          activeConversationId: 'conv-2',
+          activeToolCalls: new Map(),
+          isStreaming: false,
+          currentThought: '',
+        });
       });
 
-      // After switching, tool state should be clean for conv2
-      const state = useAgentStore.getState();
-      expect(state.currentToolExecution).toBe(null);
-
-      // TODO: After implementation, conv1's tool execution should be preserved
-      // expect(state.getToolExecutionForConversation(conv1Id)).toEqual(mockToolExecution);
+      state = useAgentStore.getState();
+      expect(state.activeToolCalls.size).toBe(0);
+      expect(state.isStreaming).toBe(false);
     });
 
-    it('handles switching while skill execution is in progress', async () => {
-      const conv1Id = 'conv-1';
-      const conv2Id = 'conv-2';
+    it('handles rapid state updates without errors', () => {
+      const { updateConversationState } = useAgentStore.getState();
 
-      // Set conv1 with active skill execution
-      useAgentStore.setState({
-        currentConversation: { id: conv1Id, project_id: 'proj-1', title: 'Conv 1' } as any,
-        currentSkillExecution: {
-          skill_id: 'skill-1',
-          skill_name: 'Search Skill',
-          execution_mode: 'direct', // Fixed: was 'sequential', must be 'direct' | 'prompt'
-          match_score: 0.95,
-          status: 'executing',
-          tools: [],
-          tool_executions: [],
-          current_step: 0,
-          total_steps: 2,
-          started_at: new Date().toISOString(),
-        },
-        isStreaming: true,
-      });
+      expect(() => {
+        act(() => {
+          // Rapid updates to multiple conversations
+          for (let i = 0; i < 10; i++) {
+            updateConversationState(`conv-${i}`, {
+              isStreaming: i % 2 === 0,
+            });
+          }
+        });
+      }).not.toThrow();
 
-      // Switch to conv2
-      const mockTimeline2: TimelineEvent[] = [];
-      const mockResponse2 = createMockResponse(conv2Id, mockTimeline2);
-      vi.mocked(agentService.getConversationMessages).mockResolvedValue(mockResponse2);
-
-      const { setCurrentConversation } = useAgentStore.getState();
-
-      await act(async () => {
-        setCurrentConversation({ id: conv2Id, project_id: 'proj-1', title: 'Conv 2' } as any);
-      });
-
-      // After switching, skill state should be clean for conv2
       const state = useAgentStore.getState();
-      expect(state.currentSkillExecution).toBe(null);
-
-      // TODO: After implementation, conv1's skill execution should be preserved
-      // expect(state.getSkillExecutionForConversation(conv1Id)?.status).toBe('executing');
+      expect(state.conversationStates.size).toBe(10);
+      expect(state.getStreamingConversationCount()).toBe(5);
     });
 
-    it('handles rapid switching between multiple conversations', async () => {
-      const conv1Id = 'conv-1';
-      const conv2Id = 'conv-2';
-      const conv3Id = 'conv-3';
+    it('handles updateConversationState with partial updates', () => {
+      const { updateConversationState } = useAgentStore.getState();
 
-      const mockTimeline: TimelineEvent[] = [];
-      const mockResponse = createMockResponse(conv1Id, mockTimeline);
-      vi.mocked(agentService.getConversationMessages).mockResolvedValue(mockResponse);
-
-      const { setCurrentConversation } = useAgentStore.getState();
-
-      // Rapid switching between 3 conversations
-      await act(async () => {
-        await setCurrentConversation({ id: conv1Id, project_id: 'proj-1', title: 'Conv 1' } as any);
-        await setCurrentConversation({ id: conv2Id, project_id: 'proj-1', title: 'Conv 2' } as any);
-        await setCurrentConversation({ id: conv3Id, project_id: 'proj-1', title: 'Conv 3' } as any);
-        await setCurrentConversation({ id: conv1Id, project_id: 'proj-1', title: 'Conv 1' } as any);
+      act(() => {
+        updateConversationState('conv-1', { isStreaming: true });
       });
 
-      // Should handle rapid switching without errors
+      // Apply a second partial update that should not overwrite isStreaming
+      act(() => {
+        updateConversationState('conv-1', { error: 'some error' });
+      });
+
       const state = useAgentStore.getState();
-      expect(state.currentConversation?.id).toBe(conv1Id);
+      const convState = state.getConversationState('conv-1');
+      expect(convState.isStreaming).toBe(true);
+      expect(convState.error).toBe('some error');
     });
   });
 });

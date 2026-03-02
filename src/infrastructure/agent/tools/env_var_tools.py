@@ -19,7 +19,10 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.infrastructure.agent.hitl.ray_hitl_handler import RayHITLHandler
 
 from src.domain.model.agent.tool_environment_variable import (
     EnvVarScope,
@@ -28,7 +31,6 @@ from src.domain.model.agent.tool_environment_variable import (
 from src.domain.ports.repositories.tool_environment_variable_repository import (
     ToolEnvironmentVariableRepositoryPort,
 )
-from src.infrastructure.agent.hitl.ray_hitl_handler import RayHITLHandler
 from src.infrastructure.agent.tools.base import AgentTool
 from src.infrastructure.agent.tools.context import ToolContext
 from src.infrastructure.agent.tools.define import tool_define

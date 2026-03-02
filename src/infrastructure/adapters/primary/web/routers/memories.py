@@ -427,8 +427,7 @@ async def list_memories(
         # Check ownership
         project_result = await db.execute(select(Project).where(Project.id == project_id))
         project = project_result.scalar_one_or_none()
-        if not project or project.owner_id != current_user.id:
-            # TODO: Check if project is public?
+        if not project or (project.owner_id != current_user.id and not project.is_public):
             raise HTTPException(status_code=403, detail="Access denied")
 
     # Build query

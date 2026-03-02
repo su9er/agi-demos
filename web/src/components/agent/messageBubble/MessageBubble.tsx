@@ -35,6 +35,8 @@ import { useSandboxStore } from '@/stores/sandbox';
 
 import { artifactService } from '@/services/artifactService';
 
+import { isOfficeMimeType, isOfficeExtension } from '@/utils/filePreview';
+
 import { CodeBlock as SharedCodeBlock } from '../chat/CodeBlock';
 import { safeMarkdownComponents, useMarkdownPlugins } from '../chat/markdownPlugins';
 import { MessageActionBar } from '../chat/MessageActionBar';
@@ -43,7 +45,6 @@ import { InlineHITLCard } from '../InlineHITLCard';
 import { MARKDOWN_PROSE_CLASSES } from '../styles';
 
 import { getErrorMessage } from '@/types/common';
-import { isOfficeMimeType, isOfficeExtension } from '@/utils/filePreview';
 
 import type {
   ArtifactCreatedProps,

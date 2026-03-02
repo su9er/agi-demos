@@ -526,7 +526,7 @@ async def get_graph(
 
 
 @router.post("/memory/graph/subgraph")
-async def get_subgraph(
+async def get_subgraph(  # noqa: C901,PLR0912
     params: SubgraphRequest,
     current_user: User = Depends(get_current_user),
     neo4j_client: Neo4jClient | None = Depends(get_neo4j_client),

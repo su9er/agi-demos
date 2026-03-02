@@ -18,7 +18,7 @@ Supported Providers:
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from src.configuration.config import get_settings
 from src.domain.llm_providers.base import BaseEmbedder
@@ -314,7 +314,7 @@ class LiteLLMEmbedder(BaseEmbedder):
             request_kwargs[key] = value
 
     # Provider type -> LiteLLM model prefix mapping for embeddings
-    _EMBEDDER_PROVIDER_PREFIXES: dict[str, str] = {
+    _EMBEDDER_PROVIDER_PREFIXES: ClassVar[dict[str, str]] = {
         "gemini": "gemini/",
         "cohere": "cohere/",
         "bedrock": "bedrock/",

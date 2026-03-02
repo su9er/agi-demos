@@ -1,3 +1,5 @@
 """Backward compatibility - re-exports from skill subpackage."""
 
-from src.domain.model.agent.skill.skill_source import *
+from src.domain.model.agent.skill.skill_source import SkillSource
+
+__all__ = ["SkillSource"]

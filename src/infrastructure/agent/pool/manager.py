@@ -4,10 +4,13 @@ Agent池管理器.
 管理 Agent 实例的创建、获取、分级和生命周期。
 """
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from .config import AgentInstanceConfig, PoolConfig
@@ -78,6 +81,9 @@ class AgentPoolManager:
         # 事件回调
         self._on_instance_created: list[Callable[[AgentInstance], None]] = []
         self._on_instance_terminated: list[Callable[[AgentInstance], None]] = []
+
+        # Tier override records (in-memory, for tier algorithm learning)
+        self._tier_overrides: dict[str, list[dict[str, Any]]] = {}
 
         logger.info(
             f"[AgentPoolManager] Initialized: "
@@ -292,7 +298,7 @@ class AgentPoolManager:
 
         logger.info(f"[AgentPoolManager] Removed instance: id={instance.id}")
 
-    async def classify_project(
+    async def classify_project(  # noqa: PLR0911
         self,
         tenant_id: str,
         project_id: str,
@@ -306,8 +312,16 @@ class AgentPoolManager:
             项目分级
         """
         if metrics is None:
-            # 使用默认分级
-            # TODO: 从数据库获取历史指标
+            # Infer tier from in-memory instance history for this project.
+            # If the project had a prior instance with request activity we
+            # promote it; otherwise fall back to WARM.
+            for inst in self._instances.values():
+                if inst.config.project_id == project_id:
+                    if inst.metrics.total_requests > 100:
+                        return ProjectTier.HOT
+                    if inst.metrics.total_requests > 0:
+                        return ProjectTier.WARM
+                    return ProjectTier.COLD
             return ProjectTier.WARM
 
         score = self._compute_project_score(metrics)
@@ -532,7 +546,34 @@ class AgentPoolManager:
 
             elif action == RecoveryAction.MIGRATE:
                 logger.info(f"[AgentPoolManager] Migrating instance: id={instance.id}")
-                # TODO: 实现迁移逻辑
+                # Migrate to a new instance with downgraded tier config
+                old_config = instance.config
+                downgraded_tier = (
+                    ProjectTier.WARM
+                    if old_config.tier == ProjectTier.HOT
+                    else ProjectTier.COLD
+                )
+                new_config = old_config.with_tier(downgraded_tier)
+                async with self._instances_lock:
+                    await self._remove_instance(instance)
+                try:
+                    new_instance = await self._create_instance(
+                        tenant_id=new_config.tenant_id,
+                        project_id=new_config.project_id,
+                        agent_mode=new_config.agent_mode,
+                        config_override=new_config,
+                    )
+                    new_instance.mark_recovered()
+                    logger.info(
+                        f"[AgentPoolManager] Migration complete: "
+                        f"old_id={instance.id}, new_id={new_instance.id}, "
+                        f"tier={downgraded_tier.value}"
+                    )
+                except Exception as migrate_err:
+                    logger.error(
+                        f"[AgentPoolManager] Migration failed: "
+                        f"id={instance.id}, error={migrate_err}"
+                    )
 
             elif action == RecoveryAction.ALERT:
                 logger.warning(f"[AgentPoolManager] Alert: Instance unhealthy: id={instance.id}")
@@ -660,8 +701,19 @@ class AgentPoolManager:
                     # 复杂策略: 立即迁移实例 (需要更多实现)
                     instance.config = new_config
 
-        # 记录分级覆盖 (用于分级算法学习)
-        # TODO: 持久化分级覆盖记录
+        # Record tier override for algorithm learning (in-memory)
+        override_record: dict[str, Any] = {
+            "project_id": project_id,
+            "new_tier": tier.value,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "reason": "manual_override",
+        }
+        self._tier_overrides.setdefault(project_id, []).append(override_record)
+        logger.debug(
+            f"[AgentPoolManager] Tier override recorded: "
+            f"project={project_id}, tier={tier.value}, "
+            f"total_overrides={len(self._tier_overrides[project_id])}"
+        )
 
         logger.info(f"[AgentPoolManager] Project tier set: project={project_id}, tier={tier.value}")
 

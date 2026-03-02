@@ -52,6 +52,8 @@ import { useLayoutModeStore } from '@/stores/layoutMode';
 
 import { artifactService } from '@/services/artifactService';
 
+import { isOfficeMimeType, isOfficeExtension } from '@/utils/filePreview';
+
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { StandardMCPAppRenderer } from '@/components/mcp-app/StandardMCPAppRenderer';
 import type { StandardMCPAppRendererHandle } from '@/components/mcp-app/StandardMCPAppRenderer';
@@ -60,7 +62,6 @@ import { useMarkdownPlugins, safeMarkdownComponents } from '../chat/markdownPlug
 import { MARKDOWN_PROSE_CLASSES } from '../styles';
 
 import { SelectionToolbar } from './SelectionToolbar';
-import { isOfficeMimeType, isOfficeExtension } from '@/utils/filePreview';
 
 const typeIcon = (type: CanvasContentType, size = 14) => {
   switch (type) {
@@ -538,7 +539,7 @@ const XlsxPreview = memo<{ src: string; title: string }>(({ src, title }) => {
             <button
               key={s.name}
               type="button"
-              onClick={() => setActiveSheet(i)}
+              onClick={() => { setActiveSheet(i); }}
               className={`px-3 py-1.5 text-xs font-medium rounded-t whitespace-nowrap transition-colors ${
                 i === activeSheet
                   ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 border border-b-0 border-slate-200 dark:border-slate-700'

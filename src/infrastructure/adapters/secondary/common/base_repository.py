@@ -24,10 +24,9 @@ from functools import wraps
 from typing import Any, TypeVar, cast
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from sqlalchemy.engine import CursorResult
 from sqlalchemy.sql import Select
 
 from src.domain.exceptions import (

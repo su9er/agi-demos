@@ -7,6 +7,7 @@ for sandbox environments. Extracted from MCPSandboxAdapter.
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 from typing import Any, cast
 
@@ -14,6 +15,7 @@ import docker
 from docker.errors import ImageNotFound, NotFound
 from docker.models.containers import Container
 
+from src.configuration.config import get_settings
 from src.infrastructure.adapters.secondary.sandbox.constants import (
     DEFAULT_SANDBOX_IMAGE,
     DESKTOP_PORT,
@@ -137,6 +139,15 @@ class ContainerManager:
             for host_path, container_path in extra_volumes.items():
                 if host_path and container_path:
                     volumes[host_path] = {"bind": container_path, "mode": "ro"}
+
+        # Pip cache volume (shared across containers)
+        settings = get_settings()
+        if settings.sandbox_pip_cache_enabled:
+            os.makedirs(settings.sandbox_pip_cache_path, exist_ok=True)
+            volumes[settings.sandbox_pip_cache_path] = {
+                "bind": "/root/.cache/pip",
+                "mode": "rw",
+            }
 
         # Resource limits
         mem_limit = memory_limit or self._default_memory_limit

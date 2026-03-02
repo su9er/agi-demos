@@ -160,6 +160,56 @@ class AIServiceFactory:
         return LiteLLMReranker(config=provider_config)
 
 
+    # ------------------------------------------------------------------
+    # Category-Based Model Routing
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def create_llm_client_for_category(
+        provider_config: ProviderConfig,
+        task_description: str,
+        cache: bool | None = None,
+    ) -> LiteLLMClient:
+        """Create a ``LiteLLMClient`` with category-based model selection.
+
+        Detects the task category from the description and overrides the
+        model in ``provider_config`` with the category-optimal model when
+        available.
+
+        Args:
+            provider_config: Base provider config (used for API keys, etc.).
+            task_description: Text description of the task to route.
+            cache: Enable response caching.
+
+        Returns:
+            Configured ``LiteLLMClient`` with category-optimal model.
+        """
+        from src.infrastructure.llm.category_router import CategoryRouter
+        from src.infrastructure.llm.litellm.litellm_client import create_litellm_client
+
+        router = CategoryRouter()
+        routed = router.route(task_description=task_description)
+        if routed.preferred_models:
+            # Override the model in provider config with the top pick
+            preferred = routed.preferred_models[0]
+            logger.info(
+                "Category router selected model=%s for category=%s "
+                "(confidence=%.2f, original=%s)",
+                preferred,
+                routed.category.value,
+                routed.confidence,
+                provider_config.model,
+            )
+            provider_config = ProviderConfig(
+                provider=provider_config.provider,
+                model=preferred,
+                api_key=provider_config.api_key,
+                base_url=provider_config.base_url,
+                embedding_model=provider_config.embedding_model,
+                rerank_model=provider_config.rerank_model,
+            )
+        return create_litellm_client(provider_config, cache=cache)
+
 # Module-level convenience ------------------------------------------------
 
 _factory: AIServiceFactory | None = None

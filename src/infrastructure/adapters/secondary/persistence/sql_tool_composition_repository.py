@@ -6,8 +6,8 @@ import logging
 from typing import Any, Optional, cast
 
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent import ToolComposition
 from src.domain.ports.repositories.tool_composition_repository import ToolCompositionRepositoryPort
@@ -15,6 +15,7 @@ from src.infrastructure.adapters.secondary.common.base_repository import BaseRep
 from src.infrastructure.adapters.secondary.persistence.models import (
     ToolComposition as DBToolComposition,
 )
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,7 +102,7 @@ class SqlToolCompositionRepository(
 
         return [d for c in matching_compositions if (d := self._to_domain(c)) is not None]
 
-    async def list_all(self, limit: int = 100, offset: int = 0, **filters: Any) -> list["ToolComposition"]:
+    async def list_all(self, limit: int = 100, offset: int = 0, **filters: object) -> list["ToolComposition"]:
         """List all tool compositions."""
         result = await self._session.execute(
             select(DBToolComposition).order_by(DBToolComposition.usage_count.desc()).limit(limit)

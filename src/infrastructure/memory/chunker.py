@@ -6,7 +6,6 @@ Character-based chunking with configurable overlap and SHA256 hashing.
 
 import hashlib
 from dataclasses import dataclass
-from typing import cast
 
 
 @dataclass(frozen=True)

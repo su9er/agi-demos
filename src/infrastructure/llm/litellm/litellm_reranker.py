@@ -469,8 +469,7 @@ Ensure:
             data = json.loads(cleaned_response)
             scores = self._extract_scores_from_data(data)
             return self._normalize_scores(scores, expected_count)
-            logger.error(f"Failed to parse JSON response: {e}")
-            return [0.5] * expected_count, True
+
         except Exception as e:
             logger.error(f"Error parsing rerank response: {e}")
             return [0.5] * expected_count, True

@@ -10,16 +10,14 @@ Provides a fluent interface for building SQLAlchemy queries with:
 """
 
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.sql import ColumnElement, Select
 
-T = TypeVar("T", bound=DeclarativeBase)
 
-
-class QueryBuilder(Generic[T]):
+class QueryBuilder[T: DeclarativeBase]:
     """
     Fluent query builder for SQLAlchemy.
 

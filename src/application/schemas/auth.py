@@ -3,10 +3,10 @@ Authentication models for API Key management.
 """
 
 from datetime import UTC, datetime
+from typing import Any, ClassVar
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
-from typing import Any
 
 
 class APIKey(BaseModel):
@@ -23,7 +23,7 @@ class APIKey(BaseModel):
     last_used_at: datetime | None = None
 
     class Config:
-        json_schema_extra = {
+        json_schema_extra: ClassVar = {
             "example": {
                 "key_id": "key_123abc",
                 "key": "vpm_sk_1234567890abcdef",
@@ -47,7 +47,7 @@ class User(BaseModel):
     profile: dict[str, Any] | None = Field(default_factory=dict)
 
     class Config:
-        json_schema_extra = {
+        json_schema_extra: ClassVar = {
             "example": {
                 "user_id": "user_123",
                 "email": "user@example.com",

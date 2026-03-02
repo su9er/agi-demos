@@ -11,6 +11,8 @@ Pooled Agent Session Adapter.
 4. 逐步迁移，支持特性开关控制
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
@@ -355,10 +357,42 @@ class PooledAgentSessionAdapter:
         """预热池."""
         logger.info("[PooledAgentSessionAdapter] Prewarming pool...")
 
-        # TODO: 实现基于历史数据的预热逻辑
-        # 1. 查询最近活跃的项目
-        # 2. 为高频项目预创建实例
+        # Prewarm based on historical data from pool manager instances
+        if self._pool_manager is None:
+            logger.info("[PooledAgentSessionAdapter] Pool manager not available, skipping prewarm")
+            return
 
+        # Scan existing instances for recently active projects
+        active_projects: list[tuple[str, str, str]] = []
+        for instance in self._pool_manager._instances.values():
+            metrics = instance.metrics
+            if metrics.total_requests > 0:
+                active_projects.append((
+                    instance.config.tenant_id,
+                    instance.config.project_id,
+                    instance.config.agent_mode,
+                ))
+
+        # Pre-create instances for recently active projects
+        prewarmed_count = 0
+        for tenant_id, project_id, agent_mode in active_projects:
+            try:
+                await self._pool_manager.get_or_create_instance(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    agent_mode=agent_mode,
+                )
+                prewarmed_count += 1
+            except Exception as e:
+                logger.warning(
+                    f"[PooledAgentSessionAdapter] Prewarm failed: "
+                    f"project={project_id}, error={e}"
+                )
+
+        logger.info(
+            f"[PooledAgentSessionAdapter] Prewarmed {prewarmed_count} "
+            f"instances from {len(active_projects)} active projects"
+        )
         logger.info("[PooledAgentSessionAdapter] Prewarm complete")
 
     async def classify_project(

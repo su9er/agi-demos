@@ -61,7 +61,6 @@ async def init_ray_if_needed() -> bool:
                 namespace=settings.ray_namespace,
                 log_to_driver=settings.ray_log_to_driver,
                 ignore_reinit_error=True,
-                allow_multiple=True,
             )
             _ray_available = True
             logger.info("[Ray] Connected to Ray cluster at %s", settings.ray_address)

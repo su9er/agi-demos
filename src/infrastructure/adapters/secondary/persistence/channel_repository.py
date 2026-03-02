@@ -4,9 +4,9 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.engine import CursorResult
 
 from src.infrastructure.adapters.secondary.persistence.channel_models import (
     ChannelConfigModel,

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from src.application.services.channels.media_import_service import MediaImportService
+    from src.infrastructure.agent.channels.channel_router import ChannelRouter
 
 logger = logging.getLogger(__name__)
 
@@ -78,10 +79,15 @@ class ChannelMessageRouter:
         # 3. Trigger agent processing
     """
 
-    def __init__(self, media_import_service: MediaImportService | None = None) -> None:
+    def __init__(
+        self,
+        media_import_service: MediaImportService | None = None,
+        infra_channel_router: ChannelRouter | None = None,
+    ) -> None:
         self._chat_to_conversation: collections.OrderedDict[str, str] = collections.OrderedDict()
         self._rate_limiter = _SlidingWindowRateLimiter()
         self._media_import_service = media_import_service
+        self._infra_router = infra_channel_router
 
     async def route_message(self, message: Message) -> None:
         """Route an incoming channel message to the agent system.
@@ -391,9 +397,14 @@ class ChannelMessageRouter:
 
         session_key = self._build_session_key(message, channel_config_id)
 
-        # Check cache first
+        # Check in-memory caches first
         if session_key in self._chat_to_conversation:
             return self._chat_to_conversation[session_key]
+        if self._infra_router:
+            cached = self._infra_router.conversation_for_channel(session_key)
+            if cached:
+                self._cache_conversation(session_key, cached)
+                return cached
 
         # Look up or create conversation in database
         try:
@@ -412,6 +423,10 @@ class ChannelMessageRouter:
 
                 if conversation_id:
                     self._cache_conversation(session_key, conversation_id)
+                    if self._infra_router:
+                        self._infra_router.set_channel_mapping(
+                            session_key, conversation_id
+                        )
 
                 return conversation_id
 

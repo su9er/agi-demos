@@ -571,3 +571,212 @@ class TestRecreateSandboxLifecycleFixes:
         assert calls[0].kwargs["tool_name"] == "mcp_server_install"
         assert calls[1].kwargs["tool_name"] == "mcp_server_start"
         assert calls[0].kwargs["arguments"]["name"] == "snake-game"
+
+
+@pytest.mark.unit
+class TestWorkspaceRestoreOnCreate:
+    """Tests for workspace restore during sandbox creation/recreation."""
+
+    @pytest.fixture
+    def mock_repository(self):
+        """Create mock repository."""
+        repo = MagicMock()
+        repo.save = AsyncMock()
+        repo.find_by_project = AsyncMock(return_value=None)
+        repo.find_by_id = AsyncMock(return_value=None)
+        repo.find_by_sandbox = AsyncMock(return_value=None)
+        repo.find_by_tenant = AsyncMock(return_value=[])
+        repo.find_stale = AsyncMock(return_value=[])
+        repo.delete = AsyncMock(return_value=True)
+        repo.delete_by_project = AsyncMock(return_value=True)
+        repo.exists_for_project = AsyncMock(return_value=False)
+        repo.acquire_project_lock = AsyncMock(return_value=True)
+        repo.release_project_lock = AsyncMock()
+        repo.find_and_lock_by_project = AsyncMock(return_value=None)
+        return repo
+
+    @pytest.fixture
+    def mock_adapter(self):
+        """Create mock sandbox adapter."""
+        adapter = MagicMock()
+        adapter.create_sandbox = AsyncMock()
+        adapter.terminate_sandbox = AsyncMock()
+        adapter.get_sandbox = AsyncMock(return_value=None)
+        adapter.health_check = AsyncMock(return_value=True)
+        adapter.call_tool = AsyncMock(return_value={"content": [], "is_error": False})
+        adapter.connect_mcp = AsyncMock(return_value=True)
+        adapter.container_exists = AsyncMock(return_value=True)
+        adapter.cleanup_project_containers = AsyncMock(return_value=0)
+        return adapter
+
+    @pytest.fixture
+    def mock_workspace_sync(self):
+        """Create mock WorkspaceSyncService."""
+        ws = MagicMock()
+        ws.post_create_restore = AsyncMock()
+        ws.pre_destroy_sync = AsyncMock()
+        return ws
+
+    @pytest.fixture
+    def service_with_sync(self, mock_repository, mock_adapter, mock_workspace_sync):
+        """Create service with workspace sync enabled."""
+        return ProjectSandboxLifecycleService(
+            repository=mock_repository,
+            sandbox_adapter=mock_adapter,
+            default_profile=SandboxProfileType.STANDARD,
+            health_check_interval_seconds=60,
+            auto_recover=True,
+            workspace_sync=mock_workspace_sync,
+        )
+
+    @pytest.fixture
+    def service_without_sync(self, mock_repository, mock_adapter):
+        """Create service without workspace sync (backward compat)."""
+        return ProjectSandboxLifecycleService(
+            repository=mock_repository,
+            sandbox_adapter=mock_adapter,
+            default_profile=SandboxProfileType.STANDARD,
+            health_check_interval_seconds=60,
+            auto_recover=True,
+        )
+
+    async def test_create_new_sandbox_calls_post_create_restore(
+        self, service_with_sync, mock_adapter, mock_workspace_sync
+    ) -> None:
+        """_create_new_sandbox should call post_create_restore when workspace_sync is set."""
+        mock_instance = MagicMock()
+        mock_instance.id = "sb-new-123"
+        mock_instance.status = SandboxStatus.RUNNING
+        mock_instance.endpoint = "ws://localhost:8765"
+        mock_instance.websocket_url = "ws://localhost:8765"
+        mock_adapter.create_sandbox.return_value = mock_instance
+
+        await service_with_sync._create_new_sandbox(
+            project_id="proj-1",
+            tenant_id="tenant-1",
+        )
+
+        mock_workspace_sync.post_create_restore.assert_awaited_once_with(
+            sandbox_id="sb-new-123",
+            project_id="proj-1",
+            tenant_id="tenant-1",
+        )
+
+    async def test_create_new_sandbox_skips_restore_when_no_sync(
+        self, service_without_sync, mock_adapter
+    ) -> None:
+        """_create_new_sandbox should work without workspace_sync (backward compat)."""
+        mock_instance = MagicMock()
+        mock_instance.id = "sb-new-456"
+        mock_instance.status = SandboxStatus.RUNNING
+        mock_instance.endpoint = "ws://localhost:8765"
+        mock_instance.websocket_url = "ws://localhost:8765"
+        mock_adapter.create_sandbox.return_value = mock_instance
+
+        # Should not raise even without workspace_sync
+        result = await service_without_sync._create_new_sandbox(
+            project_id="proj-1",
+            tenant_id="tenant-1",
+        )
+        assert result is not None
+
+    async def test_create_new_sandbox_survives_restore_failure(
+        self, service_with_sync, mock_adapter, mock_workspace_sync
+    ) -> None:
+        """_create_new_sandbox should not fail if post_create_restore raises."""
+        mock_instance = MagicMock()
+        mock_instance.id = "sb-new-789"
+        mock_instance.status = SandboxStatus.RUNNING
+        mock_instance.endpoint = "ws://localhost:8765"
+        mock_instance.websocket_url = "ws://localhost:8765"
+        mock_adapter.create_sandbox.return_value = mock_instance
+
+        mock_workspace_sync.post_create_restore.side_effect = RuntimeError("S3 unavailable")
+
+        # Should succeed despite restore failure
+        result = await service_with_sync._create_new_sandbox(
+            project_id="proj-1",
+            tenant_id="tenant-1",
+        )
+        assert result is not None
+        mock_workspace_sync.post_create_restore.assert_awaited_once()
+
+    async def test_recreate_sandbox_calls_post_create_restore(
+        self, service_with_sync, mock_adapter, mock_workspace_sync
+    ) -> None:
+        """_recreate_sandbox should call post_create_restore when workspace_sync is set."""
+        import asyncio
+        from unittest.mock import patch
+
+        association = ProjectSandbox(
+            id="assoc-1",
+            project_id="proj-1",
+            tenant_id="tenant-1",
+            sandbox_id="sb-old",
+            status=ProjectSandboxStatus.UNHEALTHY,
+            created_at=datetime.now(UTC),
+        )
+
+        mock_instance = MagicMock()
+        mock_instance.id = "sb-old"
+        mock_instance.status = "running"
+        mock_adapter.create_sandbox.return_value = mock_instance
+
+        spawned_tasks = []
+        original_create_task = asyncio.create_task
+
+        def capture_task(coro, **kwargs):
+            task = original_create_task(coro, **kwargs)
+            spawned_tasks.append(task)
+            return task
+
+        with patch("asyncio.create_task", side_effect=capture_task):
+            await service_with_sync._recreate_sandbox(association)
+
+        # Allow background tasks to complete
+        await asyncio.gather(*spawned_tasks, return_exceptions=True)
+
+        mock_workspace_sync.post_create_restore.assert_awaited_once_with(
+            sandbox_id="sb-old",
+            project_id="proj-1",
+            tenant_id="tenant-1",
+        )
+
+    async def test_recreate_sandbox_survives_restore_failure(
+        self, service_with_sync, mock_adapter, mock_workspace_sync
+    ) -> None:
+        """_recreate_sandbox should not fail if post_create_restore raises."""
+        import asyncio
+        from unittest.mock import patch
+
+        association = ProjectSandbox(
+            id="assoc-2",
+            project_id="proj-2",
+            tenant_id="tenant-2",
+            sandbox_id="sb-old-2",
+            status=ProjectSandboxStatus.UNHEALTHY,
+            created_at=datetime.now(UTC),
+        )
+
+        mock_instance = MagicMock()
+        mock_instance.id = "sb-old-2"
+        mock_instance.status = "running"
+        mock_adapter.create_sandbox.return_value = mock_instance
+
+        mock_workspace_sync.post_create_restore.side_effect = RuntimeError("disk full")
+
+        spawned_tasks = []
+        original_create_task = asyncio.create_task
+
+        def capture_task(coro, **kwargs):
+            task = original_create_task(coro, **kwargs)
+            spawned_tasks.append(task)
+            return task
+
+        with patch("asyncio.create_task", side_effect=capture_task):
+            result = await service_with_sync._recreate_sandbox(association)
+
+        await asyncio.gather(*spawned_tasks, return_exceptions=True)
+
+        assert result is not None
+        mock_workspace_sync.post_create_restore.assert_awaited_once()

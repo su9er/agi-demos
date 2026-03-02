@@ -1,5 +1,7 @@
 """Feishu (Lark) channel adapter implementation."""
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import json
@@ -510,9 +512,107 @@ class FeishuAdapter:
         return HITLCardBuilder().build_responded_card(hitl_type, selected_label)
 
     async def _connect_webhook(self) -> None:
-        """Connect via Webhook (HTTP server mode)."""
-        logger.warning("[Feishu] Webhook mode not yet implemented")
-        # TODO: Implement HTTP server for receiving webhooks
+        """Connect via Webhook (HTTP server mode).
+
+        Starts a lightweight FastAPI/uvicorn HTTP server that receives
+        Feishu webhook events.  The server runs in a background asyncio
+        task so it does not block the caller.
+
+        Configuration is read from ``self._config``:
+        - ``webhook_port`` (default 9321)
+        - ``webhook_path`` (default ``/webhook/feishu``)
+        - ``verification_token`` / ``encrypt_key`` for request verification
+        """
+        from src.infrastructure.adapters.secondary.channels.feishu.webhook import (
+            FeishuWebhookHandler,
+        )
+
+        port = self._config.webhook_port or 9321
+        path = self._config.webhook_path or "/webhook/feishu"
+
+        handler = FeishuWebhookHandler(
+            verification_token=self._config.verification_token,
+            encrypt_key=self._config.encrypt_key,
+        )
+
+        # Forward all known event types to _handle_ws_event which already
+        # parses incoming payloads and dispatches to message handlers.
+        handler.register_handler(
+            "im.message.receive_v1",
+            self._on_webhook_event,
+        )
+
+        try:
+            import uvicorn
+            from fastapi import FastAPI, Request as FastAPIRequest
+
+            app = FastAPI(title="Feishu Webhook Receiver")
+
+            @app.post(path)
+            async def _webhook_endpoint(request: FastAPIRequest) -> dict[str, Any]:
+                return await handler.handle_request(request)
+
+            config = uvicorn.Config(
+                app,
+                host="0.0.0.0",
+                port=port,
+                log_level="warning",
+            )
+            server = uvicorn.Server(config)
+
+            task = asyncio.create_task(server.serve())
+            _ws_bg_tasks.add(task)
+            task.add_done_callback(_ws_bg_tasks.discard)
+
+            logger.info(
+                "[Feishu] Webhook server started on port %d at path %s",
+                port,
+                path,
+            )
+        except ImportError:
+            logger.error(
+                "[Feishu] uvicorn is required for webhook mode. "
+                "Install it with: pip install uvicorn"
+            )
+            raise
+
+    def _on_webhook_event(self, event_data: dict[str, Any]) -> None:
+        """Bridge webhook event payload to the existing message handler pipeline.
+
+        The *event_data* dict is the ``event`` section of a Feishu webhook
+        callback body.  It contains ``message`` and ``sender`` sub-dicts that
+        mirror the SDK object attributes used by :meth:`_on_message_received`.
+        """
+        try:
+            message_data = event_data.get("message", {})
+            sender_data = event_data.get("sender", {})
+            message_id = message_data.get("message_id")
+            if not message_id:
+                logger.warning("[Feishu] Webhook event has no message_id, skipping")
+                return
+
+            # Deduplication (shared with WS path)
+            if message_id in self._message_history:
+                return
+            self._message_history[message_id] = True
+            if len(self._message_history) > 10000:
+                oldest = next(iter(self._message_history))
+                del self._message_history[oldest]
+
+            sender_dict = {
+                "sender_id": sender_data.get("sender_id"),
+                "sender_type": sender_data.get("sender_type", "user"),
+            }
+
+            message = self._parse_message(message_data, sender_dict)
+            for handler in self._message_handlers:
+                try:
+                    handler(message)
+                except Exception as exc:
+                    logger.error("[Feishu] Message handler error: %s", exc)
+        except Exception as exc:
+            logger.error("[Feishu] Error processing webhook event: %s", exc)
+            self._handle_error(exc)
 
     def _parse_message(self, message_data: dict[str, Any], sender_data: dict[str, Any]) -> Message:
         """Parse Feishu message to unified format."""

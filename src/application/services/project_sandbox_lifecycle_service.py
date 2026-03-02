@@ -1,3 +1,38 @@
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, cast
+
+from sqlalchemy.exc import IntegrityError
+
+from src.application.services.sandbox_profile import (
+    SandboxProfileType,
+    get_profile as get_sandbox_profile,
+)
+from src.domain.model.sandbox.exceptions import SandboxLockTimeoutError
+from src.domain.model.sandbox.project_sandbox import (
+    ProjectSandbox,
+    ProjectSandboxStatus,
+)
+from src.domain.ports.repositories.project_sandbox_repository import (
+    ProjectSandboxRepository,
+)
+from src.domain.ports.services.distributed_lock_port import DistributedLockPort
+from src.domain.ports.services.sandbox_port import (
+    SandboxConfig,
+    SandboxNotFoundError,
+    SandboxStatus,
+)
+from src.domain.ports.services.sandbox_resource_port import SandboxResourcePort
+from src.infrastructure.adapters.secondary.sandbox.mcp_sandbox_adapter import (
+    MCPSandboxAdapter,
+)
+
 """Project Sandbox Lifecycle Service.
 
 Manages the lifecycle of project-dedicated sandboxes:
@@ -13,31 +48,8 @@ Threading Safety:
 - Handles unique constraint violations with retry mechanism
 """
 
-import asyncio
-import contextlib
-import logging
-import uuid
-from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Any, cast
-
-from sqlalchemy.exc import IntegrityError
-
-from src.application.services.sandbox_profile import (
-    SandboxProfileType,
-    get_profile as get_sandbox_profile,
-)
-from src.domain.model.sandbox.exceptions import SandboxLockTimeoutError
-from src.domain.model.sandbox.project_sandbox import ProjectSandbox, ProjectSandboxStatus
-from src.domain.ports.repositories.project_sandbox_repository import ProjectSandboxRepository
-from src.domain.ports.services.distributed_lock_port import DistributedLockPort
-from src.domain.ports.services.sandbox_port import (
-    SandboxConfig,
-    SandboxNotFoundError,
-    SandboxStatus,
-)
-from src.domain.ports.services.sandbox_resource_port import SandboxResourcePort
-from src.infrastructure.adapters.secondary.sandbox.mcp_sandbox_adapter import MCPSandboxAdapter
+if TYPE_CHECKING:
+    from src.application.services.workspace_sync_service import WorkspaceSyncService
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +138,7 @@ class ProjectSandboxLifecycleService:
         cpu_limit_override: str | None = None,
         host_source_volume: dict[str, str] | None = None,
         host_memstack_volume: dict[str, str] | None = None,
+        workspace_sync: WorkspaceSyncService | None = None,
     ) -> None:
         """Initialize the lifecycle service.
 
@@ -141,6 +154,8 @@ class ProjectSandboxLifecycleService:
             cpu_limit_override: Override for CPU limit (e.g. from config)
             host_source_volume: Host source volume mount (ro) (host_path -> container_path)
             host_memstack_volume: .memstack rw mount (host_path -> container_path)
+            workspace_sync: Optional workspace sync service for post-create restore.
+                If provided, workspace state is restored after sandbox creation.
         """
         self._repository = repository
         self._adapter = sandbox_adapter
@@ -152,6 +167,7 @@ class ProjectSandboxLifecycleService:
         self._cpu_limit_override = cpu_limit_override
         self._host_source_volume = host_source_volume
         self._host_memstack_volume = host_memstack_volume
+        self._workspace_sync = workspace_sync
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
         # Per-project locks to prevent concurrent sandbox creation for the same project
@@ -704,12 +720,15 @@ class ProjectSandboxLifecycleService:
         self,
         max_idle_seconds: int = 3600,
         dry_run: bool = False,
+        workspace_sync: WorkspaceSyncService | None = None,
     ) -> list[str]:
         """Clean up sandboxes that haven't been accessed recently.
 
         Args:
             max_idle_seconds: Maximum idle time before cleanup
             dry_run: If True, only return IDs without terminating
+            workspace_sync: Optional workspace sync service for pre-destroy hooks.
+                If provided, workspace state is persisted before each termination.
 
         Returns:
             List of terminated sandbox IDs
@@ -723,6 +742,21 @@ class ProjectSandboxLifecycleService:
         for association in stale:
             if not dry_run:
                 try:
+                    # Pre-destroy workspace sync (if configured)
+                    if workspace_sync is not None:
+                        try:
+                            await workspace_sync.pre_destroy_sync(
+                                sandbox_id=association.sandbox_id,
+                                project_id=association.project_id,
+                                tenant_id=association.tenant_id,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Workspace sync failed for sandbox %s, "
+                                "proceeding with termination",
+                                association.sandbox_id,
+                                exc_info=True,
+                            )
                     await self._adapter.terminate_sandbox(association.sandbox_id)
                     association.mark_terminated()
                     await self._repository.save(association)
@@ -829,6 +863,21 @@ class ProjectSandboxLifecycleService:
             except Exception as e:
                 logger.warning(f"Failed to connect MCP for {instance.id}: {e}")
 
+            # Restore workspace state from manifest (if workspace_sync is available)
+            if self._workspace_sync is not None:
+                try:
+                    await self._workspace_sync.post_create_restore(
+                        sandbox_id=instance.id,
+                        project_id=project_id,
+                        tenant_id=tenant_id,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to restore workspace for sandbox %s: %s",
+                        instance.id,
+                        e,
+                    )
+
             logger.info(f"Created new sandbox {instance.id} for project {project_id}")
             return await self._get_sandbox_info(association)
 
@@ -931,6 +980,21 @@ class ProjectSandboxLifecycleService:
             )
             self._background_tasks.add(_reinstall_task)
             _reinstall_task.add_done_callback(self._background_tasks.discard)
+
+            # Restore workspace state from manifest (if workspace_sync is available)
+            if self._workspace_sync is not None:
+                try:
+                    await self._workspace_sync.post_create_restore(
+                        sandbox_id=instance.id,
+                        project_id=association.project_id,
+                        tenant_id=association.tenant_id,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to restore workspace for recreated sandbox %s: %s",
+                        instance.id,
+                        e,
+                    )
 
             logger.info(
                 f"Recreated sandbox for project {association.project_id}: "

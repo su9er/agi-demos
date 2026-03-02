@@ -11,8 +11,8 @@ from typing import Any, Literal, cast
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.auth.user import User
 from src.infrastructure.adapters.primary.web.dependencies import (

@@ -7,7 +7,7 @@ Logs provider CRUD operations, configuration changes, and tenant assignments.
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -33,6 +33,7 @@ class AuditLogEntry(BaseModel):
     user_agent: str | None = None
 
     class Config:
+        json_encoders: ClassVar = {datetime: lambda v: v.isoformat()}
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 

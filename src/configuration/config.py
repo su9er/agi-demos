@@ -264,8 +264,8 @@ class Settings(BaseSettings):
         default="sandbox-mcp-server:latest", alias="SANDBOX_DEFAULT_IMAGE"
     )
     sandbox_workspace_base: str = Field(
-        default="/tmp/memstack-sandbox", alias="SANDBOX_WORKSPACE_BASE"
-    )  # Base directory for sandbox workspaces (use /tmp for macOS compatibility)
+        default="/var/lib/memstack/workspaces", alias="SANDBOX_WORKSPACE_BASE"
+    )  # Base directory for sandbox workspaces (persistent storage)
     sandbox_timeout_seconds: int = Field(
         default=300, alias="SANDBOX_TIMEOUT_SECONDS"
     )  # Increased from 60 to 300 (5 minutes)
@@ -288,6 +288,30 @@ class Settings(BaseSettings):
         default="/workspace/.memstack",
         alias="SANDBOX_HOST_MEMSTACK_MOUNT_POINT",
     )  # Container path where .memstack is mounted (read-write overlay)
+
+    # Workspace Persistence Settings
+    workspace_sync_enabled: bool = Field(default=True, alias="WORKSPACE_SYNC_ENABLED")
+    workspace_sync_interval_seconds: int = Field(
+        default=300, alias="WORKSPACE_SYNC_INTERVAL_SECONDS"
+    )  # Periodic sync interval (0 to disable)
+    workspace_s3_backup_enabled: bool = Field(
+        default=False, alias="WORKSPACE_S3_BACKUP_ENABLED"
+    )
+    workspace_s3_bucket: str = Field(
+        default="memstack-workspaces", alias="WORKSPACE_S3_BUCKET"
+    )
+    sandbox_pip_cache_enabled: bool = Field(
+        default=True, alias="SANDBOX_PIP_CACHE_ENABLED"
+    )
+    sandbox_pip_cache_path: str = Field(
+        default="", alias="SANDBOX_PIP_CACHE_PATH"
+    )
+    sandbox_idle_timeout_seconds: int = Field(
+        default=1800, alias="SANDBOX_IDLE_TIMEOUT_SECONDS"
+    )  # Auto-destroy idle sandboxes after this many seconds (0 to disable)
+    sandbox_idle_check_interval_seconds: int = Field(
+        default=60, alias="SANDBOX_IDLE_CHECK_INTERVAL_SECONDS"
+    )  # How often the idle reaper checks for stale sandboxes
 
     # Agent Skill System (L2 Layer) Settings
     # Threshold for skill prompt injection (0.5 = medium match score)
@@ -428,6 +452,16 @@ class Settings(BaseSettings):
         if normalized in {"auto", "ray", "local"}:
             return normalized
         raise ValueError("AGENT_RUNTIME_MODE must be one of: auto, ray, local")
+
+    @field_validator("sandbox_pip_cache_path", mode="before")
+    @classmethod
+    def resolve_sandbox_pip_cache_path(cls, value: str | None) -> str:
+        """Resolve pip cache path, defaulting to a user-writable location."""
+        if value:
+            return value
+        from pathlib import Path
+
+        return str(Path.home() / ".memstack" / "pip-cache")
 
     @property
     def postgres_url(self) -> str:

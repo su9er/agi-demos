@@ -1,5 +1,10 @@
 from typing import Any, cast
 
+from src.infrastructure.agent.llm.token_sampler import (
+    BatchLogBuffer,
+    TokenDeltaSampler,
+)
+
 """
 LLM streaming utilities for ReActAgent.
 
@@ -8,14 +13,9 @@ This package provides unified streaming interface for LLM responses:
 - Tool calls (function calling)
 - Reasoning/thinking tokens
 - Token usage tracking
-- Provider-specific metadata handling
-- High-level LLM invocation with retry (LLMInvoker)
+    - Provider-specific metadata handling
+    - High-level LLM invocation with retry (LLMInvoker)
 """
-
-from src.infrastructure.agent.llm.token_sampler import (
-    BatchLogBuffer,
-    TokenDeltaSampler,
-)
 
 __all__ = [
     "BatchLogBuffer",
@@ -34,7 +34,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> object:
     """Lazy import components to avoid circular imports."""
     # LLM stream components
     if name in (

@@ -504,7 +504,6 @@ class ContainerBackend(Backend):
         timeout: int = 60,
     ) -> None:
         """Wait for container agent to be ready."""
-        import aiohttp
 
         start_time = time.time()
         url = f"http://{container_info.health_endpoint}/health"
@@ -527,7 +526,7 @@ class ContainerBackend(Backend):
 
         raise TimeoutError(f"Container not ready after {timeout}s: {container_info.container_id}")
 
-    async def _get_grpc_client(self, instance_id: str) -> Any:
+    async def _get_grpc_client(self, instance_id: str) -> object:
         """Get or create gRPC client for instance."""
         if instance_id in self._grpc_clients:
             return cast(None, self._grpc_clients[instance_id])
@@ -571,7 +570,6 @@ class _HttpFallbackClient:
 
     async def Shutdown(self, graceful: bool, timeout_seconds: int) -> dict[str, Any]:
         """Send shutdown via HTTP."""
-        import aiohttp
 
         async with aiohttp.ClientSession() as session:
             url = f"http://{self.health_endpoint}/shutdown"
@@ -588,7 +586,6 @@ class _HttpFallbackClient:
         context: dict[str, str] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Execute via HTTP streaming."""
-        import aiohttp
 
         async with aiohttp.ClientSession() as session:
             url = f"http://{self.health_endpoint}/execute"

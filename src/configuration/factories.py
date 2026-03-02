@@ -6,7 +6,6 @@ for each provider, and the NativeGraphAdapter for knowledge graph operations.
 """
 
 import logging
-
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -62,7 +61,6 @@ async def create_native_graph_adapter(
     # Create embedding service via factory
     factory = get_ai_service_factory()
     # For embedding, we need the provider config first
-    # TODO: Pass project_id if available, currently using default
     provider_config = await factory.resolve_provider(
         tenant_id=tenant_id,
         operation_type=OperationType.EMBEDDING,
@@ -74,7 +72,10 @@ async def create_native_graph_adapter(
     # Let's check if LiteLLMEmbedder is an EmbeddingService or needs wrapping.
     # Looking at provider_factory.py, create_embedder returns LiteLLMEmbedder.
     # Looking at old code, it wrapped it: embedding_service = EmbeddingService(embedder=embedder)
-    from src.infrastructure.graph.embedding.embedding_service import EmbedderProtocol, EmbeddingService
+    from src.infrastructure.graph.embedding.embedding_service import (
+        EmbedderProtocol,
+        EmbeddingService,
+    )
 
     embedding_service = EmbeddingService(embedder=cast(EmbedderProtocol, embedder))
 

@@ -39,6 +39,42 @@ from src.infrastructure.agent.state.agent_worker_state import get_redis_client
 logger = logging.getLogger(__name__)
 _background_tasks: set[asyncio.Task[Any]] = set()
 
+
+async def _run_session_lifecycle(project_id: str) -> None:
+    """Fire-and-forget: run session lifecycle maintenance."""
+    try:
+        from src.infrastructure.adapters.secondary.persistence.sql_conversation_repository import (
+            SqlConversationRepository,
+        )
+        from src.infrastructure.adapters.secondary.persistence.sql_message_repository import (
+            SqlMessageRepository,
+        )
+        from src.infrastructure.agent.session.lifecycle import (
+            SessionLifecycleManager,
+        )
+
+        async with async_session_factory() as session:
+            conversation_repo = SqlConversationRepository(session)
+            message_repo = SqlMessageRepository(session)
+            manager = SessionLifecycleManager(
+                conversation_repo=conversation_repo,
+                message_repo=message_repo,
+            )
+            result = await manager.run_lifecycle(project_id)
+            await session.commit()
+            logger.info(
+                "[Lifecycle] project=%s trimmed=%d archived=%d gc=%d",
+                project_id,
+                sum(t.messages_before - t.messages_after for t in result.trim_results),
+                result.archive_result.archived_count if result.archive_result else 0,
+                result.gc_result.deleted_count if result.gc_result else 0,
+            )
+    except Exception:
+        logger.exception(
+            "[Lifecycle] Failed for project=%s",
+            project_id,
+        )
+
 # Flush accumulated events to DB every N seconds during streaming,
 # so they survive service restarts.
 _PERSIST_INTERVAL_SECONDS = 30
@@ -441,6 +477,13 @@ async def execute_project_chat(
 
         execution_time_ms = (time_module.time() - start_time) * 1000
         _record_chat_metrics(agent.config.project_id, execution_time_ms, ss.is_error)
+
+        # Fire-and-forget: session lifecycle maintenance
+        _task = asyncio.create_task(
+            _run_session_lifecycle(agent.config.project_id)
+        )
+        _background_tasks.add(_task)
+        _task.add_done_callback(_background_tasks.discard)
 
         return ProjectChatResult(
             conversation_id=request.conversation_id,

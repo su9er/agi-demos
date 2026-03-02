@@ -152,6 +152,11 @@ export interface ProjectSettingsDangerProps {
   onDelete: () => Promise<void>;
 }
 
+// Sandbox Section
+export interface ProjectSettingsSandboxProps {
+  projectId: string;
+}
+
 // No Project State
 export type ProjectSettingsNoProjectProps = Record<string, never>;
 

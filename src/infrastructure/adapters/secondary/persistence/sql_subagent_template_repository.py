@@ -10,8 +10,8 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import delete, func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.ports.repositories.subagent_template_repository import (
     SubAgentTemplateRepositoryPort,

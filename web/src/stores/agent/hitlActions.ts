@@ -11,7 +11,7 @@ import { tabSync } from '../../utils/tabSync';
 
 import { createStreamEventHandlers } from './streamEventHandlers';
 
-import type { DeltaBufferState } from './streamEventHandlers';
+import type { DeltaBufferState } from './deltaBuffers';
 import type { AgentStreamHandler, TimelineEvent } from '../../types/agent';
 
 /**

@@ -67,6 +67,7 @@ def _resolve_execute_method(
         ("_arun", True),
         ("_run", False),
         ("run", False),
+        ("__call__", True),  # Support plugin tools that only implement __call__
     ]
     for attr, is_async in method_candidates:
         method = getattr(tool_instance, attr, None)

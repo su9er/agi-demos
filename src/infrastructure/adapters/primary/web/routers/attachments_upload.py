@@ -21,7 +21,7 @@ from src.domain.model.agent.attachment import (
     AttachmentPurpose,
     AttachmentStatus,
 )
-from src.domain.ports.services.storage_service_port import PartUploadResult
+from src.domain.ports.services.storage_service_port import PartUploadResult, StorageServicePort
 from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user,
     get_current_user_tenant,
@@ -40,7 +40,7 @@ router = APIRouter(prefix="/api/v1/attachments", tags=["attachments"])
 _storage_service = None
 
 
-def _get_storage_service() -> Any:
+def _get_storage_service() -> StorageServicePort:
     """Get or create the storage service singleton (stateless)."""
     global _storage_service
     if _storage_service is None:

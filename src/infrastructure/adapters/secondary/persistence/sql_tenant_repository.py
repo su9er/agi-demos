@@ -4,8 +4,6 @@ V2 SQLAlchemy implementation of TenantRepository using BaseRepository.
 
 import logging
 import re
-from typing import Any
-import re
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,7 +50,7 @@ class SqlTenantRepository(BaseRepository[Tenant, DBTenant], TenantRepository):
         db_tenant = result.scalar_one_or_none()
         return self._to_domain(db_tenant)
 
-    async def list_all(self, limit: int = 50, offset: int = 0, **filters: Any) -> list[Tenant]:
+    async def list_all(self, limit: int = 50, offset: int = 0, **filters: object) -> list[Tenant]:
         """List all tenants with pagination."""
         return await super().list_all(limit=limit, offset=offset, **filters)
 

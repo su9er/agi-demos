@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { message } from 'antd';
 import {
   MessageSquare,
   Send,
@@ -51,7 +52,7 @@ export const Support: React.FC = () => {
 
   // New ticket form
   const [subject, setSubject] = useState('');
-  const [message, setMessage] = useState('');
+  const [ticketMessage, setTicketMessage] = useState('');
   const [priority, setPriority] = useState('medium');
 
   const loadTickets = useCallback(async () => {
@@ -78,8 +79,8 @@ export const Support: React.FC = () => {
   const handleSubmitTicket = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!subject.trim() || !message.trim()) {
-      alert(t('project.support.form.subject_placeholder')); // Using placeholder as error message for now
+    if (!subject.trim() || !ticketMessage.trim()) {
+      message.warning(t('project.support.form.subject_placeholder'));
       return;
     }
 
@@ -88,23 +89,23 @@ export const Support: React.FC = () => {
       await api.post('/support/tickets', {
         tenant_id: currentTenant?.id,
         subject,
-        message,
+        message: ticketMessage,
         priority,
       });
 
       // Reset form
       setSubject('');
-      setMessage('');
+      setTicketMessage('');
       setPriority('medium');
       setShowNewTicket(false);
 
       // Reload tickets
       await loadTickets();
 
-      alert('Ticket submitted successfully!'); // TODO: Add to locale if needed
+      message.success(t('project.support.messages.submit_success'));
     } catch (error) {
       console.error('Failed to submit ticket:', error);
-      alert('Failed to submit ticket');
+      message.error(t('project.support.messages.submit_fail'));
     } finally {
       setIsSubmitting(false);
     }
@@ -118,7 +119,7 @@ export const Support: React.FC = () => {
       await loadTickets();
     } catch (error) {
       console.error('Failed to close ticket:', error);
-      alert(t('project.support.messages.close_fail'));
+      message.error(t('project.support.messages.close_fail'));
     }
   };
 
@@ -320,9 +321,9 @@ export const Support: React.FC = () => {
                 {t('project.support.form.message')}
               </label>
               <textarea
-                value={message}
+                value={ticketMessage}
                 onChange={(e) => {
-                  setMessage(e.target.value);
+                  setTicketMessage(e.target.value);
                 }}
                 rows={6}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"

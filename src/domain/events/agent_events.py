@@ -21,6 +21,7 @@ __all__ = [
     "AgentArtifactCloseEvent",
     "AgentArtifactOpenEvent",
     "AgentArtifactUpdateEvent",
+    "AgentCanvasUpdatedEvent",
     "AgentDomainEvent",
     "AgentElicitationAnsweredEvent",
     "AgentElicitationAskedEvent",
@@ -809,6 +810,20 @@ class AgentMemoryCapturedEvent(AgentDomainEvent):
 
 
 # =========================================================================
+# Canvas Events (A2UI dynamic UI blocks)
+# =========================================================================
+
+
+class AgentCanvasUpdatedEvent(AgentDomainEvent):
+    """Event: Canvas block created, updated, or deleted."""
+
+    event_type: AgentEventType = AgentEventType.CANVAS_UPDATED
+    conversation_id: str
+    block_id: str
+    action: str  # "created", "updated", "deleted"
+    block: dict[str, Any] | None = None  # Serialised CanvasBlock (None for delete)
+
+
 # Event Type Utilities
 # =========================================================================
 
@@ -869,6 +884,7 @@ def get_event_type_docstring() -> str:
         AgentArtifactCloseEvent,
         AgentMemoryRecalledEvent,
         AgentMemoryCapturedEvent,
+        AgentCanvasUpdatedEvent,
     ]:
         docs.append(f"{event_class.event_type.value}: {event_class.__doc__}")  # type: ignore[attr-defined]
 

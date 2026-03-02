@@ -34,7 +34,7 @@ class FakeTool:
         Callable[..., Coroutine[Any, Any, ToolResult | str | dict | list | None]] | None
     ) = None
 
-    async def execute(self, **kwargs: Any) -> Any:  # noqa: ANN401
+    async def execute(self, **kwargs: Any) -> Any:
         if self._execute_fn:
             return await self._execute_fn(**kwargs)
         return ToolResult(output="ok")
