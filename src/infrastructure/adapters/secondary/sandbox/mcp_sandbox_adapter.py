@@ -2681,11 +2681,17 @@ class MCPSandboxAdapter(SandboxPort):
                 # Update activity after successful call
                 await self.update_activity(sandbox_id)
 
-                return {
+                base_result: dict[str, Any] = {
                     "content": result.content,
                     "is_error": result.isError,
-                    "artifact": result.artifact,  # Preserve artifact data from export_artifact
+                    "artifact": getattr(result, "artifact", None),
                 }
+                # Preserve extra fields from MCP result
+                # (e.g., "results" and "errors" for batch_export_artifacts)
+                extra = getattr(result, "model_extra", None)
+                if extra:
+                    base_result.update(extra)
+                return base_result
 
             except (SandboxConnectionError, ConnectionError) as e:
                 # Invalidate health cache so next call_tool does a full check

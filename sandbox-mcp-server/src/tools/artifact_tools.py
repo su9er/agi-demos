@@ -724,6 +724,14 @@ async def batch_export_artifacts(
                 errors.append({"path": path, "error": result["content"][0]["text"]})
             else:
                 artifact = result.get("artifact", {})
+                artifact_data = artifact.get("data")
+                # For text files, data is None in artifact;
+                # extract text content from the export result
+                if not artifact_data:
+                    for item in result.get("content", []):
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            artifact_data = item.get("text", "")
+                            break
                 results.append(
                     {
                         "path": path,
@@ -732,7 +740,7 @@ async def batch_export_artifacts(
                         "category": artifact.get("category"),
                         "size": artifact.get("size"),
                         "encoding": artifact.get("encoding"),
-                        "data": artifact.get("data"),
+                        "data": artifact_data,
                     }
                 )
 

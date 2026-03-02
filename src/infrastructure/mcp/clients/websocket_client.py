@@ -457,11 +457,10 @@ class MCPWebSocketClient:
             )
 
             if result:
-                return MCPToolResult(
-                    content=result.get("content", []),
-                    isError=result.get("isError", False),
-                    artifact=result.get("artifact"),
-                )
+                # Pass all fields through — MCPToolResult has
+                # extra="allow" to preserve batch export fields
+                # (results, errors, artifact, etc.)
+                return MCPToolResult(**result)
 
         except ConnectionError:
             # Re-raise connection errors so callers can retry

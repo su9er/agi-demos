@@ -21,7 +21,7 @@ existing database records and API contracts.
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class McpLocalConfig(BaseModel):
@@ -208,6 +208,8 @@ class MCPToolResult(BaseModel):
     DEPRECATED: Use src.domain.model.mcp.tool.MCPToolResult instead.
     Kept for backward compatibility with existing API contracts.
     """
+
+    model_config = ConfigDict(extra="allow")
 
     content: list[dict[str, Any]] = Field(default_factory=list)
     isError: bool = False

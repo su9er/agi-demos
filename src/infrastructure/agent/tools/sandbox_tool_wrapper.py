@@ -113,7 +113,7 @@ async def _execute_with_retry(
     sandbox_port: SandboxPort,
     retry_config: RetryConfig,
     kwargs: dict[str, Any],
-) -> str:
+) -> tuple[str, dict[str, Any] | None]:
     """Execute a sandbox MCP tool call with error classification and retry.
 
     Args:
@@ -124,8 +124,8 @@ async def _execute_with_retry(
         kwargs: Tool arguments.
 
     Returns:
-        String result from the tool execution.
-
+        Tuple of (output_string, raw_result_dict_or_None).
+        The raw dict is returned when the result contains an artifact.
     Raises:
         RuntimeError: When execution fails after all retries.
     """
@@ -175,7 +175,8 @@ async def _execute_with_retry(
                     continue
                 break
 
-            return _extract_ok_output(result)
+            raw = result if (result.get("artifact") or result.get("results")) else None
+            return _extract_ok_output(result), raw
 
         except Exception as exc:
             elapsed_ms = int((_time.time() - start_time) * 1000)
@@ -249,14 +250,15 @@ def create_sandbox_mcp_tool(
         """Execute the sandbox MCP tool with retry logic."""
         _ = ctx  # Context available but not used by MCP tool calls
         try:
-            output = await _execute_with_retry(
+            output, raw_result = await _execute_with_retry(
                 sandbox_id=sandbox_id,
                 tool_name=tool_name,
                 sandbox_port=sandbox_port,
                 retry_config=cfg,
                 kwargs=kwargs,
             )
-            return ToolResult(output=output)
+            metadata = raw_result if raw_result else {}
+            return ToolResult(output=output, metadata=metadata)
         except RuntimeError as exc:
             return ToolResult(output=str(exc), is_error=True)
 

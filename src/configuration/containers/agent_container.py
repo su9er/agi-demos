@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -77,6 +80,54 @@ from src.infrastructure.adapters.secondary.persistence.sql_workflow_pattern_repo
     SqlWorkflowPatternRepository,
 )
 from src.infrastructure.agent.context.window_manager import ContextWindowManager
+
+logger = logging.getLogger(__name__)
+
+
+async def _publish_to_agent_stream(
+    event_bus: Any,
+    conversation_id: str,
+    event: Any,
+) -> None:
+    """Publish a domain event to the agent chat SSE stream.
+
+    This allows events produced outside the ReAct actor loop
+    (e.g. background artifact uploads) to reach the frontend
+    via the same ``agent:events:{conversation_id}`` Redis stream
+    that the SSE endpoint reads.
+    """
+    try:
+        event_dict: dict[str, Any] = dict(event.to_event_dict())
+        event_data = event_dict.get("data", {})
+        if isinstance(event_data, dict):
+            event_data["conversation_id"] = conversation_id
+
+        stream_event_payload: dict[str, Any] = {
+            "type": event_dict.get("type", "unknown"),
+            "event_time_us": int(time.time() * 1_000_000),
+            "event_counter": 0,
+            "data": event_data,
+            "timestamp": event_dict.get("timestamp", ""),
+            "conversation_id": conversation_id,
+            "message_id": "",
+        }
+
+        redis_message = {"data": json.dumps(stream_event_payload)}
+        stream_key = f"agent:events:{conversation_id}"
+
+        await event_bus.stream_add(stream_key, redis_message, maxlen=1000)
+        await event_bus.publish(stream_key, stream_event_payload)
+
+        logger.info(
+            "[AgentContainer] Published %s to %s",
+            event_dict.get("type"),
+            stream_key,
+        )
+    except Exception:
+        logger.warning(
+            "[AgentContainer] Failed to publish event to agent stream",
+            exc_info=True,
+        )
 
 
 class AgentContainer:
@@ -239,8 +290,22 @@ class AgentContainer:
                 sandbox_event_pub = self._sandbox_event_publisher_factory()
                 if sandbox_event_pub and sandbox_event_pub._event_bus:
 
-                    async def publish_event(project_id: str, event: Any) -> None:
+                    async def publish_event(
+                        project_id: str,
+                        event: Any,
+                        *,
+                        conversation_id: str | None = None,
+                    ) -> None:
+                        # Always publish to sandbox stream
                         await sandbox_event_pub._publish(project_id, event)
+                        # Also publish to agent chat stream so the
+                        # frontend SSE receives artifact_ready/error.
+                        if conversation_id:
+                            await _publish_to_agent_stream(
+                                sandbox_event_pub._event_bus,
+                                conversation_id,
+                                event,
+                            )
 
                     event_publisher = publish_event
         except Exception:
@@ -305,7 +370,9 @@ class AgentContainer:
 
         self._workspace_manager_instance = WorkspaceManager(
             workspace_dir=Path(workspace_dir),
-            tenant_workspace_dir=Path(tenant_workspace_dir_str) if tenant_workspace_dir_str else None,
+            tenant_workspace_dir=Path(tenant_workspace_dir_str)
+            if tenant_workspace_dir_str
+            else None,
             max_chars_per_file=max_per_file,
             max_chars_total=max_total,
             enabled=enabled,
@@ -354,8 +421,6 @@ class AgentContainer:
         from src.infrastructure.agent.events.converter import get_event_converter
 
         return get_event_converter()
-
-
 
     def attachment_processor(self) -> Any:
         """Get AttachmentProcessor for handling chat attachments."""
@@ -436,7 +501,7 @@ class AgentContainer:
 
     def execute_step_use_case(self, llm: LLMClient) -> ExecuteStepUseCase:
         """Get ExecuteStepUseCase with dependencies injected.
-        
+
         NOTE: ExecuteStepUseCase is a placeholder (raises NotImplementedError).
         Tools are configured via module-level configure_*() functions for the
         main ReAct agent system; this use case just needs valid DI wiring.

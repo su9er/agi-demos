@@ -404,7 +404,7 @@ class ArtifactService:
         )
 
         try:
-            await self._event_publisher(artifact.project_id, event)
+            await self._event_publisher(artifact.project_id, event, conversation_id=artifact.conversation_id)
         except Exception as e:
             logger.error(f"Failed to publish artifact_created event: {e}")
 
@@ -428,7 +428,7 @@ class ArtifactService:
         )
 
         try:
-            await self._event_publisher(artifact.project_id, event)
+            await self._event_publisher(artifact.project_id, event, conversation_id=artifact.conversation_id)
         except Exception as e:
             logger.error(f"Failed to publish artifact_ready event: {e}")
 
@@ -448,7 +448,7 @@ class ArtifactService:
         )
 
         try:
-            await self._event_publisher(artifact.project_id, event)
+            await self._event_publisher(artifact.project_id, event, conversation_id=artifact.conversation_id)
         except Exception as e:
             logger.error(f"Failed to publish artifact_error event: {e}")
 
@@ -491,7 +491,8 @@ class ArtifactService:
 
         try:
             # Use first artifact's project_id
-            await self._event_publisher(artifacts[0].project_id, event)
+            conv_id = artifacts[0].conversation_id
+            await self._event_publisher(artifacts[0].project_id, event, conversation_id=conv_id)
         except Exception as e:
             logger.error(f"Failed to publish artifacts_batch event: {e}")
 

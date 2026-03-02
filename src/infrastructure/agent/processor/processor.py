@@ -1922,9 +1922,20 @@ class SessionProcessor:
                 structured_content=_structured_content,
             )
 
-        # Stash for downstream side-effect helpers
+        # Stash for downstream side-effect helpers.
+        # When a ToolResult carries an artifact dict in its metadata
+        # (e.g. from sandbox MCP export_artifact), pass the raw dict
+        # so artifact_handler receives a dict with the "artifact" key.
+        if (
+            isinstance(result, ToolResult)
+            and isinstance(result.metadata, dict)
+            and (result.metadata.get("artifact") or result.metadata.get("results"))
+        ):
+            raw_for_artifacts = result.metadata
+        else:
+            raw_for_artifacts = result
         self._last_sse_result = sse_result
-        self._last_raw_result = result
+        self._last_raw_result = raw_for_artifacts
         self._last_output_str = output_str
 
     async def _emit_tool_side_effects(  # noqa: PLR0912, PLR0915
@@ -2343,9 +2354,18 @@ class SessionProcessor:
                         structured_content=_structured_content,
                     )
 
-                # Stash for _emit_tool_side_effects
+                # Stash for _emit_tool_side_effects.
+                # Same artifact-in-metadata passthrough as non-pipeline path.
+                if (
+                    isinstance(raw_result, ToolResult)
+                    and isinstance(raw_result.metadata, dict)
+                    and (raw_result.metadata.get("artifact") or raw_result.metadata.get("results"))
+                ):
+                    raw_for_artifacts = raw_result.metadata
+                else:
+                    raw_for_artifacts = raw_result
                 self._last_sse_result = sse_result
-                self._last_raw_result = raw_result
+                self._last_raw_result = raw_for_artifacts
                 self._last_output_str = output_str
 
             elif event.type == "denied":
