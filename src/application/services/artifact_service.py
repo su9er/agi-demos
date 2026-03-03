@@ -114,6 +114,7 @@ class ArtifactService:
         source_tool: str | None = None,
         source_path: str | None = None,
         metadata: dict[str, Any] | None = None,
+        artifact_id: str | None = None,
     ) -> Artifact:
         """
         Create and upload a new artifact.
@@ -133,8 +134,8 @@ class ArtifactService:
         Returns:
             Created Artifact entity
         """
-        logger.warning(
-            f"[ArtifactUpload] create_artifact: filename={filename}, "
+        logger.info(
+            f"create_artifact: filename={filename}, "
             f"size={len(file_content)}, project_id={project_id}"
         )
 
@@ -143,7 +144,7 @@ class ArtifactService:
         category = get_category_from_mime(mime_type)
 
         # Generate unique ID and storage key
-        artifact_id = str(uuid.uuid4())
+        artifact_id = artifact_id or str(uuid.uuid4())
         object_key = self._generate_object_key(tenant_id, project_id, filename, tool_execution_id)
 
         # Create artifact entity
@@ -176,7 +177,7 @@ class ArtifactService:
             artifact.mark_uploading()
 
             # Upload to storage
-            logger.warning(f"[ArtifactUpload] Starting S3 upload: key={object_key}")
+            logger.debug(f"Starting S3 upload: key={object_key}")
             result = await self._storage.upload_file(
                 file_content=file_content,
                 object_key=object_key,
@@ -189,19 +190,11 @@ class ArtifactService:
                     "source_tool": source_tool or "",
                 },
             )
-            logger.warning(f"[ArtifactUpload] S3 upload done: key={object_key}, etag={result.etag}")
+            logger.debug(f"S3 upload done: key={object_key}, etag={result.etag}")
 
-            # Generate presigned URL
-            logger.warning("[ArtifactUpload] Generating presigned URL...")
             url = await self._storage.generate_presigned_url(
                 object_key=object_key,
                 expiration_seconds=self._url_expiration,
-            )
-            logger.warning("[ArtifactUpload] Presigned URL generated")
-
-            logger.warning(
-                f"[ArtifactUpload] Uploaded {artifact_id}: "
-                f"{filename} ({len(file_content)} bytes, etag={result.etag})"
             )
 
             # Generate preview URL for images (if supported)
@@ -411,6 +404,7 @@ class ArtifactService:
     async def _publish_artifact_ready(self, artifact: Artifact, sandbox_id: str) -> None:
         """Publish artifact_ready event."""
         if not self._event_publisher:
+            logger.debug("_event_publisher is None, skipping artifact_ready")
             return
 
         event = AgentArtifactReadyEvent(

@@ -21,6 +21,7 @@ Reference: OpenCode's SessionProcessor in processor.ts (406 lines)
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -80,6 +81,15 @@ from .message_utils import classify_tool_by_description, extract_user_query
 from .run_context import RunContext
 
 logger = logging.getLogger(__name__)
+
+_TOOL_NAME_ALIASES: dict[str, str] = {
+    "memorysearch": "memory_search",
+    "entitylookup": "entity_lookup",
+    "graphquery": "graph_query",
+    "memorycreate": "memory_create",
+    "memoryget": "memory_get",
+    "episoderetrieval": "episode_retrieval",
+}
 
 
 async def _iter_events(
@@ -865,24 +875,25 @@ class SessionProcessor:
             yield AgentTextDeltaEvent(delta=result.text)
             yield AgentTextEndEvent(full_text=result.text)
         elif isinstance(result, ToolCallResult):
-            tool_def = self.tools.get(result.tool_name)
+            tool_name = self._canonicalize_tool_name(result.tool_name)
+            tool_def = self.tools.get(tool_name)
             if tool_def is None:
                 yield AgentTextStartEvent()
                 err_msg = f"Unknown tool: {result.tool_name}"
                 yield AgentTextDeltaEvent(delta=err_msg)
                 yield AgentTextEndEvent(full_text=err_msg)
             else:
-                yield AgentActEvent(tool_name=result.tool_name, tool_input=result.args)
+                yield AgentActEvent(tool_name=tool_name, tool_input=result.args)
                 try:
                     raw = await tool_def.execute(result.args)
                     output = str(raw) if raw is not None else ""
                     yield AgentObserveEvent(
-                        tool_name=result.tool_name,
+                        tool_name=tool_name,
                         result=output,
                     )
                 except Exception as exc:
                     yield AgentObserveEvent(
-                        tool_name=result.tool_name,
+                        tool_name=tool_name,
                         error=str(exc),
                     )
         elif isinstance(result, SkillTriggerResult):
@@ -1078,8 +1089,16 @@ class SessionProcessor:
 
                     elif event.type == StreamEventType.TOOL_CALL_END:
                         call_id = event.data.get("call_id", "")
-                        tool_name = event.data.get("name", "")
+                        raw_tool_name = event.data.get("name", "")
+                        tool_name = self._canonicalize_tool_name(raw_tool_name)
                         arguments = event.data.get("arguments", {})
+
+                        if raw_tool_name != tool_name:
+                            logger.info(
+                                "[Processor] Canonicalized tool name: %s -> %s",
+                                raw_tool_name,
+                                tool_name,
+                            )
 
                         # === EARLY VALIDATION (P0-1) ===
                         # Validate AgentActEvent schema BEFORE yielding to prevent
@@ -1128,6 +1147,7 @@ class SessionProcessor:
                         # Update tool part
                         if call_id in self._pending_tool_calls:
                             tool_part = self._pending_tool_calls[call_id]
+                            tool_part.tool = tool_name
                             tool_part.input = arguments
                             tool_part.status = ToolState.RUNNING
                             tool_part.start_time = time.time()
@@ -1328,6 +1348,32 @@ class SessionProcessor:
 
     # ── _execute_tool helper methods ──────────────────────────────────
 
+    def _canonicalize_tool_name(self, tool_name: str) -> str:
+        """Resolve common aliases/casing variants to a registered tool name."""
+        if not tool_name:
+            return tool_name
+
+        if tool_name in self.tools:
+            return tool_name
+
+        lowered = tool_name.lower()
+        for known in self.tools:
+            if known.lower() == lowered:
+                return known
+
+        compact = re.sub(r"[^a-z0-9]", "", lowered)
+        alias = _TOOL_NAME_ALIASES.get(compact)
+        if alias and alias in self.tools:
+            return alias
+
+        snake = re.sub(r"(?<!^)(?=[A-Z])", "_", tool_name)
+        snake = snake.replace("-", "_").replace(" ", "_").lower()
+        snake = re.sub(r"__+", "_", snake).strip("_")
+        if snake in self.tools:
+            return snake
+
+        return tool_name
+
     def _resolve_tool_lookup(
         self,
         call_id: str,
@@ -1358,6 +1404,7 @@ class SessionProcessor:
             )
             return None
 
+        tool_name = self._canonicalize_tool_name(tool_name)
         tool_def = self.tools.get(tool_name)
         if not tool_def:
             tool_part.status = ToolState.ERROR
@@ -2479,6 +2526,15 @@ class SessionProcessor:
         6. Tool invocation + observe event emission
         7. Side-effect emission (artifacts, todowrite, plugins)
         """
+        raw_tool_name = tool_name
+        tool_name = self._canonicalize_tool_name(tool_name)
+        if raw_tool_name != tool_name:
+            logger.info(
+                "[Processor] Canonicalized tool name in execution: %s -> %s",
+                raw_tool_name,
+                tool_name,
+            )
+
         # 1. Resolve
         resolved = self._resolve_tool_lookup(call_id, tool_name)
         if resolved is None:

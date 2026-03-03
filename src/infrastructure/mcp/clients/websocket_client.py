@@ -457,10 +457,21 @@ class MCPWebSocketClient:
             )
 
             if result:
-                # Pass all fields through — MCPToolResult has
-                # extra="allow" to preserve batch export fields
-                # (results, errors, artifact, etc.)
-                return MCPToolResult(**result)
+                # MCPToolResult is a dataclass — extract known fields
+                # and store extra MCP fields (results, errors) in metadata
+                known_keys = {"content", "isError", "metadata", "artifact"}
+                extra_fields = {
+                    k: v for k, v in result.items() if k not in known_keys
+                }
+                metadata = result.get("metadata") or {}
+                if extra_fields:
+                    metadata.update(extra_fields)
+                return MCPToolResult(
+                    content=result.get("content", []),
+                    isError=result.get("isError", False),
+                    artifact=result.get("artifact"),
+                    metadata=metadata or None,
+                )
 
         except ConnectionError:
             # Re-raise connection errors so callers can retry

@@ -363,7 +363,7 @@ class ProjectReActAgent:
         redis_client = await get_redis_client()
 
         try:
-            container = Container()
+            container = Container(redis_client=redis_client)
             artifact_service = container.artifact_service()
         except Exception as e:
             logger.warning(f"Could not initialize artifact service: {e}")

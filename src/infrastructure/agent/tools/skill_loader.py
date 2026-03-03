@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from src.domain.model.agent.skill import Skill
@@ -167,6 +168,24 @@ def _format_skill_content(
     )
 
 
+def _load_skill_content_from_cwd(skill_name: str) -> tuple[str | None, str | None]:
+    """Fallback skill content loading from current working directory."""
+    from src.infrastructure.skill.filesystem_scanner import FileSystemSkillScanner
+    from src.infrastructure.skill.markdown_parser import MarkdownParser
+
+    scanner = FileSystemSkillScanner()
+    file_info = scanner.find_skill(Path.cwd(), skill_name)
+    if not file_info:
+        return None, None
+
+    try:
+        markdown = MarkdownParser().parse_file(str(file_info.file_path))
+        return markdown.content, str(file_info.file_path)
+    except Exception as exc:
+        logger.warning("CWD fallback skill load failed for '%s': %s", skill_name, exc)
+        return None, None
+
+
 # ---------------------------------------------------------------------------
 # Tool definition
 # ---------------------------------------------------------------------------
@@ -227,9 +246,17 @@ async def skill_loader_tool(
             tenant_id=deps.tenant_id,
             skill_name=skill_name,
         )
+        resolved_file_path = cached_skill.file_path if cached_skill else None
 
         if not content:
-            available = [s.name for s in skills_cache]
+            fallback_content, fallback_file_path = _load_skill_content_from_cwd(skill_name)
+            if fallback_content:
+                content = fallback_content
+                if not resolved_file_path:
+                    resolved_file_path = fallback_file_path
+
+        if not content:
+            available = sorted({s.name for s in skills_cache} | set(_available_skill_names))
             avail_str = ", ".join(available) if available else "none"
             return ToolResult(
                 output=(f"Skill '{skill_name}' not found. Available skills: {avail_str}"),
@@ -268,7 +295,7 @@ async def skill_loader_tool(
         except Exception as exc:
             logger.warning("Failed to record skill usage: %s", exc)
 
-        file_path = cached_skill.file_path if cached_skill else None
+        file_path = resolved_file_path
         formatted = _format_skill_content(skill_name, content, file_path, resource_hint)
 
         return ToolResult(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+
 import logging
 import time
 from collections.abc import Callable
@@ -112,10 +112,9 @@ async def _publish_to_agent_stream(
             "message_id": "",
         }
 
-        redis_message = {"data": json.dumps(stream_event_payload)}
         stream_key = f"agent:events:{conversation_id}"
 
-        await event_bus.stream_add(stream_key, redis_message, maxlen=1000)
+        await event_bus.stream_add(stream_key, stream_event_payload, maxlen=1000)
         await event_bus.publish(stream_key, stream_event_payload)
 
         logger.info(

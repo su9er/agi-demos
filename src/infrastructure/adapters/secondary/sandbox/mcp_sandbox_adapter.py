@@ -2688,9 +2688,19 @@ class MCPSandboxAdapter(SandboxPort):
                 }
                 # Preserve extra fields from MCP result
                 # (e.g., "results" and "errors" for batch_export_artifacts)
+                # MCPToolResult may be a Pydantic model (with model_extra) or
+                # a dataclass (with extra fields stored in .metadata).
                 extra = getattr(result, "model_extra", None)
                 if extra:
                     base_result.update(extra)
+                # The websocket client stores extra MCP response fields
+                # (results, errors) inside MCPToolResult.metadata when the
+                # result type is a dataclass without model_extra support.
+                result_metadata = getattr(result, "metadata", None)
+                if isinstance(result_metadata, dict):
+                    for key in ("results", "errors"):
+                        if key in result_metadata and key not in base_result:
+                            base_result[key] = result_metadata[key]
                 return base_result
 
             except (SandboxConnectionError, ConnectionError) as e:

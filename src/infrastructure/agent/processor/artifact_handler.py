@@ -7,7 +7,6 @@ content detection.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import uuid
@@ -28,8 +27,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Module-level set to prevent background upload tasks from being GC'd.
-_artifact_bg_tasks: set[asyncio.Task[Any]] = set()
 
 # -----------------------------------------------------------------------
 # Module-level helpers (previously in processor.py top-level scope)
@@ -230,14 +227,14 @@ class ArtifactHandler:
         Yields:
             AgentArtifactCreatedEvent for each artifact created
         """
-        logger.warning(
-            f"[ArtifactUpload] Processing tool={tool_name}, "
+        logger.debug(
+            f"Processing tool={tool_name}, "
             f"has_service={self._artifact_service is not None}, "
             f"result_type={type(result).__name__}"
         )
 
         if not self._artifact_service:
-            logger.warning("[ArtifactUpload] No artifact_service configured, skipping")
+            logger.debug("[ArtifactUpload] No artifact_service configured, skipping")
             return
 
         # Get context from langfuse context
@@ -260,8 +257,8 @@ class ArtifactHandler:
         has_artifact = result.get("artifact") is not None
         if has_artifact:
             has_data = result["artifact"].get("data") is not None
-            logger.warning(
-                f"[ArtifactUpload] tool={tool_name}, has_data={has_data}, "
+            logger.debug(
+                f"tool={tool_name}, has_data={has_data}, "
                 f"encoding={result['artifact'].get('encoding')}"
             )
 
@@ -284,11 +281,11 @@ class ArtifactHandler:
                                 break
                     if data:
                         file_content = base64.b64decode(data)
-                        logger.warning(
-                            f"[ArtifactUpload] Decoded {len(file_content)} bytes from base64"
+                        logger.debug(
+                            f"Decoded {len(file_content)} bytes from base64"
                         )
                     else:
-                        logger.warning("[ArtifactUpload] base64 encoding but no data found")
+                        logger.debug("base64 encoding but no data found")
                         return
                 else:
                     # Text file - get from content
@@ -308,66 +305,53 @@ class ArtifactHandler:
                         logger.warning("export_artifact returned no content")
                         return
 
-                # Detect MIME type for the artifact_created event
-                from src.application.services.artifact_service import (
-                    detect_mime_type,
-                    get_category_from_mime,
-                )
-
                 filename = artifact_info.get("filename", "exported_file")
-                mime_type = detect_mime_type(filename)
-                category = get_category_from_mime(mime_type)
                 artifact_id = str(uuid.uuid4())
 
-                # Yield artifact_created event IMMEDIATELY so the frontend
-                # knows about the artifact even if the upload is slow.
-                yield AgentArtifactCreatedEvent(
-                    artifact_id=artifact_id,
+                # Upload artifact synchronously so URL is available for the event
+                artifact = await self._artifact_service.create_artifact(
+                    file_content=file_content,
                     filename=filename,
-                    mime_type=mime_type,
-                    category=category.value,
-                    size_bytes=len(file_content),
-                    url=None,
-                    preview_url=None,
+                    project_id=project_id,
+                    tenant_id=tenant_id,
+                    sandbox_id=sandbox_id,
+                    tool_execution_id=tool_execution_id,
+                    conversation_id=conversation_id,
+                    source_tool=tool_name,
+                    source_path=artifact_info.get("path"),
+                    metadata={"upload_source": "export_artifact"},
+                    artifact_id=artifact_id,
+                )
+
+                # Yield artifact_created event with URL
+                yield AgentArtifactCreatedEvent(
+                    artifact_id=artifact.id,
+                    filename=artifact.filename,
+                    mime_type=artifact.mime_type,
+                    category=artifact.category.value,
+                    size_bytes=artifact.size_bytes,
+                    url=artifact.url,
+                    preview_url=artifact.preview_url,
                     tool_execution_id=tool_execution_id,
                     source_tool=tool_name,
                     source_path=artifact_info.get("path"),
                 )
 
                 # Emit artifact_open for canvas-displayable content
-                canvas_type = get_canvas_content_type(mime_type, filename)
-                if canvas_type and len(file_content) < 500_000:
+                canvas_type = get_canvas_content_type(artifact.mime_type, artifact.filename)
+                if canvas_type and artifact.size_bytes < 500_000:
                     try:
                         text_content = file_content.decode("utf-8")
                         yield AgentArtifactOpenEvent(
-                            artifact_id=artifact_id,
-                            title=filename,
+                            artifact_id=artifact.id,
+                            title=artifact.filename,
                             content=text_content,
                             content_type=canvas_type,
-                            language=get_language_from_filename(filename),
+                            language=get_language_from_filename(artifact.filename),
                         )
                     except (UnicodeDecodeError, ValueError):
                         pass  # Binary content, skip canvas open
 
-                # Schedule background upload via ArtifactService.
-                logger.warning(
-                    f"[ArtifactUpload] Scheduling background upload: filename={filename}, "
-                    f"size={len(file_content)}, project_id={project_id}"
-                )
-
-                _schedule_artifact_upload(
-                    artifact_service=self._artifact_service,
-                    file_content=file_content,
-                    filename=filename,
-                    project_id=project_id,
-                    tenant_id=tenant_id,
-                    tool_execution_id=tool_execution_id or "",
-                    conversation_id=conversation_id or "",
-                    tool_name=tool_name,
-                    artifact_id=artifact_id,
-                    source_path=artifact_info.get("path"),
-                    sandbox_id=sandbox_id,
-                )
                 return
 
             except Exception as e:
@@ -383,20 +367,14 @@ class ArtifactHandler:
         batch_results = result.get("results")
         if batch_results and isinstance(batch_results, list) and len(batch_results) > 0:
             import base64 as b64
-
-            from src.application.services.artifact_service import (
-                detect_mime_type,
-                get_category_from_mime,
-            )
-
             for batch_item in batch_results:
                 try:
                     filename = batch_item.get("filename", "exported_file")
                     encoding = batch_item.get("encoding", "utf-8")
                     data = batch_item.get("data")
                     if not data:
-                        logger.warning(
-                            f"[ArtifactUpload] Batch item {filename} has no data, skipping"
+                        logger.debug(
+                            f"Batch item {filename} has no data, skipping"
                         )
                         continue
 
@@ -405,57 +383,51 @@ class ArtifactHandler:
                     else:
                         file_content = data.encode("utf-8") if isinstance(data, str) else data
 
-                    mime_type = detect_mime_type(filename)
-                    category = get_category_from_mime(mime_type)
                     artifact_id = str(uuid.uuid4())
 
-                    # Yield artifact_created event immediately
-                    yield AgentArtifactCreatedEvent(
-                        artifact_id=artifact_id,
+                    # Upload artifact synchronously (same as single export path)
+                    artifact = await self._artifact_service.create_artifact(
+                        file_content=file_content,
                         filename=filename,
-                        mime_type=mime_type,
-                        category=category.value,
-                        size_bytes=len(file_content),
-                        url=None,
-                        preview_url=None,
+                        project_id=project_id,
+                        tenant_id=tenant_id,
+                        sandbox_id=sandbox_id,
+                        tool_execution_id=tool_execution_id,
+                        conversation_id=conversation_id,
+                        source_tool=tool_name,
+                        source_path=batch_item.get("path"),
+                        metadata={"upload_source": "batch_export"},
+                        artifact_id=artifact_id,
+                    )
+
+                    # Yield artifact_created event with URL (matches single export)
+                    yield AgentArtifactCreatedEvent(
+                        artifact_id=artifact.id,
+                        filename=artifact.filename,
+                        mime_type=artifact.mime_type,
+                        category=artifact.category.value,
+                        size_bytes=artifact.size_bytes,
+                        url=artifact.url,
+                        preview_url=artifact.preview_url,
                         tool_execution_id=tool_execution_id,
                         source_tool=tool_name,
                         source_path=batch_item.get("path"),
                     )
 
                     # Emit artifact_open for canvas-displayable content
-                    canvas_type = get_canvas_content_type(mime_type, filename)
-                    if canvas_type and len(file_content) < 500_000:
+                    canvas_type = get_canvas_content_type(artifact.mime_type, artifact.filename)
+                    if canvas_type and artifact.size_bytes < 500_000:
                         try:
                             text_content = file_content.decode("utf-8")
                             yield AgentArtifactOpenEvent(
-                                artifact_id=artifact_id,
-                                title=filename,
+                                artifact_id=artifact.id,
+                                title=artifact.filename,
                                 content=text_content,
                                 content_type=canvas_type,
-                                language=get_language_from_filename(filename),
+                                language=get_language_from_filename(artifact.filename),
                             )
                         except (UnicodeDecodeError, ValueError):
                             pass  # Binary content, skip canvas open
-
-                    # Schedule background upload via ArtifactService.
-                    logger.warning(
-                        f"[ArtifactUpload] Scheduling batch upload: filename={filename}, "
-                        f"size={len(file_content)}, project_id={project_id}"
-                    )
-                    _schedule_artifact_upload(
-                        artifact_service=self._artifact_service,
-                        file_content=file_content,
-                        filename=filename,
-                        project_id=project_id,
-                        tenant_id=tenant_id,
-                        tool_execution_id=tool_execution_id or "",
-                        conversation_id=conversation_id or "",
-                        tool_name=tool_name,
-                        artifact_id=artifact_id,
-                        source_path=batch_item.get("path"),
-                        sandbox_id=sandbox_id,
-                    )
 
                 except Exception as e:
                     logger.error(
@@ -536,45 +508,3 @@ class ArtifactHandler:
         except Exception as e:
             logger.error(f"Error processing artifacts from tool {tool_name}: {e}")
 
-
-# -----------------------------------------------------------------------
-# Background upload helper
-# -----------------------------------------------------------------------
-
-
-def _schedule_artifact_upload(
-    *,
-    artifact_service: ArtifactService,
-    file_content: bytes,
-    filename: str,
-    project_id: str,
-    tenant_id: str,
-    tool_execution_id: str,
-    conversation_id: str,
-    tool_name: str,
-    artifact_id: str,
-    source_path: str | None = None,
-    sandbox_id: str | None = None,
-) -> None:
-    """Schedule a background upload task via ArtifactService, preventing GC."""
-
-    async def _do_upload() -> None:
-        try:
-            await artifact_service.create_artifact(
-                file_content=file_content,
-                filename=filename,
-                project_id=project_id,
-                tenant_id=tenant_id,
-                sandbox_id=sandbox_id,
-                tool_execution_id=tool_execution_id,
-                conversation_id=conversation_id,
-                source_tool=tool_name,
-                source_path=source_path,
-                metadata={"upload_source": "artifact_handler"},
-            )
-        except Exception as e:
-            logger.error(f"[ArtifactUpload] Background upload failed: {filename}: {e}")
-
-    task = asyncio.create_task(_do_upload())
-    _artifact_bg_tasks.add(task)
-    task.add_done_callback(_artifact_bg_tasks.discard)

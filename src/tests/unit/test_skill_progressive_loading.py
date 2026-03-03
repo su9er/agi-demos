@@ -716,6 +716,43 @@ class TestSkillLoaderTool:
         assert "not found" in result.output.lower()
         assert "other-skill" in result.output
 
+    async def test_execute_falls_back_to_cwd_when_primary_service_misses(
+        self,
+        mock_skill_service,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ):
+        """Test skill_loader_tool falls back to cwd skill files when primary service misses."""
+        from src.infrastructure.agent.tools.skill_loader import (
+            skill_loader_tool,
+        )
+
+        skill_dir = tmp_path / ".memstack" / "skills" / "research"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            """---
+name: research
+description: Research fallback
+---
+
+# Fallback Skill
+
+Use fallback loader.
+""",
+            encoding="utf-8",
+        )
+
+        mock_skill_service.load_skill_content = AsyncMock(return_value=None)
+        mock_skill_service.list_available_skills = AsyncMock(return_value=[])
+        monkeypatch.chdir(tmp_path)
+
+        ctx = self._make_ctx()
+        result = await skill_loader_tool.execute(ctx, name="research")
+
+        assert not result.is_error
+        assert result.title == "Loaded skill: research"
+        assert "# Fallback Skill" in result.output
+
     async def test_execute_validates_empty_skill_name(self, mock_skill_service):
         """Test error ToolResult for empty skill name."""
         from src.infrastructure.agent.tools.skill_loader import (

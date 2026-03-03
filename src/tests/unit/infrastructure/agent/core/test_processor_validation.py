@@ -268,6 +268,35 @@ class TestProcessorEarlyValidation:
         assert events[0].error is not None
 
     @pytest.mark.asyncio
+    async def test_execute_tool_resolves_pascal_case_name(self, processor):
+        """Test that PascalCase tool names resolve to snake_case tool definitions."""
+        from src.infrastructure.agent.core.message import ToolPart, ToolState
+
+        call_id = "call_alias"
+        tool_part = ToolPart(
+            call_id=call_id,
+            tool="TestTool",
+            input={},
+            status=ToolState.RUNNING,
+        )
+        tool_part.tool_execution_id = "exec_alias"
+        processor._pending_tool_calls[call_id] = tool_part
+
+        events = []
+        async for event in processor._execute_tool(
+            session_id="session-1",
+            call_id=call_id,
+            tool_name="TestTool",
+            arguments={},
+        ):
+            events.append(event)
+
+        observe_events = [event for event in events if getattr(event, "tool_name", None)]
+        assert observe_events
+        assert observe_events[-1].tool_name == "test_tool"
+        assert observe_events[-1].error is None
+
+    @pytest.mark.asyncio
     async def test_execute_tool_creates_valid_act_event(self, processor):
         """Test that _execute_tool creates valid AgentActEvent."""
         from src.infrastructure.agent.core.message import ToolPart, ToolState
