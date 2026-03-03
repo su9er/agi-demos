@@ -145,6 +145,8 @@ class SubAgent:
     metadata: dict[str, Any] | None = None
     source: SubAgentSource = SubAgentSource.DATABASE
     file_path: str | None = None
+    max_retries: int = 0
+    fallback_models: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Validate the subagent."""
@@ -166,6 +168,8 @@ class SubAgent:
             raise ValueError("max_iterations must be positive")
         if not 0 <= self.success_rate <= 1:
             raise ValueError("success_rate must be between 0 and 1")
+        if self.max_retries < 0:
+            raise ValueError("max_retries must be non-negative")
 
     def is_enabled(self) -> bool:
         """Check if subagent is enabled."""
@@ -282,6 +286,8 @@ class SubAgent:
             metadata=self.metadata,
             source=self.source,
             file_path=self.file_path,
+            max_retries=self.max_retries,
+            fallback_models=list(self.fallback_models),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -311,6 +317,8 @@ class SubAgent:
             "metadata": self.metadata,
             "source": self.source.value if isinstance(self.source, SubAgentSource) else self.source,
             "file_path": self.file_path,
+            "max_retries": self.max_retries,
+            "fallback_models": list(self.fallback_models),
         }
 
     @classmethod
@@ -351,6 +359,8 @@ class SubAgent:
             metadata=data.get("metadata"),
             source=SubAgentSource(data["source"]) if "source" in data else SubAgentSource.DATABASE,
             file_path=data.get("file_path"),
+            max_retries=data.get("max_retries", 0),
+            fallback_models=data.get("fallback_models", []),
         )
 
     @classmethod
@@ -373,6 +383,8 @@ class SubAgent:
         max_iterations: int = 10,
         project_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        max_retries: int = 0,
+        fallback_models: list[str] | None = None,
     ) -> "SubAgent":
         """
         Create a new subagent.
@@ -424,6 +436,8 @@ class SubAgent:
             temperature=temperature,
             max_iterations=max_iterations,
             metadata=metadata,
+            max_retries=max_retries,
+            fallback_models=fallback_models or [],
         )
 
 

@@ -5,9 +5,12 @@ Loads SubAgent domain entities from .memstack/agents/*.md files.
 Combines directory scanning and markdown parsing to create SubAgent instances.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from src.domain.model.agent.subagent import AgentModel, AgentTrigger, SubAgent
 from src.domain.model.agent.subagent_source import SubAgentSource
@@ -20,6 +23,9 @@ from src.infrastructure.agent.subagent.markdown_parser import (
     SubAgentMarkdownParser,
     SubAgentParseError,
 )
+
+if TYPE_CHECKING:
+    from src.configuration.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -173,9 +179,20 @@ class FileSystemSubAgentLoader:
         markdown: SubAgentMarkdown,
         file_info: SubAgentFileInfo,
     ) -> SubAgent:
-        """Convert parsed markdown to SubAgent domain entity."""
-        # Map model name
-        model = MODEL_MAPPING.get(markdown.model_raw.lower(), AgentModel.INHERIT)
+        """Convert parsed markdown to SubAgent domain entity.
+
+        Override resolution order (per field):
+          1. Explicit frontmatter value in .md file (highest priority)
+          2. Environment variable default (AGENT_SUBAGENT_DEFAULT_*)
+          3. Hardcoded fallback (lowest priority)
+        """
+        # Resolve model: frontmatter -> env var default -> INHERIT
+        model = self._resolve_model(markdown.model_raw)
+
+        # Resolve numeric fields with env var override support
+        max_tokens = self._resolve_max_tokens(markdown)
+        temperature = self._resolve_temperature(markdown)
+        max_iterations = self._resolve_max_iterations(markdown)
 
         # Map tools (lowercase for consistency)
         tools = [t.lower() for t in markdown.tools] if markdown.tools else ["*"]
@@ -201,13 +218,105 @@ class FileSystemSubAgentLoader:
             model=model,
             color=markdown.color or "blue",
             allowed_tools=tools,
-            max_tokens=4096,
-            temperature=markdown.temperature if markdown.temperature is not None else 0.7,
-            max_iterations=markdown.max_iterations or 10,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            max_iterations=max_iterations,
             enabled=markdown.enabled,
             source=SubAgentSource.FILESYSTEM,
             file_path=str(file_info.file_path),
+            max_retries=self._resolve_max_retries(markdown),
+            fallback_models=self._resolve_fallback_models(markdown),
         )
+
+    # ------------------------------------------------------------------
+    # Override resolution helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_model(self, model_raw: str) -> AgentModel:
+        """Resolve model: explicit frontmatter -> env var default -> INHERIT."""
+        frontmatter_model = MODEL_MAPPING.get(model_raw.lower())
+        if frontmatter_model is not None and frontmatter_model != AgentModel.INHERIT:
+            return frontmatter_model
+
+        # Check env var override
+        settings = self._get_settings()
+        if settings and settings.agent_subagent_default_model:
+            env_model = MODEL_MAPPING.get(settings.agent_subagent_default_model.lower())
+            if env_model is not None:
+                return env_model
+
+        # Respect explicit "inherit" from frontmatter, or default to INHERIT
+        return AgentModel.INHERIT
+
+    def _resolve_temperature(self, markdown: SubAgentMarkdown) -> float:
+        """Resolve temperature: explicit frontmatter -> env var default -> 0.7."""
+        if markdown.temperature is not None:
+            return markdown.temperature
+
+        settings = self._get_settings()
+        if settings and settings.agent_subagent_default_temperature is not None:
+            return settings.agent_subagent_default_temperature
+
+        return 0.7
+
+    def _resolve_max_tokens(self, markdown: SubAgentMarkdown) -> int:
+        """Resolve max_tokens: explicit frontmatter -> env var default -> 4096.
+
+        Note: markdown parser does not yet extract max_tokens from frontmatter,
+        so this currently uses env var or hardcoded default.
+        """
+        # Future: if markdown.max_tokens is not None: return markdown.max_tokens
+        settings = self._get_settings()
+        if settings and settings.agent_subagent_default_max_tokens is not None:
+            return settings.agent_subagent_default_max_tokens
+
+        return 4096
+
+    def _resolve_max_iterations(self, markdown: SubAgentMarkdown) -> int:
+        """Resolve max_iterations: explicit frontmatter -> env var default -> 10."""
+        if markdown.max_iterations is not None:
+            return markdown.max_iterations
+
+        settings = self._get_settings()
+        if settings and settings.agent_subagent_default_max_iterations is not None:
+            return settings.agent_subagent_default_max_iterations
+
+        return 10
+
+    def _resolve_max_retries(self, markdown: SubAgentMarkdown) -> int:
+        """Resolve max_retries: explicit frontmatter -> env var default -> 0."""
+        max_retries_val: int | None = getattr(markdown, "max_retries", None)
+        if max_retries_val is not None:
+            return max_retries_val
+
+        settings = self._get_settings()
+        if settings and settings.agent_subagent_default_max_retries is not None:
+            return settings.agent_subagent_default_max_retries
+
+        return 0
+
+    def _resolve_fallback_models(self, markdown: SubAgentMarkdown) -> list[str]:
+        """Resolve fallback_models: explicit frontmatter -> env var default -> []."""
+        fm_models: list[str] | None = getattr(markdown, "fallback_models", None)
+        if fm_models:
+            return list(fm_models)
+
+        settings = self._get_settings()
+        if settings and settings.agent_subagent_default_fallback_models:
+            raw = settings.agent_subagent_default_fallback_models
+            return [m.strip() for m in raw.split(",") if m.strip()]
+
+        return []
+
+    @staticmethod
+    def _get_settings() -> Settings | None:
+        """Lazily load application settings. Returns None if unavailable."""
+        try:
+            from src.configuration.config import get_settings
+
+            return get_settings()
+        except Exception:
+            return None
 
     def invalidate_cache(self) -> None:
         """Invalidate the cache, forcing reload on next access."""

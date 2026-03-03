@@ -201,6 +201,38 @@ class Settings(BaseSettings):
         ge=0.0,
     )
 
+    # SubAgent default overrides (env vars override per-agent .md frontmatter defaults)
+    # These do NOT override explicit values in .md frontmatter; they replace hardcoded defaults.
+    agent_subagent_default_model: str | None = Field(
+        default=None,
+        alias="AGENT_SUBAGENT_DEFAULT_MODEL",
+    )  # e.g. "qwen-max", "gpt-4o", "deepseek". None = use per-agent setting or INHERIT
+    agent_subagent_default_temperature: float | None = Field(
+        default=None,
+        alias="AGENT_SUBAGENT_DEFAULT_TEMPERATURE",
+        ge=0.0,
+        le=2.0,
+    )  # None = use per-agent setting or 0.7
+    agent_subagent_default_max_tokens: int | None = Field(
+        default=None,
+        alias="AGENT_SUBAGENT_DEFAULT_MAX_TOKENS",
+        ge=256,
+    )  # None = use per-agent setting or 4096
+    agent_subagent_default_max_iterations: int | None = Field(
+        default=None,
+        alias="AGENT_SUBAGENT_DEFAULT_MAX_ITERATIONS",
+        ge=1,
+    )  # None = use per-agent setting or 10
+    agent_subagent_default_max_retries: int | None = Field(
+        default=None,
+        alias="AGENT_SUBAGENT_DEFAULT_MAX_RETRIES",
+        ge=0,
+    )  # None = use per-agent setting or 0 (no retry)
+    agent_subagent_default_fallback_models: str | None = Field(
+        default=None,
+        alias="AGENT_SUBAGENT_DEFAULT_FALLBACK_MODELS",
+    )  # Comma-separated model names, e.g. "gpt-4o-mini,qwen-plus". None = no fallback
+
     # HITL (Human-in-the-Loop) Real-time Optimization
     # Uses Redis Streams for low-latency (~30ms) HITL response delivery
     hitl_realtime_enabled: bool = Field(default=True, alias="HITL_REALTIME_ENABLED")

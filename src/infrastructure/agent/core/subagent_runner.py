@@ -21,6 +21,7 @@ from src.domain.events.agent_events import (
     AgentCompleteEvent,
     AgentParallelCompletedEvent,
     AgentParallelStartedEvent,
+    SubAgentSpawningEvent,
 )
 from src.domain.model.agent.subagent import SubAgent
 from src.domain.model.agent.subagent_result import SubAgentResult
@@ -91,6 +92,22 @@ class SubAgentRunnerDeps:
     get_current_tools_fn: Callable[..., tuple[dict[str, Any], list[ToolDefinition]]] | None = None
     filter_tools_fn: Callable[[SubAgent], tuple[list[ToolDefinition], set[str]]] | None = None
     inject_nested_tools_fn: Callable[..., None] | None = None
+
+    # -- Plugin registry (P1-C) --
+    plugin_registry: Any = None  # AgentPluginRegistry | None
+
+# Mapping from SubAgent lifecycle event ``type`` values to
+# ``WELL_KNOWN_HOOKS`` names in the plugin registry.
+_EVENT_TYPE_TO_HOOK: dict[str, str] = {
+    "subagent_spawning": "before_subagent_spawn",
+    "subagent_spawned": "after_subagent_spawn",
+    "subagent_started": "after_subagent_spawn",
+    "subagent_completed": "after_subagent_complete",
+    "subagent_failed": "after_subagent_complete",
+    "subagent_ended": "after_subagent_complete",
+    "subagent_doom_loop": "on_subagent_doom_loop",
+    "subagent_routed": "on_subagent_routed",
+}
 
 
 class SubAgentSessionRunner:
@@ -488,23 +505,42 @@ class SubAgentSessionRunner:
         self,
         event: dict[str, Any],
     ) -> None:
-        """Emit detached SubAgent lifecycle hook event if configured."""
-        if not self.deps.subagent_lifecycle_hook:
-            return
-        try:
-            result = self.deps.subagent_lifecycle_hook(event)
-            if inspect.isawaitable(result):
-                await result
-        except Exception:
-            self.deps.subagent_lifecycle_hook_failures[0] += 1
-            logger.warning(
-                "SubAgent lifecycle hook failed",
-                extra={
-                    "event_type": event.get("type"),
-                    "run_id": event.get("run_id"),
-                },
-                exc_info=True,
-            )
+        """Emit detached SubAgent lifecycle hook event if configured.
+
+        Also notifies the plugin registry if available, mapping event types
+        to well-known hook names (e.g. ``subagent_spawning`` ->
+        ``before_subagent_spawn``).
+        """
+        # 1. Fire the legacy bare-callback hook.
+        if self.deps.subagent_lifecycle_hook:
+            try:
+                result = self.deps.subagent_lifecycle_hook(event)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                self.deps.subagent_lifecycle_hook_failures[0] += 1
+                logger.warning(
+                    "SubAgent lifecycle hook failed",
+                    extra={
+                        "event_type": event.get("type"),
+                        "run_id": event.get("run_id"),
+                    },
+                    exc_info=True,
+                )
+
+        # 2. Bridge to plugin registry hooks (P1-C).
+        registry = self.deps.plugin_registry
+        if registry is not None:
+            hook_name = _EVENT_TYPE_TO_HOOK.get(str(event.get("type", "")))
+            if hook_name:
+                try:
+                    await registry.notify_hook(hook_name, payload=event)
+                except Exception:
+                    logger.warning(
+                        "Plugin registry hook notification failed",
+                        extra={"hook_name": hook_name},
+                        exc_info=True,
+                    )
 
     def get_subagent_observability_stats(self) -> dict[str, int]:
         """Return subagent lifecycle observability counters."""
@@ -786,17 +822,16 @@ class SubAgentSessionRunner:
     ) -> None:
         """Emit spawning + spawned lifecycle hooks for a subagent session."""
         await self.emit_subagent_lifecycle_hook(
-            {
-                "type": "subagent_spawning",
-                "conversation_id": conversation_id,
-                "run_id": run_id,
-                "subagent_name": subagent.name,
-                "spawn_mode": normalized_spawn_mode,
-                "thread_requested": bool(thread_requested),
-                "cleanup": normalized_cleanup,
-                "model_override": requested_model_override,
-                "thinking_override": requested_thinking_override,
-            }
+            dict(SubAgentSpawningEvent(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                subagent_name=subagent.name,
+                spawn_mode=normalized_spawn_mode,
+                thread_requested=bool(thread_requested),
+                cleanup=normalized_cleanup,
+                model_override=requested_model_override,
+                thinking_override=requested_thinking_override,
+            ).to_event_dict())
         )
         await self.emit_subagent_lifecycle_hook(
             {

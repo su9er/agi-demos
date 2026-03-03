@@ -68,6 +68,7 @@ class ProcessorFactory:
         *,
         model_override: str | None = None,
         abort_signal: asyncio.Event | None = None,
+        doom_loop_threshold: int | None = None,
     ) -> SessionProcessor:
         """Create a SessionProcessor configured for a SubAgent.
 
@@ -79,6 +80,9 @@ class ProcessorFactory:
             tools: Filtered tool definitions for this SubAgent.
             model_override: Optional model override (takes precedence over base_model).
             abort_signal: Not used by processor directly; caller manages abort.
+            doom_loop_threshold: Optional doom-loop detection threshold.
+                Defaults to 3 (ProcessorConfig default). Subagents typically
+                use a tighter threshold than the main agent.
 
         Returns:
             Configured SessionProcessor instance.
@@ -98,6 +102,7 @@ class ProcessorFactory:
             max_steps=subagent.max_iterations,
             llm_client=self.llm_client,
             plugin_registry=self.plugin_registry,
+            doom_loop_threshold=doom_loop_threshold if doom_loop_threshold is not None else 3,
         )
 
         return SessionProcessor(

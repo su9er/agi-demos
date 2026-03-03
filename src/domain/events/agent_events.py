@@ -36,6 +36,12 @@ __all__ = [
     "AgentPolicyFilteredEvent",
     "AgentSelectionTraceEvent",
     "AgentSuggestionsEvent",
+    "SubAgentCompletedEvent",
+    "SubAgentDoomLoopEvent",
+    "SubAgentFailedEvent",
+    "SubAgentRoutedEvent",
+    "SubAgentSpawningEvent",
+    "SubAgentStartedEvent",
     "get_frontend_event_types",
 ]
 
@@ -955,6 +961,91 @@ class AgentBackgroundLaunchedEvent(AgentDomainEvent):
     subagent_name: str
     task: str
 
+# =========================================================================
+# SubAgent Lifecycle Events (L3 layer formal events)
+# =========================================================================
+
+
+class SubAgentSpawningEvent(AgentDomainEvent):
+    """Event: SubAgent session is being spawned (pre-start lifecycle hook)."""
+
+    event_type: AgentEventType = AgentEventType.SUBAGENT_SPAWNING
+    conversation_id: str
+    run_id: str
+    subagent_name: str
+    spawn_mode: str
+    thread_requested: bool = False
+    cleanup: str = "auto"
+    model_override: str | None = None
+    thinking_override: str | None = None
+
+
+class SubAgentRoutedEvent(AgentDomainEvent):
+    """Event: SubAgent was selected by the router for a task."""
+
+    event_type: AgentEventType = AgentEventType.SUBAGENT_ROUTED
+    subagent_id: str
+    subagent_name: str
+    task: str
+    model: str
+    confidence: float = 0.0
+    match_reason: str = ""
+
+
+class SubAgentStartedEvent(AgentDomainEvent):
+    """Event: SubAgent execution has started."""
+
+    event_type: AgentEventType = AgentEventType.SUBAGENT_STARTED
+    subagent_id: str
+    subagent_name: str
+    task: str
+    model: str
+
+
+class SubAgentCompletedEvent(AgentDomainEvent):
+    """Event: SubAgent execution completed (success or failure)."""
+
+    event_type: AgentEventType = AgentEventType.SUBAGENT_COMPLETED
+    subagent_id: str
+    subagent_name: str
+    success: bool = True
+    summary: str = ""
+    tool_calls_count: int = 0
+    tokens_used: int = 0
+    execution_time_ms: int = 0
+    error: str | None = None
+    final_content: str = ""
+
+
+class SubAgentFailedEvent(AgentDomainEvent):
+    """Event: SubAgent execution failed with an error."""
+
+    event_type: AgentEventType = AgentEventType.SUBAGENT_FAILED
+    subagent_id: str
+    subagent_name: str
+    error: str
+
+
+class SubAgentDoomLoopEvent(AgentDomainEvent):
+    """Event: SubAgent was terminated due to doom loop detection."""
+
+    event_type: AgentEventType = AgentEventType.SUBAGENT_DOOM_LOOP
+    subagent_id: str
+    subagent_name: str
+    reason: str
+    threshold: int = 3
+
+
+class SubAgentRetryEvent(AgentDomainEvent):
+    """Event: SubAgent execution is being retried after failure."""
+
+    event_type: AgentEventType = AgentEventType.SUBAGENT_RETRY
+    subagent_id: str
+    subagent_name: str
+    attempt: int
+    max_retries: int
+    model: str
+    reason: str
 # Event Type Utilities
 # =========================================================================
 
@@ -1023,6 +1114,13 @@ def get_event_type_docstring() -> str:
         AgentParallelStartedEvent,
         AgentParallelCompletedEvent,
         AgentBackgroundLaunchedEvent,
+        SubAgentSpawningEvent,
+        SubAgentRoutedEvent,
+        SubAgentStartedEvent,
+        SubAgentCompletedEvent,
+        SubAgentFailedEvent,
+        SubAgentDoomLoopEvent,
+        SubAgentRetryEvent,
     ]:
         docs.append(f"{event_class.event_type.value}: {event_class.__doc__}")  # type: ignore[attr-defined]
 

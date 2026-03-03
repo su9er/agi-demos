@@ -182,6 +182,9 @@ class AgentEventType(str, Enum):
     SUBAGENT_STARTED = "subagent_started"
     SUBAGENT_COMPLETED = "subagent_completed"
     SUBAGENT_FAILED = "subagent_failed"
+    SUBAGENT_SPAWNING = "subagent_spawning"
+    SUBAGENT_DOOM_LOOP = "subagent_doom_loop"
+    SUBAGENT_RETRY = "subagent_retry"
 
     # =========================================================================
     # Control events (used by event bus)
@@ -336,6 +339,13 @@ EVENT_CATEGORIES: dict[AgentEventType, EventCategory] = {
     AgentEventType.PARALLEL_STARTED: EventCategory.AGENT,
     AgentEventType.PARALLEL_COMPLETED: EventCategory.AGENT,
     AgentEventType.BACKGROUND_LAUNCHED: EventCategory.AGENT,
+    AgentEventType.SUBAGENT_ROUTED: EventCategory.AGENT,
+    AgentEventType.SUBAGENT_STARTED: EventCategory.AGENT,
+    AgentEventType.SUBAGENT_COMPLETED: EventCategory.AGENT,
+    AgentEventType.SUBAGENT_FAILED: EventCategory.AGENT,
+    AgentEventType.SUBAGENT_SPAWNING: EventCategory.AGENT,
+    AgentEventType.SUBAGENT_DOOM_LOOP: EventCategory.AGENT,
+    AgentEventType.SUBAGENT_RETRY: EventCategory.AGENT,
 }
 
 

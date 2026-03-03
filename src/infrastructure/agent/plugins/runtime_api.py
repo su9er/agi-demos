@@ -15,6 +15,7 @@ from .registry import (
     PluginLifecycleHandler,
     PluginSkillFactory,
     PluginToolFactory,
+    SubAgentResolverFactory,
     get_plugin_registry,
 )
 
@@ -261,3 +262,21 @@ class PluginRuntimeApi:
         if isinstance(result, RTDeps):
             return result
         return None
+
+
+    def register_subagent_resolver_factory(
+        self,
+        factory: SubAgentResolverFactory,
+        *,
+        overwrite: bool = False,
+    ) -> None:
+        """Register a sub-agent resolver factory for this plugin.
+
+        The factory receives a ``SubAgentResolverBuildContext`` and should
+        return a ``Resolver`` instance (from
+        ``src.infrastructure.agent.core.resolver``) that will be appended to
+        the ``SubAgentRouter``'s ``ResolverChain``.
+        """
+        self._registry.register_subagent_resolver_factory(
+            self._plugin_name, factory, overwrite=overwrite
+        )

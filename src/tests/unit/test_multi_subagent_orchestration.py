@@ -365,11 +365,11 @@ class TestNestedSessionToolInjection:
                 events.append(event)
 
         assert "delegate_to_subagent" in captured_tool_names
-        assert "subagents" in captured_tool_names
-        assert "sessions_list" in captured_tool_names
-        assert "sessions_history" in captured_tool_names
+        assert "subagents_v2" in captured_tool_names
+        assert "sessions_list_v2" in captured_tool_names
+        assert "sessions_history_v2" in captured_tool_names
         assert "sessions_wait" in captured_tool_names
-        assert "sessions_timeline" in captured_tool_names
+        assert "sessions_timeline_v2" in captured_tool_names
         assert "sessions_overview" in captured_tool_names
         assert events[-1]["type"] == "complete"
 
@@ -413,8 +413,8 @@ class TestNestedSessionToolInjection:
                 events.append(event)
 
         assert "delegate_to_subagent" not in captured_tool_names
-        assert "subagents" not in captured_tool_names
-        assert "sessions_list" not in captured_tool_names
+        assert "subagents_v2" not in captured_tool_names
+        assert "sessions_list_v2" not in captured_tool_names
         assert events[-1]["type"] == "complete"
 
 

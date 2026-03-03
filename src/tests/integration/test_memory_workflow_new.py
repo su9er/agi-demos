@@ -6,7 +6,8 @@ Tests:
 3. Delete memory uses correct graphiti cleanup method
 """
 
-from unittest.mock import AsyncMock
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -37,10 +38,27 @@ class TestMemoryWorkflowNew:
         # Reset mock calls
         mock_workflow_engine.start_workflow.reset_mock()
 
-        # Act
-        response = await async_client.patch(
-            f"/api/v1/memories/{test_memory_db.id}", json=update_data
-        )
+        # Mock async_session_factory to avoid hitting real PostgreSQL.
+        # _submit_reprocessing_workflow opens a separate session for TaskLog.
+        mock_task_session = MagicMock()
+        mock_task_session.add = MagicMock()
+
+        @asynccontextmanager
+        async def _fake_factory():
+            mock_begin = MagicMock()
+            mock_begin.__aenter__ = AsyncMock(return_value=None)
+            mock_begin.__aexit__ = AsyncMock(return_value=False)
+            mock_task_session.begin = MagicMock(return_value=mock_begin)
+            yield mock_task_session
+
+        with patch(
+            "src.infrastructure.adapters.secondary.persistence.database.async_session_factory",
+            _fake_factory,
+        ):
+            # Act
+            response = await async_client.patch(
+                f"/api/v1/memories/{test_memory_db.id}", json=update_data
+            )
 
         # Assert
         assert response.status_code == 200

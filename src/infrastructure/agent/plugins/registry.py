@@ -38,6 +38,13 @@ WELL_KNOWN_HOOKS: frozenset[str] = frozenset(
         "on_session_start",
         "on_session_end",
         "on_context_overflow",
+        # Sub-agent lifecycle hooks (P1-C)
+        "before_subagent_spawn",
+        "after_subagent_spawn",
+        "before_subagent_complete",
+        "after_subagent_complete",
+        "on_subagent_doom_loop",
+        "on_subagent_routed",
     }
 )
 PluginCommandHandler = Callable[[Mapping[str, Any]], Any | Awaitable[Any]]
@@ -47,6 +54,14 @@ PluginSkillFactory = Callable[
 PluginHttpHandler = Callable[..., Any | Awaitable[Any]]
 PluginCliHandler = Callable[[Mapping[str, Any]], Any | Awaitable[Any]]
 PluginLifecycleHandler = Callable[[], None | Awaitable[None]]
+
+# Sub-agent resolver plugin extension types.
+# A resolver factory receives a build context and returns a ``Resolver`` (or
+# an awaitable that resolves to one).  Plugins register these factories via
+# ``PluginRuntimeApi.register_subagent_resolver_factory()``.
+SubAgentResolverFactory = Callable[
+    ["SubAgentResolverBuildContext"], Any | Awaitable[Any]
+]
 
 LIFECYCLE_EVENTS: frozenset[str] = frozenset(
     {
@@ -92,6 +107,18 @@ class ChannelAdapterBuildContext:
     config_model: Any
     channel_config: Any
 
+
+@dataclass(frozen=True)
+class SubAgentResolverBuildContext:
+    """Build context passed to sub-agent resolver factories.
+
+    Plugins receive this when their resolver factory is invoked during
+    ``SubAgentRouter`` initialisation so they can configure resolvers
+    based on the active project / tenant.
+    """
+
+    tenant_id: str
+    project_id: str
 
 @dataclass(frozen=True)
 class ChannelTypeConfigMetadata:
@@ -166,6 +193,7 @@ class AgentPluginRegistry:
         self._lock = RLock()
         self._config_schemas: dict[str, PluginConfigSchema] = {}
         self._sandbox_tool_factories: dict[str, list[PluginToolFactory]] = {}
+        self._subagent_resolver_factories: dict[str, SubAgentResolverFactory] = {}
 
     def register_tool_factory(
         self,
@@ -826,6 +854,57 @@ class AgentPluginRegistry:
             )
             return None, diagnostics
 
+    def register_subagent_resolver_factory(
+        self,
+        plugin_name: str,
+        factory: SubAgentResolverFactory,
+        *,
+        overwrite: bool = False,
+    ) -> None:
+        """Register a sub-agent resolver factory for a plugin.
+
+        The factory is called during ``SubAgentRouter`` initialisation and
+        should return a ``Resolver`` instance (from
+        ``src.infrastructure.agent.core.resolver``).
+        """
+        with self._lock:
+            if plugin_name in self._subagent_resolver_factories and not overwrite:
+                raise ValueError(
+                    f"SubAgent resolver factory already registered for plugin: {plugin_name}"
+                )
+            self._subagent_resolver_factories[plugin_name] = factory
+
+    async def build_subagent_resolvers(
+        self,
+        context: SubAgentResolverBuildContext,
+    ) -> tuple[list[Any], list[PluginDiagnostic]]:
+        """Invoke all registered resolver factories and collect results.
+
+        Returns a tuple of (resolvers, diagnostics).
+        """
+        with self._lock:
+            factories = dict(self._subagent_resolver_factories)
+
+        resolvers: list[Any] = []
+        diagnostics: list[PluginDiagnostic] = []
+        for plugin_name, factory in factories.items():
+            try:
+                result = factory(context)
+                if inspect.isawaitable(result):
+                    result = await result
+                if result is not None:
+                    resolvers.append(result)
+            except Exception as exc:
+                diagnostics.append(
+                    PluginDiagnostic(
+                        plugin_name=plugin_name,
+                        code="subagent_resolver_factory_failed",
+                        message=str(exc),
+                        level="error",
+                    )
+                )
+        return resolvers, diagnostics
+
     def clear(self) -> None:
         """Clear registry state (primarily for tests)."""
         with self._lock:
@@ -843,6 +922,7 @@ class AgentPluginRegistry:
             self._lifecycle_hooks.clear()
             self._config_schemas.clear()
             self._sandbox_tool_factories.clear()
+            self._subagent_resolver_factories.clear()
 
     def register_config_schema(self, plugin_name: str, schema: dict[str, Any]) -> None:
         """Register a JSON Schema for validating a plugin's configuration."""

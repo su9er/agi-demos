@@ -3,6 +3,9 @@ SubAgent Router - Routes tasks to specialized SubAgents.
 
 SubAgents are specialized agents that handle specific types of tasks with
 isolated tool access and custom system prompts.
+
+Internally uses a ResolverChain (keyword -> description -> ...) so that
+resolution strategies are modular and extensible.
 """
 
 import logging
@@ -10,6 +13,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.domain.model.agent.subagent import AgentModel, SubAgent
+
+from .resolver import (
+    DescriptionResolver,
+    KeywordResolver,
+    Resolver,
+    ResolverChain,
+    ResolverResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +46,7 @@ class SubAgentRouter:
         self,
         subagents: list[SubAgent],
         default_confidence_threshold: float = 0.5,
+        extra_resolvers: list[Resolver] | None = None,
     ) -> None:
         """
         Initialize SubAgent router.
@@ -42,9 +54,12 @@ class SubAgentRouter:
         Args:
             subagents: List of available SubAgents
             default_confidence_threshold: Minimum confidence for routing
+            extra_resolvers: Optional additional resolvers appended after
+                the built-in keyword and description resolvers.
         """
         self.subagents = {s.name: s for s in subagents if s.enabled}
         self.default_confidence_threshold = default_confidence_threshold
+        self._extra_resolvers = list(extra_resolvers) if extra_resolvers else []
 
         # Build keyword index for fast matching
         self._keyword_index: dict[str, list[str]] = {}  # keyword -> [subagent_names]
@@ -57,6 +72,23 @@ class SubAgentRouter:
                     self._keyword_index[keyword_lower] = []
                 self._keyword_index[keyword_lower].append(subagent.name)
 
+        # Build the resolver chain
+        self._resolver_chain = self._build_chain()
+
+    def _build_chain(self) -> ResolverChain:
+        """Build the resolver chain from built-in + extra resolvers."""
+        resolvers: list[Resolver] = [
+            KeywordResolver(self._keyword_index, self.subagents),
+            DescriptionResolver(self.subagents),
+        ]
+        resolvers.extend(self._extra_resolvers)
+        return ResolverChain(resolvers)
+
+    @property
+    def resolver_chain(self) -> ResolverChain:
+        """Access the underlying resolver chain (for plugin extensions)."""
+        return self._resolver_chain
+
     def match(
         self,
         query: str,
@@ -65,7 +97,7 @@ class SubAgentRouter:
         """
         Find the best SubAgent for a query.
 
-        Uses keyword matching first, then falls back to description matching.
+        Delegates to the internal ResolverChain (keyword -> description -> ...).
 
         Args:
             query: User query or task description
@@ -75,64 +107,11 @@ class SubAgentRouter:
             SubAgentMatch with best match or None
         """
         threshold = confidence_threshold or self.default_confidence_threshold
-        query_lower = query.lower()
-        query_words = set(query_lower.split())
-
-        # First try keyword matching
-        keyword_matches: dict[str, int] = {}  # subagent_name -> match_count
-
-        for word in query_words:
-            if word in self._keyword_index:
-                for subagent_name in self._keyword_index[word]:
-                    keyword_matches[subagent_name] = keyword_matches.get(subagent_name, 0) + 1
-
-        # Calculate confidence based on keyword matches
-        if keyword_matches:
-            best_match_name = max(keyword_matches.keys(), key=lambda k: keyword_matches[k])
-            best_match_count = keyword_matches[best_match_name]
-
-            # Get subagent
-            subagent = self.subagents.get(best_match_name)
-            if subagent:
-                # Calculate confidence (more keywords = higher confidence)
-                total_keywords = len(subagent.trigger.keywords)
-                if total_keywords > 0:
-                    confidence = min(best_match_count / max(total_keywords, 3), 1.0)
-                    # Boost confidence if multiple keywords matched
-                    confidence = min(confidence + 0.1 * (best_match_count - 1), 0.95)
-                else:
-                    confidence = 0.6
-
-                if confidence >= threshold:
-                    return SubAgentMatch(
-                        subagent=subagent,
-                        confidence=confidence,
-                        match_reason=f"Keyword match: {best_match_count} keywords",
-                    )
-
-        # Fallback: simple description matching
-        for subagent in self.subagents.values():
-            description_lower = subagent.trigger.description.lower()
-
-            # Count word overlaps
-            desc_words = set(description_lower.split())
-            overlap = query_words & desc_words
-
-            if len(overlap) >= 2:
-                confidence = min(len(overlap) / 5, 0.6)  # Cap at 0.6 for description match
-
-                if confidence >= threshold:
-                    return SubAgentMatch(
-                        subagent=subagent,
-                        confidence=confidence,
-                        match_reason=f"Description match: {len(overlap)} words",
-                    )
-
-        # No match found
+        result: ResolverResult = self._resolver_chain.resolve(query, threshold)
         return SubAgentMatch(
-            subagent=None,
-            confidence=0.0,
-            match_reason="No match found",
+            subagent=result.subagent,
+            confidence=result.confidence,
+            match_reason=result.match_reason,
         )
 
     def get_subagent(self, name: str) -> SubAgent | None:
@@ -222,7 +201,7 @@ class SubAgentRouter:
             project_id=project_id,
         )
 
-        # Add to router
+        # Add to router and rebuild chain
         self.subagents["explore-agent"] = explore_agent
 
         # Update keyword index
@@ -232,6 +211,9 @@ class SubAgentRouter:
                 self._keyword_index[keyword_lower] = []
             if "explore-agent" not in self._keyword_index[keyword_lower]:
                 self._keyword_index[keyword_lower].append("explore-agent")
+
+        # Rebuild resolver chain so new subagent is visible to all resolvers
+        self._resolver_chain = self._build_chain()
 
         logger.info(f"Created explore-agent for tenant {tenant_id}")
 
