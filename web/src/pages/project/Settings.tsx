@@ -35,7 +35,6 @@ import {
 
 import api, { projectAPI } from '../../services/api';
 import { projectSandboxService } from '../../services/projectSandboxService';
-import type { ProjectSandbox } from '../../types/sandbox';
 import { useProjectStore } from '../../stores/project';
 
 import type {
@@ -50,6 +49,7 @@ import type {
   ProjectSettingsNoProjectProps,
   ProjectSettingsProps,
 } from './settings/types';
+import type { ProjectSandbox } from '../../types/sandbox';
 
 const TEXTS = {
   title: 'Project Settings',

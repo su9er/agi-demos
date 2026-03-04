@@ -47,4 +47,6 @@ export interface AgentService {
     limit?: number
   ): Promise<ToolExecutionsResponse>;
   listTools(): Promise<ToolsListResponse>;
+  killSubAgent(conversationId: string, subagentId: string): boolean;
+  steerSubAgent(conversationId: string, subagentId: string, instruction: string): boolean;
 }
