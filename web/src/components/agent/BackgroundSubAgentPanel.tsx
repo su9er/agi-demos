@@ -23,6 +23,7 @@ import {
   Skull,
   Pause
 } from 'lucide-react';
+
 import {
   useBackgroundExecutions,
   useBackgroundPanel,
@@ -150,7 +151,7 @@ const ExecutionItem = memo<{
               {execution.status !== 'running' && (
                 <button
                   type="button"
-                  onClick={() => onToggleExpand(execution.executionId)}
+                  onClick={() => { onToggleExpand(execution.executionId); }}
                   className="text-[10px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors mb-1"
                 >
                   {isExpanded ? t('agent.background.hideDetails', 'Hide details') : t('agent.background.showDetails', 'Show details')}

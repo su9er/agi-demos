@@ -64,14 +64,21 @@ export function groupTimelineEvents(timeline: TimelineEvent[]): GroupedItem[] {
     currentSteps = [];
   };
 
+  // Track terminal SubAgent events claimed by forward scans (avoid duplicate groups)
+  const claimedIndices = new Set<number>();
+
   for (let i = 0; i < timeline.length; i++) {
     const event = timeline[i];
     if (!event) continue;
+    // Skip events already claimed by a forward scan
+    if (claimedIndices.has(i)) continue;
 
     // SubAgent event grouping
     if (SUBAGENT_EVENT_TYPES.has(event.type)) {
       flushGroup();
       const subGroup = buildSubAgentGroup(timeline, i);
+      // Merge forward-scanned terminal indices
+      for (const idx of subGroup.claimedIndices) claimedIndices.add(idx);
       result.push({ kind: 'subagent', group: subGroup.group, startIndex: i });
       i = subGroup.endIndex;
       continue;
@@ -122,38 +129,83 @@ export function groupTimelineEvents(timeline: TimelineEvent[]): GroupedItem[] {
 }
 
 /**
+ * Terminal SubAgent event types that signal the end of a SubAgent lifecycle.
+ */
+const TERMINAL_SUBAGENT_TYPES = new Set([
+  'subagent_completed',
+  'subagent_failed',
+  'subagent_killed',
+  'subagent_depth_limited',
+  'parallel_completed',
+  'chain_completed',
+  'background_launched',
+]);
+
+/**
+ * Extract subagentId from a timeline event if present.
+ */
+function getSubAgentId(ev: TimelineEvent): string | undefined {
+  // All SubAgent events have subagentId mapped by sseEventAdapter
+  const d = ev as unknown as Record<string, unknown>;
+  const id = d.subagentId;
+  return typeof id === 'string' && id.length > 0 ? id : undefined;
+}
+
+/**
  * Build a SubAgentGroup from consecutive SubAgent events starting at index.
  * Returns the group and the last consumed event index.
+ *
+ * If a non-SubAgent event interrupts the consecutive sequence (e.g. main agent
+ * emitting thought/act/observe between SubAgent lifecycle events), we do a forward
+ * scan to find the matching terminal event so the group gets the correct final status.
  */
 function buildSubAgentGroup(
   timeline: TimelineEvent[],
   startIdx: number
-): { group: SubAgentGroup; endIndex: number } {
+): { group: SubAgentGroup; endIndex: number; claimedIndices: Set<number> } {
   const events: TimelineEvent[] = [];
   let endIndex = startIdx;
+  let foundTerminal = false;
+  const claimedIndices = new Set<number>();
 
-  // Collect consecutive SubAgent events
+  // Phase 1: Collect consecutive SubAgent events (original behavior)
   for (let i = startIdx; i < timeline.length; i++) {
     const item = timeline[i];
     if (!item) break;
     if (SUBAGENT_EVENT_TYPES.has(item.type)) {
       events.push(item);
       endIndex = i;
-      // Stop after terminal events
-      const t = item.type;
-      if (
-        t === 'subagent_completed' ||
-        t === 'subagent_failed' ||
-        t === 'subagent_killed' ||
-        t === 'subagent_depth_limited' ||
-        t === 'parallel_completed' ||
-        t === 'chain_completed' ||
-        t === 'background_launched'
-      ) {
+      if (TERMINAL_SUBAGENT_TYPES.has(item.type)) {
+        foundTerminal = true;
         break;
       }
     } else {
       break;
+    }
+  }
+
+  // Phase 2: If no terminal event found, scan ahead for a matching terminal event.
+  // This handles interleaved main-agent events (thought/act/observe/complete)
+  // that appear between a SubAgent's start and its terminal event.
+  if (!foundTerminal && events.length > 0) {
+    // Determine the subagentId from collected events
+    let targetId: string | undefined;
+    for (const ev of events) {
+      targetId = getSubAgentId(ev);
+      if (targetId) break;
+    }
+
+    if (targetId) {
+      for (let i = endIndex + 1; i < timeline.length; i++) {
+        const item = timeline[i];
+        if (!item) break;
+        if (TERMINAL_SUBAGENT_TYPES.has(item.type) && getSubAgentId(item) === targetId) {
+          events.push(item);
+          // Record this index so the main loop skips it (avoid duplicate group)
+          claimedIndices.add(i);
+          break;
+        }
+      }
     }
   }
 
@@ -308,5 +360,34 @@ function buildSubAgentGroup(
     }
   }
 
-  return { group, endIndex };
+  return { group, endIndex, claimedIndices };
+}
+
+export interface SubAgentSummary {
+  subagentId: string;
+  name: string;
+  status: SubAgentGroup['status'];
+  executionTimeMs?: number;
+  tokensUsed?: number;
+  startIndex: number;
+}
+
+export function getSubAgentSummaries(items: GroupedItem[]): SubAgentSummary[] {
+  return items
+    .filter((item): item is { kind: 'subagent'; group: SubAgentGroup; startIndex: number } => item.kind === 'subagent')
+    .map((item) => {
+      const summary: SubAgentSummary = {
+        subagentId: item.group.subagentId,
+        name: item.group.subagentName || item.group.subagentId?.slice(0, 8) || 'Unnamed',
+        status: item.group.status,
+        startIndex: item.startIndex,
+      };
+      if (item.group.executionTimeMs !== undefined) {
+        summary.executionTimeMs = item.group.executionTimeMs;
+      }
+      if (item.group.tokensUsed !== undefined) {
+        summary.tokensUsed = item.group.tokensUsed;
+      }
+      return summary;
+    });
 }

@@ -1139,8 +1139,17 @@ export function createStreamEventHandlers(
       const { updateConversationState, getConversationState } = get();
       const convState = getConversationState(handlerConversationId);
       const updatedTimeline = appendSSEEventToTimeline(convState.timeline, event);
+
+      const subagentIdToClear = event.data?.subagent_id;
+      let subagentPreviews = convState.subagentPreviews;
+      if (subagentIdToClear && subagentPreviews.has(subagentIdToClear)) {
+        subagentPreviews = new Map(subagentPreviews);
+        subagentPreviews.delete(subagentIdToClear);
+      }
+
       updateConversationState(handlerConversationId, {
         timeline: updatedTimeline,
+        subagentPreviews,
       });
       // Update background store if this was a background execution
       const bgStore = useBackgroundStore.getState();
@@ -1159,8 +1168,17 @@ export function createStreamEventHandlers(
       const { updateConversationState, getConversationState } = get();
       const convState = getConversationState(handlerConversationId);
       const updatedTimeline = appendSSEEventToTimeline(convState.timeline, event);
+
+      const subagentIdToClear = event.data?.subagent_id;
+      let subagentPreviews = convState.subagentPreviews;
+      if (subagentIdToClear && subagentPreviews.has(subagentIdToClear)) {
+        subagentPreviews = new Map(subagentPreviews);
+        subagentPreviews.delete(subagentIdToClear);
+      }
+
       updateConversationState(handlerConversationId, {
         timeline: updatedTimeline,
+        subagentPreviews,
       });
       // Update background store if this was a background execution
       const bgStore = useBackgroundStore.getState();
@@ -1183,8 +1201,17 @@ export function createStreamEventHandlers(
       const { updateConversationState, getConversationState } = get();
       const convState = getConversationState(handlerConversationId);
       const updatedTimeline = appendSSEEventToTimeline(convState.timeline, event);
+
+      const subagentIdToClear = event.data?.subagent_id;
+      let subagentPreviews = convState.subagentPreviews;
+      if (subagentIdToClear && subagentPreviews.has(subagentIdToClear)) {
+        subagentPreviews = new Map(subagentPreviews);
+        subagentPreviews.delete(subagentIdToClear);
+      }
+
       updateConversationState(handlerConversationId, {
         timeline: updatedTimeline,
+        subagentPreviews,
       });
       // Update background store if this was a background execution
       const bgStore = useBackgroundStore.getState();
@@ -1217,9 +1244,20 @@ export function createStreamEventHandlers(
       const { updateConversationState, getConversationState } = get();
       const convState = getConversationState(handlerConversationId);
       const updatedTimeline = appendSSEEventToTimeline(convState.timeline, event);
+
+      // Store live preview from status_message
+      const subagentId = event.data?.subagent_id;
+      const statusMessage = event.data?.status_message;
+      let subagentPreviews = convState.subagentPreviews;
+      if (subagentId && statusMessage) {
+        subagentPreviews = new Map(convState.subagentPreviews);
+        subagentPreviews.set(subagentId, statusMessage);
+      }
+
       updateConversationState(handlerConversationId, {
         timeline: updatedTimeline,
         agentState: 'acting',
+        subagentPreviews,
       });
     },
 

@@ -692,7 +692,7 @@ function DecisionAskedItem({ event }: { event: DecisionAskedTimelineEvent }) {
                     type="text"
                     placeholder="\u8F93\u5165\u4F60\u7684\u51B3\u7B56..."
                     value={customDecision}
-                    onChange={(e) => setCustomDecision(e.target.value)}
+                    onChange={(e) => { setCustomDecision(e.target.value); }}
                     disabled={isSubmitting}
                     className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />

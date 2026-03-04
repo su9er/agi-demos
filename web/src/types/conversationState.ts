@@ -179,6 +179,10 @@ export interface ConversationState {
   // ===== Memory Context =====
   /** Recalled memories for current agent turn */
   recalledMemories: MemoryRecalledEventData['memories'] | null;
+
+  // ===== SubAgent Streaming Previews =====
+  /** Live status messages from running SubAgents (subagentId -> status_message) */
+  subagentPreviews: Map<string, string>;
 }
 
 /**
@@ -236,6 +240,9 @@ export function createDefaultConversationState(): ConversationState {
 
     // Memory context
     recalledMemories: null,
+
+    // SubAgent previews
+    subagentPreviews: new Map(),
   };
 }
 

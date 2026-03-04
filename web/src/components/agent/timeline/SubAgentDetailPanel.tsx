@@ -6,71 +6,13 @@ import {
   X,
   Clock,
   Zap,
-  Bot,
-  GitBranch,
-  Layers,
-  CheckCircle2,
   XCircle,
-  Loader2,
-  Rocket,
-  Pause,
-  Skull,
-  Navigation,
-  ShieldAlert,
 } from 'lucide-react';
 
+import { StatusIcon, ModeIcon } from './SubAgentTimeline';
+import { formatDuration, formatTokens } from './subagentUtils';
 
 import type { SubAgentGroup } from './SubAgentTimeline';
-
-// Copied from SubAgentTimeline.tsx due to constraint: Do NOT modify any existing files
-const formatDuration = (ms: number): string => {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
-};
-
-const formatTokens = (count: number): string => {
-  if (count < 1000) return `${count}`;
-  return `${(count / 1000).toFixed(1)}k`;
-};
-
-const StatusIcon = memo<{ status: string; size?: number | undefined }>(({ status, size = 14 }) => {
-  switch (status) {
-    case 'running':
-      return <Loader2 size={size} className="text-blue-500 animate-spin" />;
-    case 'success':
-      return <CheckCircle2 size={size} className="text-emerald-500" />;
-    case 'error':
-      return <XCircle size={size} className="text-red-500" />;
-    case 'background':
-      return <Rocket size={size} className="text-purple-500" />;
-    case 'queued':
-      return <Pause size={size} className="text-amber-500" />;
-    case 'killed':
-      return <Skull size={size} className="text-red-600" />;
-    case 'steered':
-      return <Navigation size={size} className="text-cyan-500" />;
-    case 'depth_limited':
-      return <ShieldAlert size={size} className="text-orange-500" />;
-    default:
-      return <Loader2 size={size} className="text-slate-400 animate-spin" />;
-  }
-});
-StatusIcon.displayName = 'StatusIcon';
-
-const ModeIcon = memo<{ mode?: string | undefined; size?: number | undefined }>(
-  ({ mode, size = 14 }) => {
-    switch (mode) {
-      case 'parallel':
-        return <Layers size={size} className="text-indigo-500" />;
-      case 'chain':
-        return <GitBranch size={size} className="text-amber-500" />;
-      default:
-        return <Bot size={size} className="text-blue-500" />;
-    }
-  }
-);
-ModeIcon.displayName = 'ModeIcon';
 
 export interface SubAgentDetailPanelProps {
   group: SubAgentGroup;

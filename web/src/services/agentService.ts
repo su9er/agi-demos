@@ -470,6 +470,31 @@ class AgentServiceImpl implements AgentService {
     return sent;
   }
 
+  killSubAgent(conversationId: string, subagentId: string): boolean {
+    const sent = this.send({
+      type: 'kill_run',
+      conversation_id: conversationId,
+      run_id: subagentId,
+    });
+    if (!sent) {
+      logger.warn('[AgentWS] Failed to send kill_run signal - WebSocket not connected');
+    }
+    return sent;
+  }
+
+  steerSubAgent(conversationId: string, subagentId: string, instruction: string): boolean {
+    const sent = this.send({
+      type: 'steer',
+      conversation_id: conversationId,
+      run_id: subagentId,
+      instruction,
+    });
+    if (!sent) {
+      logger.warn('[AgentWS] Failed to send steer signal - WebSocket not connected');
+    }
+    return sent;
+  }
+
   async chat(request: ChatRequest, handler: AgentStreamHandler): Promise<void> {
     const { conversation_id, message, project_id, file_metadata } = request;
 

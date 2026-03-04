@@ -47,9 +47,11 @@ import { ConversationCompareView } from './comparison/ConversationCompareView';
 import { ConversationPickerModal } from './comparison/ConversationPickerModal';
 import { EmptyState } from './EmptyState';
 import { LayoutModeSelector } from './layout/LayoutModeSelector';
+import { groupTimelineEvents, getSubAgentSummaries } from './message/groupTimelineEvents';
 import { Resizer } from './Resizer';
 import { RightPanel } from './RightPanel';
 import { SandboxSection } from './SandboxSection';
+import { SubAgentMiniMap } from './timeline/SubAgentMiniMap';
 
 import { MessageArea, InputBar, ProjectAgentStatusBar } from './index';
 
@@ -572,6 +574,20 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
     // Plan Mode toggle
     const isPlanMode = useAgentV3Store((s) => s.isPlanMode);
 
+    const groupedTimeline = useMemo(() => groupTimelineEvents(timeline), [timeline]);
+    const subagentSummaries = useMemo(() => getSubAgentSummaries(groupedTimeline), [groupedTimeline]);
+
+    const handleScrollToSubAgent = useCallback((startIndex: number) => {
+      const element = document.querySelector(`[data-timeline-index="${startIndex}"]`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        // Fallback for when elements might not have the data attribute yet
+        // The VirtualizedMessageList might not have rendered it
+        console.warn('SubAgent element not found in DOM for scrolling', startIndex);
+      }
+    }, []);
+
     const handleTogglePlanMode = useCallback(async () => {
       if (!activeConversationId) return;
       const newMode = isPlanMode ? 'build' : 'plan';
@@ -596,6 +612,9 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
         )}
         <div className="flex-1 overflow-hidden relative min-h-0">
           {messageArea}
+          {subagentSummaries.length >= 3 && (
+            <SubAgentMiniMap summaries={subagentSummaries} onScrollTo={handleScrollToSubAgent} />
+          )}
           <ChatSearch
             timeline={timeline}
             visible={chatSearchVisible}
@@ -791,6 +810,7 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
             </div>
 
             {/* Drag handle */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for split pane resizing */}
             <div
               className="flex-shrink-0 w-1.5 h-full cursor-col-resize relative group
               hover:bg-purple-500/20 active:bg-purple-500/30 transition-colors z-10 mobile-hidden"
@@ -841,6 +861,7 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
             </div>
 
             {/* Drag handle */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for split pane resizing */}
             <div
               className="flex-shrink-0 w-1.5 h-full cursor-col-resize relative group
               hover:bg-blue-500/20 active:bg-blue-500/30 transition-colors z-10 mobile-hidden"
@@ -882,6 +903,7 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
             </div>
 
             {/* Drag handle */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for split pane resizing */}
             <div
               className="flex-shrink-0 w-1.5 h-full cursor-col-resize relative group
               hover:bg-violet-500/20 active:bg-violet-500/30 transition-colors z-10 mobile-hidden"
