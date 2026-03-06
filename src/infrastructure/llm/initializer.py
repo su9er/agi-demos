@@ -357,5 +357,6 @@ def _build_provider_config(
         is_active=True,
         is_default=True,
         tenant_id="default",
+        is_enabled=True,
         config={},  # Additional provider-specific config can be added here
     )

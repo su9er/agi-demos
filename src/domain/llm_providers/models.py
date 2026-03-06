@@ -6,7 +6,7 @@ following Domain-Driven Design principles.
 """
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # ============================================================================
 
 
-class ModelCapability(str, Enum):
+class ModelCapability(StrEnum):
     """Model capabilities"""
 
     CHAT = "chat"
@@ -368,7 +368,7 @@ def get_default_model_metadata(model_name: str) -> ModelMetadata:
     )
 
 
-class ProviderType(str, Enum):
+class ProviderType(StrEnum):
     """Supported LLM provider types"""
 
     OPENAI = "openai"
@@ -387,9 +387,22 @@ class ProviderType(str, Enum):
     KIMI = "kimi"  # Moonshot AI (Kimi)
     OLLAMA = "ollama"  # Local Ollama server
     LMSTUDIO = "lmstudio"  # LM Studio OpenAI-compatible server
+    # Specialized sub-providers (coding, embedding, reranker variants)
+    MINIMAX_CODING = "minimax_coding"
+    MINIMAX_EMBEDDING = "minimax_embedding"
+    MINIMAX_RERANKER = "minimax_reranker"
+    ZAI_CODING = "zai_coding"
+    ZAI_EMBEDDING = "zai_embedding"
+    ZAI_RERANKER = "zai_reranker"
+    KIMI_CODING = "kimi_coding"
+    KIMI_EMBEDDING = "kimi_embedding"
+    KIMI_RERANKER = "kimi_reranker"
+    DASHSCOPE_CODING = "dashscope_coding"
+    DASHSCOPE_EMBEDDING = "dashscope_embedding"
+    DASHSCOPE_RERANKER = "dashscope_reranker"
 
 
-class ProviderStatus(str, Enum):
+class ProviderStatus(StrEnum):
     """Health status of a provider"""
 
     HEALTHY = "healthy"
@@ -397,7 +410,7 @@ class ProviderStatus(str, Enum):
     UNHEALTHY = "unhealthy"
 
 
-class OperationType(str, Enum):
+class OperationType(StrEnum):
     """Types of LLM operations"""
 
     LLM = "llm"
@@ -561,7 +574,7 @@ class ProviderConfig(ProviderConfigBase):
         from_attributes = True
 
 
-class CircuitBreakerState(str, Enum):
+class CircuitBreakerState(StrEnum):
     """Circuit breaker state."""
 
     CLOSED = "closed"

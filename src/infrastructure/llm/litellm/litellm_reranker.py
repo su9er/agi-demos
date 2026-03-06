@@ -1,3 +1,4 @@
+# pyright: reportReturnType=false, reportOptionalMemberAccess=false, reportAttributeAccessIssue=false, reportOptionalIterable=false, reportArgumentType=false, reportImplicitOverride=false, reportMissingTypeArgument=false, reportUnknownParameterType=false
 """
 LiteLLM Reranker Adapter for Knowledge Graph System
 

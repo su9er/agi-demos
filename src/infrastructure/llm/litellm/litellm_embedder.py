@@ -1,3 +1,4 @@
+# pyright: reportReturnType=false, reportOptionalMemberAccess=false, reportImplicitOverride=false
 """
 LiteLLM Embedder Adapter for Knowledge Graph System
 

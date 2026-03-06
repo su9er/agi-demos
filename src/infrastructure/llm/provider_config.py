@@ -18,13 +18,13 @@ Usage:
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from src.domain.llm_providers.models import ProviderType
 
 
-class ProviderPrefix(str, Enum):
+class ProviderPrefix(StrEnum):
     """
     Provider prefixes for LiteLLM model names.
 
