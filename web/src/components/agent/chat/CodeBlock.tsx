@@ -6,7 +6,6 @@
  * Used as a `components.pre` override in ReactMarkdown instances.
  */
 
-import { useSyntaxHighlighter } from '../canvas/useSyntaxHighlighter';
 import { memo, useState, useCallback, useRef, useEffect } from 'react';
 import type { ReactElement, ReactNode, HTMLAttributes } from 'react';
 
@@ -16,6 +15,8 @@ import { Copy, Check, PanelRight } from 'lucide-react';
 
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useLayoutModeStore } from '@/stores/layoutMode';
+
+import { useSyntaxHighlighter } from '../canvas/useSyntaxHighlighter';
 
 import { MermaidBlock } from './MermaidBlock';
 

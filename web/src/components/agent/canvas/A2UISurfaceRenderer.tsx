@@ -146,7 +146,7 @@ function normalizeComponentEntry(rawEntry: unknown): EnvelopeRecord | null {
     } else {
       const actionObj = normalizeEnvelopePayload(actionRaw);
       if (actionObj && typeof actionObj.actionId === 'string' && typeof actionObj.name !== 'string') {
-        normalizedPayload.action = { ...actionObj, name: actionObj.actionId as string };
+        normalizedPayload.action = { ...actionObj, name: actionObj.actionId };
       }
     }
     // Normalize action.context: @copilotkit/a2ui-renderer expects
@@ -371,7 +371,7 @@ function repairMalformedSurfaceUpdateJson(input: string): string {
   // Pattern 1: {""} (empty string key with no value) should be {} (empty object).
   // Pattern 2: {"} (lone orphan quote in object) should be {} (empty object).
   // Also handles whitespace variants like {" "} or {""  } etc.
-  let cleaned = input
+  const cleaned = input
     .replace(/\{\s*"\s*"\s*\}/g, '{}')
     .replace(/\{\s*"\s*\}/g, '{}');
 
@@ -939,9 +939,9 @@ interface A2UIRenderFallbackProps {
 }
 
 const SURFACE_SHELL_CLASS =
-  'h-full overflow-auto rounded-b-lg bg-gradient-to-b from-white to-slate-50 px-4 py-4 dark:from-slate-900 dark:to-slate-900';
+  'h-full overflow-auto rounded-b-lg bg-gradient-to-br from-indigo-50/80 via-white to-fuchsia-50/80 px-4 py-6 sm:py-8 sm:px-6 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/30';
 const SURFACE_CARD_CLASS =
-  'mx-auto w-full max-w-6xl rounded-xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-950/5 dark:border-slate-700/70 dark:bg-slate-900 dark:ring-white/10';
+  'mx-auto w-full max-w-5xl rounded-2xl border border-white/60 bg-white/70 shadow-[0_8px_30px_rgb(0,0,0,0.06)] ring-1 ring-slate-900/5 backdrop-blur-xl transition-all duration-500 hover:shadow-[0_8px_30px_rgb(0,0,0,0.1)] hover:bg-white/90 dark:border-white/10 dark:bg-slate-900/60 dark:ring-white/10 dark:hover:bg-slate-900/80 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out';
 
 const A2UIRenderFallback = memo<A2UIRenderFallbackProps>(({ messages }) => {
   const textValues = useMemo(() => extractLiteralTextValues(messages).slice(0, 40), [messages]);
@@ -1063,7 +1063,7 @@ export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(({ surfaceId, 
     return (
       <div className={SURFACE_SHELL_CLASS}>
         <div
-          className={`${SURFACE_CARD_CLASS} flex min-h-[280px] items-center justify-center px-6 py-8`}
+          className={`${SURFACE_CARD_CLASS} overflow-hidden flex min-h-[280px] items-center justify-center px-6 py-8`}
           aria-live="polite"
         >
           <div className="text-center">
@@ -1081,9 +1081,9 @@ export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(({ surfaceId, 
 
   return (
     <div className={SURFACE_SHELL_CLASS}>
-      <div className={`${SURFACE_CARD_CLASS} p-2 sm:p-3`}>
+      <div className={`${SURFACE_CARD_CLASS} overflow-hidden p-2 sm:p-4`}>
         <A2UIErrorBoundary fallback={<A2UIRenderFallback messages={messages} />}>
-          <div className="min-w-0 rounded-lg bg-white p-2 dark:bg-slate-900">
+          <div className="min-w-0 bg-transparent p-2 sm:p-4">
             <A2UIViewer
               root={parsed.root}
               components={parsed.components}

@@ -17,6 +17,7 @@ import { memo, useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 
+import { Table as AntTable } from 'antd';
 import {
   X,
   Copy,
@@ -61,9 +62,8 @@ import type { StandardMCPAppRendererHandle } from '@/components/mcp-app/Standard
 import { useMarkdownPlugins, safeMarkdownComponents } from '../chat/markdownPlugins';
 import { MARKDOWN_PROSE_CLASSES } from '../styles';
 
-import { SelectionToolbar } from './SelectionToolbar';
 import { A2UISurfaceRenderer } from './A2UISurfaceRenderer';
-import { Table as AntTable } from 'antd';
+import { SelectionToolbar } from './SelectionToolbar';
 import { useSyntaxHighlighter } from './useSyntaxHighlighter';
 
 const typeIcon = (type: CanvasContentType, size = 14) => {

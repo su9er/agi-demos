@@ -24,6 +24,7 @@ import {
 import { logger } from '../utils/logger';
 import { tabSync } from '../utils/tabSync';
 
+import { replayCanvasEventsFromTimeline } from './agent/canvasReplay';
 import {
   TOKEN_BATCH_INTERVAL_MS,
   THOUGHT_BATCH_INTERVAL_MS,
@@ -49,7 +50,6 @@ import {
   mergeHITLResponseEvents,
   timelineToMessages,
 } from './agent/timelineUtils';
-import { replayCanvasEventsFromTimeline } from './agent/canvasReplay';
 import { useCanvasStore } from './canvasStore';
 import { useLayoutModeStore } from './layoutMode';
 
