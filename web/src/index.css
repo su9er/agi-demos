@@ -1926,3 +1926,181 @@ img[loading='lazy'] {
 .animate-status-pill-in {
   animation: status-pill-in 200ms ease-out;
 }
+
+/* ============================================================================
+ * A2UI SURFACE THEME OVERRIDES
+ * Scoped polish for A2UI form-heavy surfaces rendered in Canvas.
+ * ============================================================================ */
+
+.a2ui-surface-theme {
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+}
+
+.a2ui-surface-theme :where(.a2ui-column > section, .a2ui-row > section) {
+  gap: 0.75rem;
+}
+
+.a2ui-surface-theme .a2ui-card > section {
+  border: 1px solid rgba(30, 63, 174, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.92) 100%);
+  box-shadow: 0 10px 25px -16px rgba(30, 63, 174, 0.35);
+  padding: 1rem;
+}
+
+.a2ui-surface-theme .a2ui-textfield > section {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.a2ui-surface-theme .a2ui-textfield label,
+.a2ui-surface-theme .a2ui-multiplechoice label,
+.a2ui-surface-theme .a2ui-datetime-input label {
+  color: #334155;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.a2ui-surface-theme :where(
+    .a2ui-textfield input,
+    .a2ui-textfield textarea,
+    .a2ui-multiplechoice select,
+    .a2ui-datetime-input input
+  ) {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  min-height: 2.5rem;
+  padding: 0.55rem 0.75rem;
+  line-height: 1.4;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.a2ui-surface-theme .a2ui-textfield textarea {
+  min-height: 6.5rem;
+  resize: vertical;
+}
+
+.a2ui-surface-theme :where(.a2ui-textfield input, .a2ui-textfield textarea)::placeholder {
+  color: #94a3b8;
+}
+
+.a2ui-surface-theme :where(
+    .a2ui-textfield input,
+    .a2ui-textfield textarea,
+    .a2ui-multiplechoice select,
+    .a2ui-datetime-input input
+  ):focus-visible {
+  outline: none;
+  border-color: #3b5fc9;
+  box-shadow: 0 0 0 3px rgba(59, 95, 201, 0.18);
+}
+
+.a2ui-surface-theme .a2ui-button > button {
+  cursor: pointer;
+  border-radius: 10px;
+  border: 1px solid rgba(30, 63, 174, 0.12);
+  background: linear-gradient(135deg, #1e3fae 0%, #3b5fc9 100%);
+  color: #fff;
+  box-shadow: 0 8px 18px -10px rgba(30, 63, 174, 0.45);
+  transition: transform 0.16s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.a2ui-surface-theme .a2ui-button > button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px -12px rgba(30, 63, 174, 0.5);
+  filter: saturate(1.04);
+}
+
+.a2ui-surface-theme .a2ui-button > button:active {
+  transform: translateY(0);
+}
+
+.a2ui-surface-theme .a2ui-button > button:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(59, 95, 201, 0.28),
+    0 8px 18px -10px rgba(30, 63, 174, 0.45);
+}
+
+.a2ui-surface-theme .a2ui-button > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+.dark .a2ui-surface-theme {
+  color: #e2e8f0;
+}
+
+.dark .a2ui-surface-theme .a2ui-card > section {
+  border-color: rgba(148, 163, 184, 0.3);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.86) 100%);
+  box-shadow: 0 16px 32px -20px rgba(15, 23, 42, 0.9);
+}
+
+.dark .a2ui-surface-theme .a2ui-textfield label,
+.dark .a2ui-surface-theme .a2ui-multiplechoice label,
+.dark .a2ui-surface-theme .a2ui-datetime-input label {
+  color: #cbd5e1;
+}
+
+.dark
+  .a2ui-surface-theme
+  :where(.a2ui-textfield input, .a2ui-textfield textarea, .a2ui-multiplechoice select, .a2ui-datetime-input input) {
+  border-color: #475569;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.dark .a2ui-surface-theme :where(.a2ui-textfield input, .a2ui-textfield textarea)::placeholder {
+  color: #64748b;
+}
+
+.dark
+  .a2ui-surface-theme
+  :where(.a2ui-textfield input, .a2ui-textfield textarea, .a2ui-multiplechoice select, .a2ui-datetime-input input):focus-visible {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.28);
+}
+
+.dark .a2ui-surface-theme .a2ui-button > button {
+  border-color: rgba(99, 102, 241, 0.35);
+  background: linear-gradient(135deg, #334155 0%, #4f46e5 100%);
+  box-shadow: 0 10px 24px -16px rgba(79, 70, 229, 0.75);
+}
+
+@media (forced-colors: active) {
+  .a2ui-surface-theme :where(
+      .a2ui-textfield input,
+      .a2ui-textfield textarea,
+      .a2ui-multiplechoice select,
+      .a2ui-datetime-input input
+    ):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+
+  .a2ui-surface-theme .a2ui-button > button:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .a2ui-surface-theme .a2ui-button > button {
+    transition: none;
+  }
+
+  .a2ui-surface-theme .a2ui-button > button:hover,
+  .a2ui-surface-theme .a2ui-button > button:active {
+    transform: none;
+  }
+}

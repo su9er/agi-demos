@@ -106,6 +106,48 @@ class ModelMetadata(BaseModel):
         description="Fallback chars/token estimate",
     )
 
+    # --- models.dev catalog fields (P1-T4 extended) ---
+    reasoning: bool = Field(
+        default=False,
+        description="Whether model supports reasoning/thinking natively",
+    )
+    supports_temperature: bool = Field(
+        default=True,
+        description="Whether model accepts temperature parameter",
+    )
+    supports_tool_call: bool = Field(
+        default=False,
+        description="Whether model supports tool/function calling",
+    )
+    supports_structured_output: bool = Field(
+        default=False,
+        description="Whether model supports structured output mode",
+    )
+    supports_attachment: bool = Field(
+        default=False,
+        description="Whether model supports file/image attachments",
+    )
+    interleaved: dict[str, str] | None = Field(
+        default=None,
+        description="Reasoning interleaved content config (e.g. {'field': 'reasoning_content'})",
+    )
+    cache_read_cost_per_1m: float | None = Field(
+        default=None, ge=0, description="Cost per 1M cache read tokens (USD)"
+    )
+    cache_write_cost_per_1m: float | None = Field(
+        default=None, ge=0, description="Cost per 1M cache write tokens (USD)"
+    )
+    reasoning_cost_per_1m: float | None = Field(
+        default=None, ge=0, description="Cost per 1M reasoning/thinking tokens (USD)"
+    )
+    knowledge_cutoff: str | None = Field(
+        default=None, description="Knowledge cutoff date (e.g. '2024-06')"
+    )
+    open_weights: bool = Field(
+        default=False,
+        description="Whether model weights are publicly available",
+    )
+
     class Config:
         use_enum_values = True
 
@@ -447,7 +489,7 @@ class ProviderConfigBase(BaseModel):
     provider_type: ProviderType = Field(..., description="Provider type (openai, dashscope, etc.)")
     tenant_id: str | None = Field("default", description="Tenant/group ID")
     base_url: str | None = Field(None, description="Custom base URL for API calls")
-    llm_model: str = Field(..., min_length=1, description="Primary LLM model")
+    llm_model: str | None = Field(None, description="Primary LLM model (required for chat/coding providers)")
     llm_small_model: str | None = Field(None, description="Smaller/faster LLM model")
     embedding_model: str | None = Field(None, description="Embedding model")
     embedding_config: EmbeddingConfig | None = Field(
@@ -502,8 +544,14 @@ class ProviderConfigCreate(ProviderConfigBase):
         if not self.api_key:
             raise ValueError("API key cannot be empty")
 
-        return self
+        # Require llm_model for chat/coding providers, not for embedding/reranker
+        pt = self.provider_type.value if self.provider_type else ""
+        is_embedding = pt.endswith("_embedding")
+        is_reranker = pt.endswith("_reranker")
+        if not is_embedding and not is_reranker and not self.llm_model:
+            raise ValueError("llm_model is required for chat and coding providers")
 
+        return self
 
 class ProviderConfigUpdate(BaseModel):
     """Model for updating an existing provider"""

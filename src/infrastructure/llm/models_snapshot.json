@@ -1,297 +1,95 @@
 {
   "_meta": {
-    "version": "1.0.0",
-    "generated_at": "2026-03-04T00:00:00Z",
-    "description": "Embedded model catalog snapshot for MemStack"
+    "version": "2.0.0",
+    "source": "models.dev",
+    "generated_at": "2026-03-06T15:19:55Z",
+    "description": "Model catalog snapshot generated from models.dev API",
+    "model_count": 212
   },
   "models": {
-    "gpt-4-turbo": {
-      "name": "gpt-4-turbo",
-      "context_length": 128000,
-      "max_output_tokens": 4096,
-      "input_cost_per_1m": 10.0,
-      "output_cost_per_1m": 30.0,
-      "capabilities": ["chat", "function_calling", "vision"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "openai",
-      "modalities": ["text", "image"],
-      "family": "gpt-4",
-      "description": "GPT-4 Turbo with vision capabilities"
-    },
-    "gpt-4o": {
-      "name": "gpt-4o",
-      "context_length": 128000,
-      "max_output_tokens": 16384,
-      "input_cost_per_1m": 2.5,
-      "output_cost_per_1m": 10.0,
-      "capabilities": ["chat", "function_calling", "vision"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "openai",
-      "modalities": ["text", "image"],
-      "family": "gpt-4o",
-      "description": "GPT-4o multimodal flagship model"
-    },
-    "gpt-4o-mini": {
-      "name": "gpt-4o-mini",
-      "context_length": 128000,
-      "max_output_tokens": 16384,
-      "input_cost_per_1m": 0.15,
-      "output_cost_per_1m": 0.6,
-      "capabilities": ["chat", "function_calling", "vision"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "openai",
-      "modalities": ["text", "image"],
-      "family": "gpt-4o",
-      "description": "Compact, cost-effective GPT-4o variant"
-    },
-    "gpt-4": {
-      "name": "gpt-4",
-      "context_length": 8192,
-      "max_output_tokens": 4096,
-      "capabilities": ["chat", "function_calling"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "openai",
-      "modalities": ["text"],
-      "family": "gpt-4",
-      "is_deprecated": true,
-      "description": "Original GPT-4 (legacy)"
-    },
-    "gemini-2.0-flash": {
-      "name": "gemini-2.0-flash",
-      "context_length": 1048576,
-      "max_output_tokens": 8192,
-      "input_cost_per_1m": 0.075,
-      "output_cost_per_1m": 0.3,
-      "capabilities": ["chat", "function_calling", "vision"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "gemini",
-      "modalities": ["text", "image"],
-      "family": "gemini-2.0",
-      "description": "Gemini 2.0 Flash for fast multimodal tasks"
-    },
-    "gemini-1.5-pro": {
-      "name": "gemini-1.5-pro",
-      "context_length": 2097152,
-      "max_output_tokens": 8192,
-      "input_cost_per_1m": 1.25,
-      "output_cost_per_1m": 5.0,
-      "capabilities": ["chat", "function_calling", "vision"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "gemini",
-      "modalities": ["text", "image"],
-      "family": "gemini-1.5",
-      "description": "Gemini 1.5 Pro with 2M token context"
-    },
-    "gemini-1.5-flash": {
-      "name": "gemini-1.5-flash",
-      "context_length": 1048576,
-      "max_output_tokens": 8192,
-      "capabilities": ["chat", "function_calling", "vision"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "gemini",
-      "modalities": ["text", "image"],
-      "family": "gemini-1.5",
-      "description": "Gemini 1.5 Flash for fast tasks"
-    },
-    "qwen-max": {
-      "name": "qwen-max",
-      "context_length": 32768,
-      "max_output_tokens": 8192,
-      "input_cost_per_1m": 2.4,
-      "output_cost_per_1m": 9.6,
-      "capabilities": ["chat", "function_calling"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "dashscope",
-      "modalities": ["text"],
-      "family": "qwen",
-      "max_input_tokens": 30720,
-      "input_budget_ratio": 0.85,
-      "chars_per_token": 1.2,
-      "description": "Qwen Max for complex reasoning"
-    },
-    "qwen-plus": {
-      "name": "qwen-plus",
-      "context_length": 131072,
+    "claude-3-5-haiku-20241022": {
+      "name": "claude-3-5-haiku-20241022",
+      "context_length": 200000,
       "max_output_tokens": 8192,
       "input_cost_per_1m": 0.8,
-      "output_cost_per_1m": 2.0,
-      "capabilities": ["chat", "function_calling"],
+      "output_cost_per_1m": 4.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
       "supports_streaming": true,
       "supports_json_mode": true,
-      "provider": "dashscope",
-      "modalities": ["text"],
-      "family": "qwen",
-      "input_budget_ratio": 0.9,
-      "chars_per_token": 1.4,
-      "description": "Qwen Plus balanced performance model"
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-haiku",
+      "release_date": "2024-10-22",
+      "description": "Claude Haiku 3.5",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.08,
+      "cache_write_cost_per_1m": 1.0,
+      "knowledge_cutoff": "2024-07-31"
     },
-    "qwen-turbo": {
-      "name": "qwen-turbo",
-      "context_length": 131072,
+    "claude-3-5-haiku-latest": {
+      "name": "claude-3-5-haiku-latest",
+      "context_length": 200000,
       "max_output_tokens": 8192,
-      "input_cost_per_1m": 0.3,
-      "output_cost_per_1m": 0.6,
-      "capabilities": ["chat", "function_calling"],
+      "input_cost_per_1m": 0.8,
+      "output_cost_per_1m": 4.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
       "supports_streaming": true,
       "supports_json_mode": true,
-      "provider": "dashscope",
-      "modalities": ["text"],
-      "family": "qwen",
-      "input_budget_ratio": 0.9,
-      "chars_per_token": 1.4,
-      "description": "Qwen Turbo fast and cost-effective"
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-haiku",
+      "release_date": "2024-10-22",
+      "description": "Claude Haiku 3.5 (latest)",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.08,
+      "cache_write_cost_per_1m": 1.0,
+      "knowledge_cutoff": "2024-07-31"
     },
-    "qwen-long": {
-      "name": "qwen-long",
-      "context_length": 1000000,
+    "claude-3-5-sonnet-20240620": {
+      "name": "claude-3-5-sonnet-20240620",
+      "context_length": 200000,
       "max_output_tokens": 8192,
-      "capabilities": ["chat"],
+      "input_cost_per_1m": 3.0,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
       "supports_streaming": true,
       "supports_json_mode": true,
-      "provider": "dashscope",
-      "modalities": ["text"],
-      "family": "qwen",
-      "input_budget_ratio": 0.9,
-      "chars_per_token": 1.6,
-      "description": "Qwen Long for ultra-long context"
-    },
-    "qwen-vl-max": {
-      "name": "qwen-vl-max",
-      "context_length": 32768,
-      "max_output_tokens": 8192,
-      "capabilities": ["chat", "vision"],
-      "supports_streaming": true,
-      "supports_json_mode": false,
-      "provider": "dashscope",
-      "modalities": ["text", "image"],
-      "family": "qwen-vl",
-      "max_input_tokens": 30720,
-      "input_budget_ratio": 0.85,
-      "chars_per_token": 1.2,
-      "description": "Qwen VL Max multimodal model"
-    },
-    "qwen-vl-plus": {
-      "name": "qwen-vl-plus",
-      "context_length": 32768,
-      "max_output_tokens": 8192,
-      "capabilities": ["chat", "vision"],
-      "supports_streaming": true,
-      "supports_json_mode": false,
-      "provider": "dashscope",
-      "modalities": ["text", "image"],
-      "family": "qwen-vl",
-      "max_input_tokens": 30720,
-      "input_budget_ratio": 0.85,
-      "chars_per_token": 1.2,
-      "description": "Qwen VL Plus multimodal model"
-    },
-    "deepseek-chat": {
-      "name": "deepseek-chat",
-      "context_length": 65536,
-      "max_output_tokens": 8192,
-      "input_cost_per_1m": 0.14,
-      "output_cost_per_1m": 0.28,
-      "capabilities": ["chat", "function_calling", "code"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "deepseek",
-      "modalities": ["text"],
-      "family": "deepseek",
-      "description": "Deepseek Chat with strong coding ability"
-    },
-    "deepseek-coder": {
-      "name": "deepseek-coder",
-      "context_length": 65536,
-      "max_output_tokens": 8192,
-      "capabilities": ["chat", "code"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "deepseek",
-      "modalities": ["text"],
-      "family": "deepseek",
-      "description": "Deepseek Coder specialized for coding"
-    },
-    "deepseek-reasoner": {
-      "name": "deepseek-reasoner",
-      "context_length": 65536,
-      "max_output_tokens": 8192,
-      "input_cost_per_1m": 0.55,
-      "output_cost_per_1m": 2.19,
-      "capabilities": ["chat", "code"],
-      "supports_streaming": true,
-      "supports_json_mode": false,
-      "provider": "deepseek",
-      "modalities": ["text"],
-      "family": "deepseek",
-      "description": "Deepseek Reasoner for advanced reasoning"
-    },
-    "glm-4": {
-      "name": "glm-4",
-      "context_length": 128000,
-      "max_output_tokens": 4096,
-      "capabilities": ["chat", "function_calling"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "zai",
-      "modalities": ["text"],
-      "family": "glm",
-      "description": "GLM-4 from ZhipuAI"
-    },
-    "glm-4-flash": {
-      "name": "glm-4-flash",
-      "context_length": 128000,
-      "max_output_tokens": 4096,
-      "capabilities": ["chat"],
-      "supports_streaming": true,
-      "supports_json_mode": true,
-      "provider": "zai",
-      "modalities": ["text"],
-      "family": "glm",
-      "description": "GLM-4 Flash fast variant"
-    },
-    "moonshot-v1-8k": {
-      "name": "moonshot-v1-8k",
-      "context_length": 8192,
-      "max_output_tokens": 8192,
-      "capabilities": ["chat"],
-      "supports_streaming": true,
-      "supports_json_mode": false,
-      "provider": "kimi",
-      "modalities": ["text"],
-      "family": "moonshot",
-      "description": "Moonshot v1 8K context"
-    },
-    "moonshot-v1-32k": {
-      "name": "moonshot-v1-32k",
-      "context_length": 32768,
-      "max_output_tokens": 8192,
-      "capabilities": ["chat"],
-      "supports_streaming": true,
-      "supports_json_mode": false,
-      "provider": "kimi",
-      "modalities": ["text"],
-      "family": "moonshot",
-      "description": "Moonshot v1 32K context"
-    },
-    "moonshot-v1-128k": {
-      "name": "moonshot-v1-128k",
-      "context_length": 131072,
-      "max_output_tokens": 8192,
-      "capabilities": ["chat"],
-      "supports_streaming": true,
-      "supports_json_mode": false,
-      "provider": "kimi",
-      "modalities": ["text"],
-      "family": "moonshot",
-      "description": "Moonshot v1 128K context"
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-sonnet",
+      "release_date": "2024-06-20",
+      "description": "Claude Sonnet 3.5",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3,
+      "cache_write_cost_per_1m": 3.75,
+      "knowledge_cutoff": "2024-04-30"
     },
     "claude-3-5-sonnet-20241022": {
       "name": "claude-3-5-sonnet-20241022",
@@ -299,27 +97,113 @@
       "max_output_tokens": 8192,
       "input_cost_per_1m": 3.0,
       "output_cost_per_1m": 15.0,
-      "capabilities": ["chat", "function_calling", "vision"],
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
       "supports_streaming": true,
       "supports_json_mode": true,
       "provider": "anthropic",
-      "modalities": ["text", "image"],
-      "family": "claude-3.5",
-      "description": "Claude 3.5 Sonnet balanced intelligence"
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-sonnet",
+      "release_date": "2024-10-22",
+      "description": "Claude Sonnet 3.5 v2",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3,
+      "cache_write_cost_per_1m": 3.75,
+      "knowledge_cutoff": "2024-04-30"
     },
-    "claude-3-5-haiku-20241022": {
-      "name": "claude-3-5-haiku-20241022",
+    "claude-3-7-sonnet-20250219": {
+      "name": "claude-3-7-sonnet-20250219",
       "context_length": 200000,
-      "max_output_tokens": 8192,
-      "input_cost_per_1m": 0.8,
-      "output_cost_per_1m": 4.0,
-      "capabilities": ["chat", "function_calling", "vision"],
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 3.0,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
       "supports_streaming": true,
       "supports_json_mode": true,
       "provider": "anthropic",
-      "modalities": ["text", "image"],
-      "family": "claude-3.5",
-      "description": "Claude 3.5 Haiku fast and compact"
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-sonnet",
+      "release_date": "2025-02-19",
+      "description": "Claude Sonnet 3.7",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3,
+      "cache_write_cost_per_1m": 3.75,
+      "knowledge_cutoff": "2024-10-31"
+    },
+    "claude-3-7-sonnet-latest": {
+      "name": "claude-3-7-sonnet-latest",
+      "context_length": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 3.0,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-sonnet",
+      "release_date": "2025-02-19",
+      "description": "Claude Sonnet 3.7 (latest)",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3,
+      "cache_write_cost_per_1m": 3.75,
+      "knowledge_cutoff": "2024-10-31"
+    },
+    "claude-3-haiku-20240307": {
+      "name": "claude-3-haiku-20240307",
+      "context_length": 200000,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 0.25,
+      "output_cost_per_1m": 1.25,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-haiku",
+      "release_date": "2024-03-13",
+      "description": "Claude Haiku 3",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.03,
+      "cache_write_cost_per_1m": 0.3,
+      "knowledge_cutoff": "2023-08-31"
     },
     "claude-3-opus-20240229": {
       "name": "claude-3-opus-20240229",
@@ -327,13 +211,5383 @@
       "max_output_tokens": 4096,
       "input_cost_per_1m": 15.0,
       "output_cost_per_1m": 75.0,
-      "capabilities": ["chat", "function_calling", "vision"],
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
       "supports_streaming": true,
       "supports_json_mode": true,
       "provider": "anthropic",
-      "modalities": ["text", "image"],
-      "family": "claude-3",
-      "description": "Claude 3 Opus highest capability"
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-opus",
+      "release_date": "2024-02-29",
+      "description": "Claude Opus 3",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 1.5,
+      "cache_write_cost_per_1m": 18.75,
+      "knowledge_cutoff": "2023-08-31"
+    },
+    "claude-3-sonnet-20240229": {
+      "name": "claude-3-sonnet-20240229",
+      "context_length": 200000,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 3.0,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-sonnet",
+      "release_date": "2024-03-04",
+      "description": "Claude Sonnet 3",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3,
+      "cache_write_cost_per_1m": 0.3,
+      "knowledge_cutoff": "2023-08-31"
+    },
+    "claude-haiku-4-5": {
+      "name": "claude-haiku-4-5",
+      "context_length": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 1.0,
+      "output_cost_per_1m": 5.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-haiku",
+      "release_date": "2025-10-15",
+      "description": "Claude Haiku 4.5 (latest)",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.1,
+      "cache_write_cost_per_1m": 1.25,
+      "knowledge_cutoff": "2025-02-28"
+    },
+    "claude-haiku-4-5-20251001": {
+      "name": "claude-haiku-4-5-20251001",
+      "context_length": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 1.0,
+      "output_cost_per_1m": 5.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-haiku",
+      "release_date": "2025-10-15",
+      "description": "Claude Haiku 4.5",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.1,
+      "cache_write_cost_per_1m": 1.25,
+      "knowledge_cutoff": "2025-02-28"
+    },
+    "claude-opus-4-0": {
+      "name": "claude-opus-4-0",
+      "context_length": 200000,
+      "max_output_tokens": 32000,
+      "input_cost_per_1m": 15.0,
+      "output_cost_per_1m": 75.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-opus",
+      "release_date": "2025-05-22",
+      "description": "Claude Opus 4 (latest)",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 1.5,
+      "cache_write_cost_per_1m": 18.75,
+      "knowledge_cutoff": "2025-03-31"
+    },
+    "claude-opus-4-1": {
+      "name": "claude-opus-4-1",
+      "context_length": 200000,
+      "max_output_tokens": 32000,
+      "input_cost_per_1m": 15.0,
+      "output_cost_per_1m": 75.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-opus",
+      "release_date": "2025-08-05",
+      "description": "Claude Opus 4.1 (latest)",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 1.5,
+      "cache_write_cost_per_1m": 18.75,
+      "knowledge_cutoff": "2025-03-31"
+    },
+    "claude-opus-4-1-20250805": {
+      "name": "claude-opus-4-1-20250805",
+      "context_length": 200000,
+      "max_output_tokens": 32000,
+      "input_cost_per_1m": 15.0,
+      "output_cost_per_1m": 75.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-opus",
+      "release_date": "2025-08-05",
+      "description": "Claude Opus 4.1",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 1.5,
+      "cache_write_cost_per_1m": 18.75,
+      "knowledge_cutoff": "2025-03-31"
+    },
+    "claude-opus-4-20250514": {
+      "name": "claude-opus-4-20250514",
+      "context_length": 200000,
+      "max_output_tokens": 32000,
+      "input_cost_per_1m": 15.0,
+      "output_cost_per_1m": 75.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-opus",
+      "release_date": "2025-05-22",
+      "description": "Claude Opus 4",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 1.5,
+      "cache_write_cost_per_1m": 18.75,
+      "knowledge_cutoff": "2025-03-31"
+    },
+    "claude-opus-4-5": {
+      "name": "claude-opus-4-5",
+      "context_length": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 5.0,
+      "output_cost_per_1m": 25.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-opus",
+      "release_date": "2025-11-24",
+      "description": "Claude Opus 4.5 (latest)",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.5,
+      "cache_write_cost_per_1m": 6.25,
+      "knowledge_cutoff": "2025-03-31"
+    },
+    "claude-opus-4-5-20251101": {
+      "name": "claude-opus-4-5-20251101",
+      "context_length": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 5.0,
+      "output_cost_per_1m": 25.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-opus",
+      "release_date": "2025-11-01",
+      "description": "Claude Opus 4.5",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.5,
+      "cache_write_cost_per_1m": 6.25,
+      "knowledge_cutoff": "2025-03-31"
+    },
+    "claude-opus-4-6": {
+      "name": "claude-opus-4-6",
+      "context_length": 200000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 5.0,
+      "output_cost_per_1m": 25.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-opus",
+      "release_date": "2026-02-05",
+      "description": "Claude Opus 4.6",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.5,
+      "cache_write_cost_per_1m": 6.25,
+      "knowledge_cutoff": "2025-05"
+    },
+    "claude-sonnet-4-0": {
+      "name": "claude-sonnet-4-0",
+      "context_length": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 3.0,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-sonnet",
+      "release_date": "2025-05-22",
+      "description": "Claude Sonnet 4 (latest)",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3,
+      "cache_write_cost_per_1m": 3.75,
+      "knowledge_cutoff": "2025-03-31"
+    },
+    "claude-sonnet-4-20250514": {
+      "name": "claude-sonnet-4-20250514",
+      "context_length": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 3.0,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-sonnet",
+      "release_date": "2025-05-22",
+      "description": "Claude Sonnet 4",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3,
+      "cache_write_cost_per_1m": 3.75,
+      "knowledge_cutoff": "2025-03-31"
+    },
+    "claude-sonnet-4-5": {
+      "name": "claude-sonnet-4-5",
+      "context_length": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 3.0,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-sonnet",
+      "release_date": "2025-09-29",
+      "description": "Claude Sonnet 4.5 (latest)",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3,
+      "cache_write_cost_per_1m": 3.75,
+      "knowledge_cutoff": "2025-07-31"
+    },
+    "claude-sonnet-4-5-20250929": {
+      "name": "claude-sonnet-4-5-20250929",
+      "context_length": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 3.0,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-sonnet",
+      "release_date": "2025-09-29",
+      "description": "Claude Sonnet 4.5",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3,
+      "cache_write_cost_per_1m": 3.75,
+      "knowledge_cutoff": "2025-07-31"
+    },
+    "claude-sonnet-4-6": {
+      "name": "claude-sonnet-4-6",
+      "context_length": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 3.0,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "anthropic",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "claude-sonnet",
+      "release_date": "2026-02-17",
+      "description": "Claude Sonnet 4.6",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3,
+      "cache_write_cost_per_1m": 3.75,
+      "knowledge_cutoff": "2025-08"
+    },
+    "c4ai-aya-expanse-32b": {
+      "name": "c4ai-aya-expanse-32b",
+      "context_length": 128000,
+      "max_output_tokens": 4000,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text"
+      ],
+      "release_date": "2024-10-24",
+      "description": "Aya Expanse 32B",
+      "supports_tool_call": true,
+      "open_weights": true
+    },
+    "c4ai-aya-expanse-8b": {
+      "name": "c4ai-aya-expanse-8b",
+      "context_length": 8000,
+      "max_output_tokens": 4000,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text"
+      ],
+      "release_date": "2024-10-24",
+      "description": "Aya Expanse 8B",
+      "supports_tool_call": true,
+      "open_weights": true
+    },
+    "c4ai-aya-vision-32b": {
+      "name": "c4ai-aya-vision-32b",
+      "context_length": 16000,
+      "max_output_tokens": 4000,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "release_date": "2025-03-04",
+      "description": "Aya Vision 32B",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "open_weights": true
+    },
+    "c4ai-aya-vision-8b": {
+      "name": "c4ai-aya-vision-8b",
+      "context_length": 16000,
+      "max_output_tokens": 4000,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "release_date": "2025-03-04",
+      "description": "Aya Vision 8B",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "open_weights": true
+    },
+    "command-a-03-2025": {
+      "name": "command-a-03-2025",
+      "context_length": 256000,
+      "max_output_tokens": 8000,
+      "input_cost_per_1m": 2.5,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text"
+      ],
+      "family": "command-a",
+      "release_date": "2025-03-13",
+      "description": "Command A",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-06-01",
+      "open_weights": true
+    },
+    "command-a-reasoning-08-2025": {
+      "name": "command-a-reasoning-08-2025",
+      "context_length": 256000,
+      "max_output_tokens": 32000,
+      "input_cost_per_1m": 2.5,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text"
+      ],
+      "family": "command-a",
+      "release_date": "2025-08-21",
+      "description": "Command A Reasoning",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-06-01",
+      "open_weights": true
+    },
+    "command-a-translate-08-2025": {
+      "name": "command-a-translate-08-2025",
+      "context_length": 8000,
+      "max_output_tokens": 8000,
+      "input_cost_per_1m": 2.5,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text"
+      ],
+      "family": "command-a",
+      "release_date": "2025-08-28",
+      "description": "Command A Translate",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-06-01",
+      "open_weights": true
+    },
+    "command-a-vision-07-2025": {
+      "name": "command-a-vision-07-2025",
+      "context_length": 128000,
+      "max_output_tokens": 8000,
+      "input_cost_per_1m": 2.5,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "cohere",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "command-a",
+      "release_date": "2025-07-31",
+      "description": "Command A Vision",
+      "knowledge_cutoff": "2024-06-01",
+      "open_weights": true
+    },
+    "command-r-08-2024": {
+      "name": "command-r-08-2024",
+      "context_length": 128000,
+      "max_output_tokens": 4000,
+      "input_cost_per_1m": 0.15,
+      "output_cost_per_1m": 0.6,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text"
+      ],
+      "family": "command-r",
+      "release_date": "2024-08-30",
+      "description": "Command R",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-06-01",
+      "open_weights": true
+    },
+    "command-r-plus-08-2024": {
+      "name": "command-r-plus-08-2024",
+      "context_length": 128000,
+      "max_output_tokens": 4000,
+      "input_cost_per_1m": 2.5,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text"
+      ],
+      "family": "command-r",
+      "release_date": "2024-08-30",
+      "description": "Command R+",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-06-01",
+      "open_weights": true
+    },
+    "command-r7b-12-2024": {
+      "name": "command-r7b-12-2024",
+      "context_length": 128000,
+      "max_output_tokens": 4000,
+      "input_cost_per_1m": 0.0375,
+      "output_cost_per_1m": 0.15,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text"
+      ],
+      "family": "command-r",
+      "release_date": "2024-02-27",
+      "description": "Command R7B",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-06-01",
+      "open_weights": true
+    },
+    "command-r7b-arabic-02-2025": {
+      "name": "command-r7b-arabic-02-2025",
+      "context_length": 128000,
+      "max_output_tokens": 4000,
+      "input_cost_per_1m": 0.0375,
+      "output_cost_per_1m": 0.15,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "cohere",
+      "modalities": [
+        "text"
+      ],
+      "family": "command-r",
+      "release_date": "2025-02-27",
+      "description": "Command R7B Arabic",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-06-01",
+      "open_weights": true
+    },
+    "qvq-max": {
+      "name": "qvq-max",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 1.2,
+      "output_cost_per_1m": 4.8,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "qvq",
+      "release_date": "2025-03-25",
+      "description": "QVQ Max",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-flash": {
+      "name": "qwen-flash",
+      "context_length": 1000000,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.05,
+      "output_cost_per_1m": 0.4,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2025-07-28",
+      "description": "Qwen Flash",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-max": {
+      "name": "qwen-max",
+      "context_length": 32768,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 1.6,
+      "output_cost_per_1m": 6.4,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2024-04-03",
+      "description": "Qwen Max",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.2,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-mt-plus": {
+      "name": "qwen-mt-plus",
+      "context_length": 16384,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 2.46,
+      "output_cost_per_1m": 7.37,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen-MT Plus",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-mt-turbo": {
+      "name": "qwen-mt-turbo",
+      "context_length": 16384,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.16,
+      "output_cost_per_1m": 0.49,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen-MT Turbo",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-omni-turbo": {
+      "name": "qwen-omni-turbo",
+      "context_length": 32768,
+      "max_output_tokens": 2048,
+      "input_cost_per_1m": 0.07,
+      "output_cost_per_1m": 0.27,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video"
+      ],
+      "family": "qwen",
+      "release_date": "2025-01-19",
+      "description": "Qwen-Omni Turbo",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-omni-turbo-realtime": {
+      "name": "qwen-omni-turbo-realtime",
+      "context_length": 32768,
+      "max_output_tokens": 2048,
+      "input_cost_per_1m": 0.27,
+      "output_cost_per_1m": 1.07,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image",
+        "audio"
+      ],
+      "family": "qwen",
+      "release_date": "2025-05-08",
+      "description": "Qwen-Omni Turbo Realtime",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-plus": {
+      "name": "qwen-plus",
+      "context_length": 1000000,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.4,
+      "output_cost_per_1m": 1.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2024-01-25",
+      "description": "Qwen Plus",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 4.0,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-plus-character-ja": {
+      "name": "qwen-plus-character-ja",
+      "context_length": 8192,
+      "max_output_tokens": 512,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 1.4,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen Plus Character (Japanese)",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-turbo": {
+      "name": "qwen-turbo",
+      "context_length": 1000000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.05,
+      "output_cost_per_1m": 0.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2024-11-01",
+      "description": "Qwen Turbo",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 0.5,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-vl-max": {
+      "name": "qwen-vl-max",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.8,
+      "output_cost_per_1m": 3.2,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "qwen",
+      "release_date": "2024-04-08",
+      "description": "Qwen-VL Max",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.2,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-vl-ocr": {
+      "name": "qwen-vl-ocr",
+      "context_length": 34096,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 0.72,
+      "output_cost_per_1m": 0.72,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "qwen",
+      "release_date": "2024-10-28",
+      "description": "Qwen-VL OCR",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen-vl-plus": {
+      "name": "qwen-vl-plus",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.21,
+      "output_cost_per_1m": 0.63,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "qwen",
+      "release_date": "2024-01-25",
+      "description": "Qwen-VL Plus",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.2,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen2-5-14b-instruct": {
+      "name": "qwen2-5-14b-instruct",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.35,
+      "output_cost_per_1m": 1.4,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen2.5 14B Instruct",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04",
+      "open_weights": true
+    },
+    "qwen2-5-32b-instruct": {
+      "name": "qwen2-5-32b-instruct",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.7,
+      "output_cost_per_1m": 2.8,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen2.5 32B Instruct",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04",
+      "open_weights": true
+    },
+    "qwen2-5-72b-instruct": {
+      "name": "qwen2-5-72b-instruct",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 1.4,
+      "output_cost_per_1m": 5.6,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen2.5 72B Instruct",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04",
+      "open_weights": true
+    },
+    "qwen2-5-7b-instruct": {
+      "name": "qwen2-5-7b-instruct",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.175,
+      "output_cost_per_1m": 0.7,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen2.5 7B Instruct",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04",
+      "open_weights": true
+    },
+    "qwen2-5-omni-7b": {
+      "name": "qwen2-5-omni-7b",
+      "context_length": 32768,
+      "max_output_tokens": 2048,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video"
+      ],
+      "family": "qwen",
+      "description": "Qwen2.5-Omni 7B",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04",
+      "open_weights": true
+    },
+    "qwen2-5-vl-72b-instruct": {
+      "name": "qwen2-5-vl-72b-instruct",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 2.8,
+      "output_cost_per_1m": 8.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "qwen",
+      "description": "Qwen2.5-VL 72B Instruct",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04",
+      "open_weights": true
+    },
+    "qwen2-5-vl-7b-instruct": {
+      "name": "qwen2-5-vl-7b-instruct",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.35,
+      "output_cost_per_1m": 1.05,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "qwen",
+      "description": "Qwen2.5-VL 7B Instruct",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04",
+      "open_weights": true
+    },
+    "qwen3-14b": {
+      "name": "qwen3-14b",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.35,
+      "output_cost_per_1m": 1.4,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen3 14B",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 4.2,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-235b-a22b": {
+      "name": "qwen3-235b-a22b",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.7,
+      "output_cost_per_1m": 2.8,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen3 235B-A22B",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 8.4,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-32b": {
+      "name": "qwen3-32b",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.7,
+      "output_cost_per_1m": 2.8,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen3 32B",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 8.4,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-8b": {
+      "name": "qwen3-8b",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.18,
+      "output_cost_per_1m": 0.7,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen3 8B",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 2.1,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-asr-flash": {
+      "name": "qwen3-asr-flash",
+      "context_length": 53248,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 0.035,
+      "output_cost_per_1m": 0.035,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "dashscope",
+      "modalities": [
+        "audio",
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2025-09-08",
+      "description": "Qwen3-ASR Flash",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_temperature": false,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen3-coder-30b-a3b-instruct": {
+      "name": "qwen3-coder-30b-a3b-instruct",
+      "context_length": 262144,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.45,
+      "output_cost_per_1m": 2.25,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen3-Coder 30B-A3B Instruct",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-coder-480b-a35b-instruct": {
+      "name": "qwen3-coder-480b-a35b-instruct",
+      "context_length": 262144,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 1.5,
+      "output_cost_per_1m": 7.5,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen3-Coder 480B-A35B Instruct",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-coder-flash": {
+      "name": "qwen3-coder-flash",
+      "context_length": 1000000,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 1.5,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2025-07-28",
+      "description": "Qwen3 Coder Flash",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-04"
+    },
+    "qwen3-coder-plus": {
+      "name": "qwen3-coder-plus",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 1.0,
+      "output_cost_per_1m": 5.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2025-07-23",
+      "description": "Qwen3 Coder Plus",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-livetranslate-flash-realtime": {
+      "name": "qwen3-livetranslate-flash-realtime",
+      "context_length": 53248,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 10.0,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video"
+      ],
+      "family": "qwen",
+      "release_date": "2025-09-22",
+      "description": "Qwen3-LiveTranslate Flash Realtime",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen3-max": {
+      "name": "qwen3-max",
+      "context_length": 262144,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 1.2,
+      "output_cost_per_1m": 6.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2025-09-23",
+      "description": "Qwen3 Max",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-04"
+    },
+    "qwen3-next-80b-a3b-instruct": {
+      "name": "qwen3-next-80b-a3b-instruct",
+      "context_length": 131072,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen3-Next 80B-A3B Instruct",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-next-80b-a3b-thinking": {
+      "name": "qwen3-next-80b-a3b-thinking",
+      "context_length": 131072,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 6.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "description": "Qwen3-Next 80B-A3B (Thinking)",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-omni-flash": {
+      "name": "qwen3-omni-flash",
+      "context_length": 65536,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.43,
+      "output_cost_per_1m": 1.66,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video"
+      ],
+      "family": "qwen",
+      "release_date": "2025-09-15",
+      "description": "Qwen3-Omni Flash",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen3-omni-flash-realtime": {
+      "name": "qwen3-omni-flash-realtime",
+      "context_length": 65536,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.52,
+      "output_cost_per_1m": 1.99,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video"
+      ],
+      "family": "qwen",
+      "release_date": "2025-09-15",
+      "description": "Qwen3-Omni Flash Realtime",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "qwen3-vl-235b-a22b": {
+      "name": "qwen3-vl-235b-a22b",
+      "context_length": 131072,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.7,
+      "output_cost_per_1m": 2.8,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "qwen",
+      "description": "Qwen3-VL 235B-A22B",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 8.4,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-vl-30b-a3b": {
+      "name": "qwen3-vl-30b-a3b",
+      "context_length": 131072,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.2,
+      "output_cost_per_1m": 0.8,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "qwen",
+      "description": "Qwen3-VL 30B-A3B",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 2.4,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3-vl-plus": {
+      "name": "qwen3-vl-plus",
+      "context_length": 262144,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.2,
+      "output_cost_per_1m": 1.6,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "qwen",
+      "release_date": "2025-09-23",
+      "description": "Qwen3-VL Plus",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 4.8,
+      "knowledge_cutoff": "2025-04"
+    },
+    "qwen3.5-397b-a17b": {
+      "name": "qwen3.5-397b-a17b",
+      "context_length": 262144,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 3.6,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "family": "qwen",
+      "release_date": "2026-02-16",
+      "description": "Qwen3.5 397B-A17B",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 3.6,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "qwen3.5-plus": {
+      "name": "qwen3.5-plus",
+      "context_length": 1000000,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.4,
+      "output_cost_per_1m": 2.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "family": "qwen",
+      "release_date": "2026-02-16",
+      "description": "Qwen3.5 Plus",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "reasoning_cost_per_1m": 2.4,
+      "knowledge_cutoff": "2025-04"
+    },
+    "qwq-plus": {
+      "name": "qwq-plus",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.8,
+      "output_cost_per_1m": 2.4,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "dashscope",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2025-03-05",
+      "description": "QwQ Plus",
+      "input_budget_ratio": 0.85,
+      "chars_per_token": 1.4,
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04"
+    },
+    "deepseek-chat": {
+      "name": "deepseek-chat",
+      "context_length": 128000,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.28,
+      "output_cost_per_1m": 0.42,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "deepseek",
+      "modalities": [
+        "text"
+      ],
+      "family": "deepseek",
+      "release_date": "2024-12-26",
+      "description": "DeepSeek Chat",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.028,
+      "knowledge_cutoff": "2024-07"
+    },
+    "deepseek-reasoner": {
+      "name": "deepseek-reasoner",
+      "context_length": 128000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.28,
+      "output_cost_per_1m": 0.42,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "deepseek",
+      "modalities": [
+        "text"
+      ],
+      "family": "deepseek-thinking",
+      "release_date": "2025-01-20",
+      "description": "DeepSeek Reasoner",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "interleaved": {
+        "field": "reasoning_content"
+      },
+      "cache_read_cost_per_1m": 0.028,
+      "knowledge_cutoff": "2024-07"
+    },
+    "gemini-1.5-flash": {
+      "name": "gemini-1.5-flash",
+      "context_length": 1000000,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.075,
+      "output_cost_per_1m": 0.3,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2024-05-14",
+      "description": "Gemini 1.5 Flash",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.01875,
+      "knowledge_cutoff": "2024-04"
+    },
+    "gemini-1.5-flash-8b": {
+      "name": "gemini-1.5-flash-8b",
+      "context_length": 1000000,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.0375,
+      "output_cost_per_1m": 0.15,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2024-10-03",
+      "description": "Gemini 1.5 Flash-8B",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.01,
+      "knowledge_cutoff": "2024-04"
+    },
+    "gemini-1.5-pro": {
+      "name": "gemini-1.5-pro",
+      "context_length": 1000000,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 5.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video"
+      ],
+      "family": "gemini-pro",
+      "release_date": "2024-02-15",
+      "description": "Gemini 1.5 Pro",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.3125,
+      "knowledge_cutoff": "2024-04"
+    },
+    "gemini-2.0-flash": {
+      "name": "gemini-2.0-flash",
+      "context_length": 1048576,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2024-12-11",
+      "description": "Gemini 2.0 Flash",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.025,
+      "knowledge_cutoff": "2024-06"
+    },
+    "gemini-2.0-flash-lite": {
+      "name": "gemini-2.0-flash-lite",
+      "context_length": 1048576,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.075,
+      "output_cost_per_1m": 0.3,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash-lite",
+      "release_date": "2024-12-11",
+      "description": "Gemini 2.0 Flash Lite",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2024-06"
+    },
+    "gemini-2.5-flash": {
+      "name": "gemini-2.5-flash",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 2.5,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-03-20",
+      "description": "Gemini 2.5 Flash",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.075,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-flash-image": {
+      "name": "gemini-2.5-flash-image",
+      "context_length": 32768,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 30.0,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-08-26",
+      "description": "Gemini 2.5 Flash Image",
+      "reasoning": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.075,
+      "knowledge_cutoff": "2025-06"
+    },
+    "gemini-2.5-flash-image-preview": {
+      "name": "gemini-2.5-flash-image-preview",
+      "context_length": 32768,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 30.0,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-08-26",
+      "description": "Gemini 2.5 Flash Image (Preview)",
+      "reasoning": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.075,
+      "knowledge_cutoff": "2025-06"
+    },
+    "gemini-2.5-flash-lite": {
+      "name": "gemini-2.5-flash-lite",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash-lite",
+      "release_date": "2025-06-17",
+      "description": "Gemini 2.5 Flash Lite",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.025,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-flash-lite-preview-06-17": {
+      "name": "gemini-2.5-flash-lite-preview-06-17",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash-lite",
+      "release_date": "2025-06-17",
+      "description": "Gemini 2.5 Flash Lite Preview 06-17",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.025,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-flash-lite-preview-09-2025": {
+      "name": "gemini-2.5-flash-lite-preview-09-2025",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash-lite",
+      "release_date": "2025-09-25",
+      "description": "Gemini 2.5 Flash Lite Preview 09-25",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.025,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-flash-preview-04-17": {
+      "name": "gemini-2.5-flash-preview-04-17",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.15,
+      "output_cost_per_1m": 0.6,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-04-17",
+      "description": "Gemini 2.5 Flash Preview 04-17",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.0375,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-flash-preview-05-20": {
+      "name": "gemini-2.5-flash-preview-05-20",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.15,
+      "output_cost_per_1m": 0.6,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-05-20",
+      "description": "Gemini 2.5 Flash Preview 05-20",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.0375,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-flash-preview-09-2025": {
+      "name": "gemini-2.5-flash-preview-09-2025",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 2.5,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-09-25",
+      "description": "Gemini 2.5 Flash Preview 09-25",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.075,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-flash-preview-tts": {
+      "name": "gemini-2.5-flash-preview-tts",
+      "context_length": 8000,
+      "max_output_tokens": 16000,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "audio"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-05-01",
+      "description": "Gemini 2.5 Flash Preview TTS",
+      "supports_temperature": false,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-pro": {
+      "name": "gemini-2.5-pro",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-pro",
+      "release_date": "2025-03-20",
+      "description": "Gemini 2.5 Pro",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.31,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-pro-preview-05-06": {
+      "name": "gemini-2.5-pro-preview-05-06",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-pro",
+      "release_date": "2025-05-06",
+      "description": "Gemini 2.5 Pro Preview 05-06",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.31,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-pro-preview-06-05": {
+      "name": "gemini-2.5-pro-preview-06-05",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-pro",
+      "release_date": "2025-06-05",
+      "description": "Gemini 2.5 Pro Preview 06-05",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.31,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-2.5-pro-preview-tts": {
+      "name": "gemini-2.5-pro-preview-tts",
+      "context_length": 8000,
+      "max_output_tokens": 16000,
+      "input_cost_per_1m": 1.0,
+      "output_cost_per_1m": 20.0,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "audio"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-05-01",
+      "description": "Gemini 2.5 Pro Preview TTS",
+      "supports_temperature": false,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-3-flash-preview": {
+      "name": "gemini-3-flash-preview",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 3.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "video",
+        "audio",
+        "pdf"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-12-17",
+      "description": "Gemini 3 Flash Preview",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.05,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-3-pro-preview": {
+      "name": "gemini-3-pro-preview",
+      "context_length": 1000000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 12.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "video",
+        "audio",
+        "pdf"
+      ],
+      "family": "gemini-pro",
+      "release_date": "2025-11-18",
+      "description": "Gemini 3 Pro Preview",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.2,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-3.1-pro-preview": {
+      "name": "gemini-3.1-pro-preview",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 12.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "video",
+        "audio",
+        "pdf"
+      ],
+      "family": "gemini-pro",
+      "release_date": "2026-02-19",
+      "description": "Gemini 3.1 Pro Preview",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.2,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-3.1-pro-preview-customtools": {
+      "name": "gemini-3.1-pro-preview-customtools",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 12.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "video",
+        "audio",
+        "pdf"
+      ],
+      "family": "gemini-pro",
+      "release_date": "2026-02-19",
+      "description": "Gemini 3.1 Pro Preview Custom Tools",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.2,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-embedding-001": {
+      "name": "gemini-embedding-001",
+      "context_length": 2048,
+      "max_output_tokens": 3072,
+      "input_cost_per_1m": 0.15,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "gemini",
+      "modalities": [
+        "text"
+      ],
+      "family": "gemini",
+      "release_date": "2025-05-20",
+      "description": "Gemini Embedding 001",
+      "supports_temperature": false,
+      "knowledge_cutoff": "2025-05"
+    },
+    "gemini-flash-latest": {
+      "name": "gemini-flash-latest",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 2.5,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-09-25",
+      "description": "Gemini Flash Latest",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.075,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-flash-lite-latest": {
+      "name": "gemini-flash-lite-latest",
+      "context_length": 1048576,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf"
+      ],
+      "family": "gemini-flash-lite",
+      "release_date": "2025-09-25",
+      "description": "Gemini Flash-Lite Latest",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.025,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-live-2.5-flash": {
+      "name": "gemini-live-2.5-flash",
+      "context_length": 128000,
+      "max_output_tokens": 8000,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "image",
+        "audio",
+        "video"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-09-01",
+      "description": "Gemini Live 2.5 Flash",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2025-01"
+    },
+    "gemini-live-2.5-flash-preview-native-audio": {
+      "name": "gemini-live-2.5-flash-preview-native-audio",
+      "context_length": 131072,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "gemini",
+      "modalities": [
+        "text",
+        "audio",
+        "video"
+      ],
+      "family": "gemini-flash",
+      "release_date": "2025-06-17",
+      "description": "Gemini Live 2.5 Flash Preview Native Audio",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-01"
+    },
+    "deepseek-r1-distill-llama-70b": {
+      "name": "deepseek-r1-distill-llama-70b",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.75,
+      "output_cost_per_1m": 0.99,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "deepseek-thinking",
+      "release_date": "2025-01-20",
+      "description": "DeepSeek R1 Distill Llama 70B",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-07",
+      "open_weights": true
+    },
+    "gemma2-9b-it": {
+      "name": "gemma2-9b-it",
+      "context_length": 8192,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.2,
+      "output_cost_per_1m": 0.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "gemma",
+      "release_date": "2024-06-27",
+      "description": "Gemma 2 9B",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-06",
+      "open_weights": true
+    },
+    "llama-3.1-8b-instant": {
+      "name": "llama-3.1-8b-instant",
+      "context_length": 131072,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 0.05,
+      "output_cost_per_1m": 0.08,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "llama",
+      "release_date": "2024-07-23",
+      "description": "Llama 3.1 8B Instant",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2023-12",
+      "open_weights": true
+    },
+    "llama-3.3-70b-versatile": {
+      "name": "llama-3.3-70b-versatile",
+      "context_length": 131072,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.59,
+      "output_cost_per_1m": 0.79,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "llama",
+      "release_date": "2024-12-06",
+      "description": "Llama 3.3 70B Versatile",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2023-12",
+      "open_weights": true
+    },
+    "llama-guard-3-8b": {
+      "name": "llama-guard-3-8b",
+      "context_length": 8192,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.2,
+      "output_cost_per_1m": 0.2,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "llama",
+      "release_date": "2024-07-23",
+      "description": "Llama Guard 3 8B",
+      "open_weights": true
+    },
+    "llama3-70b-8192": {
+      "name": "llama3-70b-8192",
+      "context_length": 8192,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.59,
+      "output_cost_per_1m": 0.79,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "llama",
+      "release_date": "2024-04-18",
+      "description": "Llama 3 70B",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2023-03",
+      "open_weights": true
+    },
+    "llama3-8b-8192": {
+      "name": "llama3-8b-8192",
+      "context_length": 8192,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.05,
+      "output_cost_per_1m": 0.08,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "llama",
+      "release_date": "2024-04-18",
+      "description": "Llama 3 8B",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2023-03",
+      "open_weights": true
+    },
+    "meta-llama/llama-4-maverick-17b-128e-instruct": {
+      "name": "meta-llama/llama-4-maverick-17b-128e-instruct",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.2,
+      "output_cost_per_1m": 0.6,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "llama",
+      "release_date": "2025-04-05",
+      "description": "Llama 4 Maverick 17B",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "knowledge_cutoff": "2024-08",
+      "open_weights": true
+    },
+    "meta-llama/llama-4-scout-17b-16e-instruct": {
+      "name": "meta-llama/llama-4-scout-17b-16e-instruct",
+      "context_length": 131072,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 0.11,
+      "output_cost_per_1m": 0.34,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "llama",
+      "release_date": "2025-04-05",
+      "description": "Llama 4 Scout 17B",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "knowledge_cutoff": "2024-08",
+      "open_weights": true
+    },
+    "meta-llama/llama-guard-4-12b": {
+      "name": "meta-llama/llama-guard-4-12b",
+      "context_length": 131072,
+      "max_output_tokens": 1024,
+      "input_cost_per_1m": 0.2,
+      "output_cost_per_1m": 0.2,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "groq",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "llama",
+      "release_date": "2025-04-05",
+      "description": "Llama Guard 4 12B",
+      "open_weights": true
+    },
+    "mistral-saba-24b": {
+      "name": "mistral-saba-24b",
+      "context_length": 32768,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.79,
+      "output_cost_per_1m": 0.79,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "mistral",
+      "release_date": "2025-02-06",
+      "description": "Mistral Saba 24B",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-08"
+    },
+    "moonshotai/kimi-k2-instruct": {
+      "name": "moonshotai/kimi-k2-instruct",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 1.0,
+      "output_cost_per_1m": 3.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "kimi",
+      "release_date": "2025-07-14",
+      "description": "Kimi K2 Instruct",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-10",
+      "open_weights": true
+    },
+    "moonshotai/kimi-k2-instruct-0905": {
+      "name": "moonshotai/kimi-k2-instruct-0905",
+      "context_length": 262144,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 1.0,
+      "output_cost_per_1m": 3.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "kimi",
+      "release_date": "2025-09-05",
+      "description": "Kimi K2 Instruct 0905",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "knowledge_cutoff": "2024-10",
+      "open_weights": true
+    },
+    "openai/gpt-oss-120b": {
+      "name": "openai/gpt-oss-120b",
+      "context_length": 131072,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.15,
+      "output_cost_per_1m": 0.6,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "gpt-oss",
+      "release_date": "2025-08-05",
+      "description": "GPT OSS 120B",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "open_weights": true
+    },
+    "openai/gpt-oss-20b": {
+      "name": "openai/gpt-oss-20b",
+      "context_length": 131072,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 0.075,
+      "output_cost_per_1m": 0.3,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "gpt-oss",
+      "release_date": "2025-08-05",
+      "description": "GPT OSS 20B",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "open_weights": true
+    },
+    "qwen-qwq-32b": {
+      "name": "qwen-qwq-32b",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.29,
+      "output_cost_per_1m": 0.39,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2024-11-27",
+      "description": "Qwen QwQ 32B",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-09",
+      "open_weights": true
+    },
+    "qwen/qwen3-32b": {
+      "name": "qwen/qwen3-32b",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.29,
+      "output_cost_per_1m": 0.59,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "groq",
+      "modalities": [
+        "text"
+      ],
+      "family": "qwen",
+      "release_date": "2024-12-23",
+      "description": "Qwen3 32B",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-11-08",
+      "open_weights": true
+    },
+    "kimi-k2-0711-preview": {
+      "name": "kimi-k2-0711-preview",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 2.5,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "kimi",
+      "modalities": [
+        "text"
+      ],
+      "family": "kimi",
+      "release_date": "2025-07-14",
+      "description": "Kimi K2 0711",
+      "supports_tool_call": true,
+      "cache_read_cost_per_1m": 0.15,
+      "knowledge_cutoff": "2024-10",
+      "open_weights": true
+    },
+    "kimi-k2-0905-preview": {
+      "name": "kimi-k2-0905-preview",
+      "context_length": 262144,
+      "max_output_tokens": 262144,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 2.5,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "kimi",
+      "modalities": [
+        "text"
+      ],
+      "family": "kimi",
+      "release_date": "2025-09-05",
+      "description": "Kimi K2 0905",
+      "supports_tool_call": true,
+      "cache_read_cost_per_1m": 0.15,
+      "knowledge_cutoff": "2024-10",
+      "open_weights": true
+    },
+    "kimi-k2-thinking": {
+      "name": "kimi-k2-thinking",
+      "context_length": 262144,
+      "max_output_tokens": 262144,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 2.5,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "kimi",
+      "modalities": [
+        "text"
+      ],
+      "family": "kimi-thinking",
+      "release_date": "2025-11-06",
+      "description": "Kimi K2 Thinking",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "interleaved": {
+        "field": "reasoning_content"
+      },
+      "cache_read_cost_per_1m": 0.15,
+      "knowledge_cutoff": "2024-08",
+      "open_weights": true
+    },
+    "kimi-k2-thinking-turbo": {
+      "name": "kimi-k2-thinking-turbo",
+      "context_length": 262144,
+      "max_output_tokens": 262144,
+      "input_cost_per_1m": 1.15,
+      "output_cost_per_1m": 8.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "kimi",
+      "modalities": [
+        "text"
+      ],
+      "family": "kimi-thinking",
+      "release_date": "2025-11-06",
+      "description": "Kimi K2 Thinking Turbo",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "interleaved": {
+        "field": "reasoning_content"
+      },
+      "cache_read_cost_per_1m": 0.15,
+      "knowledge_cutoff": "2024-08",
+      "open_weights": true
+    },
+    "kimi-k2-turbo-preview": {
+      "name": "kimi-k2-turbo-preview",
+      "context_length": 262144,
+      "max_output_tokens": 262144,
+      "input_cost_per_1m": 2.4,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "kimi",
+      "modalities": [
+        "text"
+      ],
+      "family": "kimi",
+      "release_date": "2025-09-05",
+      "description": "Kimi K2 Turbo",
+      "supports_tool_call": true,
+      "cache_read_cost_per_1m": 0.6,
+      "knowledge_cutoff": "2024-10",
+      "open_weights": true
+    },
+    "kimi-k2.5": {
+      "name": "kimi-k2.5",
+      "context_length": 262144,
+      "max_output_tokens": 262144,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 3.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "kimi",
+      "modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "family": "kimi",
+      "description": "Kimi K2.5",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "interleaved": {
+        "field": "reasoning_content"
+      },
+      "cache_read_cost_per_1m": 0.1,
+      "knowledge_cutoff": "2025-01",
+      "open_weights": true
+    },
+    "MiniMax-M2": {
+      "name": "MiniMax-M2",
+      "context_length": 196608,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 1.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "minimax",
+      "modalities": [
+        "text"
+      ],
+      "family": "minimax",
+      "release_date": "2025-10-27",
+      "description": "MiniMax-M2",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "open_weights": true
+    },
+    "MiniMax-M2.1": {
+      "name": "MiniMax-M2.1",
+      "context_length": 204800,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 1.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "minimax",
+      "modalities": [
+        "text"
+      ],
+      "family": "minimax",
+      "release_date": "2025-12-23",
+      "description": "MiniMax-M2.1",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "open_weights": true
+    },
+    "MiniMax-M2.5": {
+      "name": "MiniMax-M2.5",
+      "context_length": 204800,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 1.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "minimax",
+      "modalities": [
+        "text"
+      ],
+      "family": "minimax",
+      "release_date": "2026-02-12",
+      "description": "MiniMax-M2.5",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "cache_read_cost_per_1m": 0.03,
+      "cache_write_cost_per_1m": 0.375,
+      "open_weights": true
+    },
+    "MiniMax-M2.5-highspeed": {
+      "name": "MiniMax-M2.5-highspeed",
+      "context_length": 204800,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 2.4,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "minimax",
+      "modalities": [
+        "text"
+      ],
+      "family": "minimax",
+      "release_date": "2026-02-13",
+      "description": "MiniMax-M2.5-highspeed",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "cache_read_cost_per_1m": 0.06,
+      "cache_write_cost_per_1m": 0.375,
+      "open_weights": true
+    },
+    "codestral-latest": {
+      "name": "codestral-latest",
+      "context_length": 256000,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 0.9,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "codestral",
+      "release_date": "2024-05-29",
+      "description": "Codestral",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-10",
+      "open_weights": true
+    },
+    "devstral-2512": {
+      "name": "devstral-2512",
+      "context_length": 262144,
+      "max_output_tokens": 262144,
+      "input_cost_per_1m": 0.4,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "devstral",
+      "release_date": "2025-12-09",
+      "description": "Devstral 2",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-12",
+      "open_weights": true
+    },
+    "devstral-medium-2507": {
+      "name": "devstral-medium-2507",
+      "context_length": 128000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.4,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "devstral",
+      "release_date": "2025-07-10",
+      "description": "Devstral Medium",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-05",
+      "open_weights": true
+    },
+    "devstral-medium-latest": {
+      "name": "devstral-medium-latest",
+      "context_length": 262144,
+      "max_output_tokens": 262144,
+      "input_cost_per_1m": 0.4,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "devstral",
+      "release_date": "2025-12-02",
+      "description": "Devstral 2",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-12",
+      "open_weights": true
+    },
+    "devstral-small-2505": {
+      "name": "devstral-small-2505",
+      "context_length": 128000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.3,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "devstral",
+      "release_date": "2025-05-07",
+      "description": "Devstral Small 2505",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-05",
+      "open_weights": true
+    },
+    "devstral-small-2507": {
+      "name": "devstral-small-2507",
+      "context_length": 128000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.3,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "devstral",
+      "release_date": "2025-07-10",
+      "description": "Devstral Small",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-05",
+      "open_weights": true
+    },
+    "labs-devstral-small-2512": {
+      "name": "labs-devstral-small-2512",
+      "context_length": 256000,
+      "max_output_tokens": 256000,
+      "input_cost_per_1m": 0.0,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "devstral",
+      "release_date": "2025-12-09",
+      "description": "Devstral Small 2",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-12",
+      "open_weights": true
+    },
+    "magistral-medium-latest": {
+      "name": "magistral-medium-latest",
+      "context_length": 128000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 5.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "magistral-medium",
+      "release_date": "2025-03-17",
+      "description": "Magistral Medium",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-06",
+      "open_weights": true
+    },
+    "magistral-small": {
+      "name": "magistral-small",
+      "context_length": 128000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 1.5,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "magistral-small",
+      "release_date": "2025-03-17",
+      "description": "Magistral Small",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-06",
+      "open_weights": true
+    },
+    "ministral-3b-latest": {
+      "name": "ministral-3b-latest",
+      "context_length": 128000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.04,
+      "output_cost_per_1m": 0.04,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "ministral",
+      "release_date": "2024-10-01",
+      "description": "Ministral 3B",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-10",
+      "open_weights": true
+    },
+    "ministral-8b-latest": {
+      "name": "ministral-8b-latest",
+      "context_length": 128000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.1,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "ministral",
+      "release_date": "2024-10-01",
+      "description": "Ministral 8B",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-10",
+      "open_weights": true
+    },
+    "mistral-embed": {
+      "name": "mistral-embed",
+      "context_length": 8000,
+      "max_output_tokens": 3072,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "mistral-embed",
+      "release_date": "2023-12-11",
+      "description": "Mistral Embed",
+      "supports_temperature": false
+    },
+    "mistral-large-2411": {
+      "name": "mistral-large-2411",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 6.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "mistral-large",
+      "release_date": "2024-11-01",
+      "description": "Mistral Large 2.1",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-11",
+      "open_weights": true
+    },
+    "mistral-large-2512": {
+      "name": "mistral-large-2512",
+      "context_length": 262144,
+      "max_output_tokens": 262144,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 1.5,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "mistral-large",
+      "release_date": "2024-11-01",
+      "description": "Mistral Large 3",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2024-11",
+      "open_weights": true
+    },
+    "mistral-large-latest": {
+      "name": "mistral-large-latest",
+      "context_length": 262144,
+      "max_output_tokens": 262144,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 1.5,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "mistral-large",
+      "release_date": "2024-11-01",
+      "description": "Mistral Large",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2024-11",
+      "open_weights": true
+    },
+    "mistral-medium-2505": {
+      "name": "mistral-medium-2505",
+      "context_length": 131072,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 0.4,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "mistral-medium",
+      "release_date": "2025-05-07",
+      "description": "Mistral Medium 3",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2025-05"
+    },
+    "mistral-medium-2508": {
+      "name": "mistral-medium-2508",
+      "context_length": 262144,
+      "max_output_tokens": 262144,
+      "input_cost_per_1m": 0.4,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "mistral-medium",
+      "release_date": "2025-08-12",
+      "description": "Mistral Medium 3.1",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2025-05"
+    },
+    "mistral-medium-latest": {
+      "name": "mistral-medium-latest",
+      "context_length": 128000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.4,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "mistral-medium",
+      "release_date": "2025-05-07",
+      "description": "Mistral Medium",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-05",
+      "open_weights": true
+    },
+    "mistral-nemo": {
+      "name": "mistral-nemo",
+      "context_length": 128000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.15,
+      "output_cost_per_1m": 0.15,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "mistral-nemo",
+      "release_date": "2024-07-01",
+      "description": "Mistral Nemo",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-07",
+      "open_weights": true
+    },
+    "mistral-small-2506": {
+      "name": "mistral-small-2506",
+      "context_length": 128000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.3,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "mistral-small",
+      "release_date": "2025-06-20",
+      "description": "Mistral Small 3.2",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-03",
+      "open_weights": true
+    },
+    "mistral-small-latest": {
+      "name": "mistral-small-latest",
+      "context_length": 128000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.3,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "mistral-small",
+      "release_date": "2024-09-01",
+      "description": "Mistral Small",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2025-03",
+      "open_weights": true
+    },
+    "open-mistral-7b": {
+      "name": "open-mistral-7b",
+      "context_length": 8000,
+      "max_output_tokens": 8000,
+      "input_cost_per_1m": 0.25,
+      "output_cost_per_1m": 0.25,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "mistral",
+      "release_date": "2023-09-27",
+      "description": "Mistral 7B",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2023-12",
+      "open_weights": true
+    },
+    "open-mixtral-8x22b": {
+      "name": "open-mixtral-8x22b",
+      "context_length": 64000,
+      "max_output_tokens": 64000,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 6.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "mixtral",
+      "release_date": "2024-04-17",
+      "description": "Mixtral 8x22B",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-04",
+      "open_weights": true
+    },
+    "open-mixtral-8x7b": {
+      "name": "open-mixtral-8x7b",
+      "context_length": 32000,
+      "max_output_tokens": 32000,
+      "input_cost_per_1m": 0.7,
+      "output_cost_per_1m": 0.7,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text"
+      ],
+      "family": "mixtral",
+      "release_date": "2023-12-11",
+      "description": "Mixtral 8x7B",
+      "supports_tool_call": true,
+      "knowledge_cutoff": "2024-01",
+      "open_weights": true
+    },
+    "pixtral-12b": {
+      "name": "pixtral-12b",
+      "context_length": 128000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.15,
+      "output_cost_per_1m": 0.15,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "pixtral",
+      "release_date": "2024-09-01",
+      "description": "Pixtral 12B",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2024-09",
+      "open_weights": true
+    },
+    "pixtral-large-latest": {
+      "name": "pixtral-large-latest",
+      "context_length": 128000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 6.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "mistral",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "pixtral",
+      "release_date": "2024-11-01",
+      "description": "Pixtral Large",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2024-11",
+      "open_weights": true
+    },
+    "codex-mini-latest": {
+      "name": "codex-mini-latest",
+      "context_length": 200000,
+      "max_output_tokens": 100000,
+      "input_cost_per_1m": 1.5,
+      "output_cost_per_1m": 6.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text"
+      ],
+      "family": "gpt-codex-mini",
+      "release_date": "2025-05-16",
+      "description": "Codex Mini",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.375,
+      "knowledge_cutoff": "2024-04"
+    },
+    "gpt-3.5-turbo": {
+      "name": "gpt-3.5-turbo",
+      "context_length": 16385,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 0.5,
+      "output_cost_per_1m": 1.5,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "openai",
+      "modalities": [
+        "text"
+      ],
+      "family": "gpt",
+      "release_date": "2023-03-01",
+      "description": "GPT-3.5-turbo",
+      "cache_read_cost_per_1m": 1.25,
+      "knowledge_cutoff": "2021-09-01"
+    },
+    "gpt-4": {
+      "name": "gpt-4",
+      "context_length": 8192,
+      "max_output_tokens": 8192,
+      "input_cost_per_1m": 30.0,
+      "output_cost_per_1m": 60.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text"
+      ],
+      "family": "gpt",
+      "release_date": "2023-11-06",
+      "description": "GPT-4",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2023-11"
+    },
+    "gpt-4-turbo": {
+      "name": "gpt-4-turbo",
+      "context_length": 128000,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 10.0,
+      "output_cost_per_1m": 30.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt",
+      "release_date": "2023-11-06",
+      "description": "GPT-4 Turbo",
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2023-12"
+    },
+    "gpt-4.1": {
+      "name": "gpt-4.1",
+      "context_length": 1047576,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 8.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt",
+      "release_date": "2025-04-14",
+      "description": "GPT-4.1",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.5,
+      "knowledge_cutoff": "2024-04"
+    },
+    "gpt-4.1-mini": {
+      "name": "gpt-4.1-mini",
+      "context_length": 1047576,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.4,
+      "output_cost_per_1m": 1.6,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-mini",
+      "release_date": "2025-04-14",
+      "description": "GPT-4.1 mini",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.1,
+      "knowledge_cutoff": "2024-04"
+    },
+    "gpt-4.1-nano": {
+      "name": "gpt-4.1-nano",
+      "context_length": 1047576,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-nano",
+      "release_date": "2025-04-14",
+      "description": "GPT-4.1 nano",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.03,
+      "knowledge_cutoff": "2024-04"
+    },
+    "gpt-4o": {
+      "name": "gpt-4o",
+      "context_length": 128000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 2.5,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt",
+      "release_date": "2024-05-13",
+      "description": "GPT-4o",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 1.25,
+      "knowledge_cutoff": "2023-09"
+    },
+    "gpt-4o-2024-05-13": {
+      "name": "gpt-4o-2024-05-13",
+      "context_length": 128000,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 5.0,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt",
+      "release_date": "2024-05-13",
+      "description": "GPT-4o (2024-05-13)",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2023-09"
+    },
+    "gpt-4o-2024-08-06": {
+      "name": "gpt-4o-2024-08-06",
+      "context_length": 128000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 2.5,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt",
+      "release_date": "2024-08-06",
+      "description": "GPT-4o (2024-08-06)",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 1.25,
+      "knowledge_cutoff": "2023-09"
+    },
+    "gpt-4o-2024-11-20": {
+      "name": "gpt-4o-2024-11-20",
+      "context_length": 128000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 2.5,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt",
+      "release_date": "2024-11-20",
+      "description": "GPT-4o (2024-11-20)",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 1.25,
+      "knowledge_cutoff": "2023-09"
+    },
+    "gpt-4o-mini": {
+      "name": "gpt-4o-mini",
+      "context_length": 128000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.15,
+      "output_cost_per_1m": 0.6,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-mini",
+      "release_date": "2024-07-18",
+      "description": "GPT-4o mini",
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.08,
+      "knowledge_cutoff": "2023-09"
+    },
+    "gpt-5": {
+      "name": "gpt-5",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt",
+      "release_date": "2025-08-07",
+      "description": "GPT-5",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.125,
+      "knowledge_cutoff": "2024-09-30"
+    },
+    "gpt-5-chat-latest": {
+      "name": "gpt-5-chat-latest",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-codex",
+      "release_date": "2025-08-07",
+      "description": "GPT-5 Chat (latest)",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2024-09-30"
+    },
+    "gpt-5-codex": {
+      "name": "gpt-5-codex",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-codex",
+      "release_date": "2025-09-15",
+      "description": "GPT-5-Codex",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "cache_read_cost_per_1m": 0.125,
+      "knowledge_cutoff": "2024-09-30"
+    },
+    "gpt-5-mini": {
+      "name": "gpt-5-mini",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.25,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-mini",
+      "release_date": "2025-08-07",
+      "description": "GPT-5 Mini",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.025,
+      "knowledge_cutoff": "2024-05-30"
+    },
+    "gpt-5-nano": {
+      "name": "gpt-5-nano",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.05,
+      "output_cost_per_1m": 0.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-nano",
+      "release_date": "2025-08-07",
+      "description": "GPT-5 Nano",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.005,
+      "knowledge_cutoff": "2024-05-30"
+    },
+    "gpt-5-pro": {
+      "name": "gpt-5-pro",
+      "context_length": 400000,
+      "max_output_tokens": 272000,
+      "input_cost_per_1m": 15.0,
+      "output_cost_per_1m": 120.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-pro",
+      "release_date": "2025-10-06",
+      "description": "GPT-5 Pro",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2024-09-30"
+    },
+    "gpt-5.1": {
+      "name": "gpt-5.1",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt",
+      "release_date": "2025-11-13",
+      "description": "GPT-5.1",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.13,
+      "knowledge_cutoff": "2024-09-30"
+    },
+    "gpt-5.1-chat-latest": {
+      "name": "gpt-5.1-chat-latest",
+      "context_length": 128000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-codex",
+      "release_date": "2025-11-13",
+      "description": "GPT-5.1 Chat",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.125,
+      "knowledge_cutoff": "2024-09-30"
+    },
+    "gpt-5.1-codex": {
+      "name": "gpt-5.1-codex",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-codex",
+      "release_date": "2025-11-13",
+      "description": "GPT-5.1 Codex",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.125,
+      "knowledge_cutoff": "2024-09-30"
+    },
+    "gpt-5.1-codex-max": {
+      "name": "gpt-5.1-codex-max",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 1.25,
+      "output_cost_per_1m": 10.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-codex",
+      "release_date": "2025-11-13",
+      "description": "GPT-5.1 Codex Max",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.125,
+      "knowledge_cutoff": "2024-09-30"
+    },
+    "gpt-5.1-codex-mini": {
+      "name": "gpt-5.1-codex-mini",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 0.25,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-codex",
+      "release_date": "2025-11-13",
+      "description": "GPT-5.1 Codex mini",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.025,
+      "knowledge_cutoff": "2024-09-30"
+    },
+    "gpt-5.2": {
+      "name": "gpt-5.2",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 1.75,
+      "output_cost_per_1m": 14.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt",
+      "release_date": "2025-12-11",
+      "description": "GPT-5.2",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.175,
+      "knowledge_cutoff": "2025-08-31"
+    },
+    "gpt-5.2-chat-latest": {
+      "name": "gpt-5.2-chat-latest",
+      "context_length": 128000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 1.75,
+      "output_cost_per_1m": 14.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-codex",
+      "release_date": "2025-12-11",
+      "description": "GPT-5.2 Chat",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.175,
+      "knowledge_cutoff": "2025-08-31"
+    },
+    "gpt-5.2-codex": {
+      "name": "gpt-5.2-codex",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 1.75,
+      "output_cost_per_1m": 14.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "gpt-codex",
+      "release_date": "2025-12-11",
+      "description": "GPT-5.2 Codex",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.175,
+      "knowledge_cutoff": "2025-08-31"
+    },
+    "gpt-5.2-pro": {
+      "name": "gpt-5.2-pro",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 21.0,
+      "output_cost_per_1m": 168.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-pro",
+      "release_date": "2025-12-11",
+      "description": "GPT-5.2 Pro",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2025-08-31"
+    },
+    "gpt-5.3-codex": {
+      "name": "gpt-5.3-codex",
+      "context_length": 400000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 1.75,
+      "output_cost_per_1m": 14.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "gpt-codex",
+      "release_date": "2026-02-05",
+      "description": "GPT-5.3 Codex",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.175,
+      "knowledge_cutoff": "2025-08-31"
+    },
+    "gpt-5.3-codex-spark": {
+      "name": "gpt-5.3-codex-spark",
+      "context_length": 128000,
+      "max_output_tokens": 32000,
+      "input_cost_per_1m": 1.75,
+      "output_cost_per_1m": 14.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision",
+        "code"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "family": "gpt-codex-spark",
+      "release_date": "2026-02-05",
+      "description": "GPT-5.3 Codex Spark",
+      "max_input_tokens": 100000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.175,
+      "knowledge_cutoff": "2025-08-31"
+    },
+    "gpt-5.4": {
+      "name": "gpt-5.4",
+      "context_length": 1050000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 2.5,
+      "output_cost_per_1m": 15.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt",
+      "release_date": "2026-03-05",
+      "description": "GPT-5.4",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.25,
+      "knowledge_cutoff": "2025-08-31"
+    },
+    "gpt-5.4-pro": {
+      "name": "gpt-5.4-pro",
+      "context_length": 1050000,
+      "max_output_tokens": 128000,
+      "input_cost_per_1m": 30.0,
+      "output_cost_per_1m": 180.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "gpt-pro",
+      "release_date": "2026-03-05",
+      "description": "GPT-5.4 Pro",
+      "max_input_tokens": 272000,
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2025-08-31"
+    },
+    "o1": {
+      "name": "o1",
+      "context_length": 200000,
+      "max_output_tokens": 100000,
+      "input_cost_per_1m": 15.0,
+      "output_cost_per_1m": 60.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "o",
+      "release_date": "2024-12-05",
+      "description": "o1",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 7.5,
+      "knowledge_cutoff": "2023-09"
+    },
+    "o1-mini": {
+      "name": "o1-mini",
+      "context_length": 128000,
+      "max_output_tokens": 65536,
+      "input_cost_per_1m": 1.1,
+      "output_cost_per_1m": 4.4,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text"
+      ],
+      "family": "o-mini",
+      "release_date": "2024-09-12",
+      "description": "o1-mini",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_structured_output": true,
+      "cache_read_cost_per_1m": 0.55,
+      "knowledge_cutoff": "2023-09"
+    },
+    "o1-preview": {
+      "name": "o1-preview",
+      "context_length": 128000,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 15.0,
+      "output_cost_per_1m": 60.0,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "openai",
+      "modalities": [
+        "text"
+      ],
+      "family": "o",
+      "release_date": "2024-09-12",
+      "description": "o1-preview",
+      "reasoning": true,
+      "cache_read_cost_per_1m": 7.5,
+      "knowledge_cutoff": "2023-09"
+    },
+    "o1-pro": {
+      "name": "o1-pro",
+      "context_length": 200000,
+      "max_output_tokens": 100000,
+      "input_cost_per_1m": 150.0,
+      "output_cost_per_1m": 600.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "o-pro",
+      "release_date": "2025-03-19",
+      "description": "o1-pro",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2023-09"
+    },
+    "o3": {
+      "name": "o3",
+      "context_length": 200000,
+      "max_output_tokens": 100000,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 8.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "o",
+      "release_date": "2025-04-16",
+      "description": "o3",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.5,
+      "knowledge_cutoff": "2024-05"
+    },
+    "o3-deep-research": {
+      "name": "o3-deep-research",
+      "context_length": 200000,
+      "max_output_tokens": 100000,
+      "input_cost_per_1m": 10.0,
+      "output_cost_per_1m": 40.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "o",
+      "release_date": "2024-06-26",
+      "description": "o3-deep-research",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 2.5,
+      "knowledge_cutoff": "2024-05"
+    },
+    "o3-mini": {
+      "name": "o3-mini",
+      "context_length": 200000,
+      "max_output_tokens": 100000,
+      "input_cost_per_1m": 1.1,
+      "output_cost_per_1m": 4.4,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text"
+      ],
+      "family": "o-mini",
+      "release_date": "2024-12-20",
+      "description": "o3-mini",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "cache_read_cost_per_1m": 0.55,
+      "knowledge_cutoff": "2024-05"
+    },
+    "o3-pro": {
+      "name": "o3-pro",
+      "context_length": 200000,
+      "max_output_tokens": 100000,
+      "input_cost_per_1m": 20.0,
+      "output_cost_per_1m": 80.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "o-pro",
+      "release_date": "2025-06-10",
+      "description": "o3-pro",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2024-05"
+    },
+    "o4-mini": {
+      "name": "o4-mini",
+      "context_length": 200000,
+      "max_output_tokens": 100000,
+      "input_cost_per_1m": 1.1,
+      "output_cost_per_1m": 4.4,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "o-mini",
+      "release_date": "2025-04-16",
+      "description": "o4-mini",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_structured_output": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.28,
+      "knowledge_cutoff": "2024-05"
+    },
+    "o4-mini-deep-research": {
+      "name": "o4-mini-deep-research",
+      "context_length": 200000,
+      "max_output_tokens": 100000,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 8.0,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "o-mini",
+      "release_date": "2024-06-26",
+      "description": "o4-mini-deep-research",
+      "reasoning": true,
+      "supports_temperature": false,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "cache_read_cost_per_1m": 0.5,
+      "knowledge_cutoff": "2024-05"
+    },
+    "text-embedding-3-large": {
+      "name": "text-embedding-3-large",
+      "context_length": 8191,
+      "max_output_tokens": 3072,
+      "input_cost_per_1m": 0.13,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "openai",
+      "modalities": [
+        "text"
+      ],
+      "family": "text-embedding",
+      "release_date": "2024-01-25",
+      "description": "text-embedding-3-large",
+      "supports_temperature": false,
+      "knowledge_cutoff": "2024-01"
+    },
+    "text-embedding-3-small": {
+      "name": "text-embedding-3-small",
+      "context_length": 8191,
+      "max_output_tokens": 1536,
+      "input_cost_per_1m": 0.02,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "openai",
+      "modalities": [
+        "text"
+      ],
+      "family": "text-embedding",
+      "release_date": "2024-01-25",
+      "description": "text-embedding-3-small",
+      "supports_temperature": false,
+      "knowledge_cutoff": "2024-01"
+    },
+    "text-embedding-ada-002": {
+      "name": "text-embedding-ada-002",
+      "context_length": 8192,
+      "max_output_tokens": 1536,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "chat"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": false,
+      "provider": "openai",
+      "modalities": [
+        "text"
+      ],
+      "family": "text-embedding",
+      "release_date": "2022-12-15",
+      "description": "text-embedding-ada-002",
+      "supports_temperature": false,
+      "knowledge_cutoff": "2022-12"
+    },
+    "glm-4.5": {
+      "name": "glm-4.5",
+      "context_length": 131072,
+      "max_output_tokens": 98304,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 2.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "zai",
+      "modalities": [
+        "text"
+      ],
+      "family": "glm",
+      "release_date": "2025-07-28",
+      "description": "GLM-4.5",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "cache_read_cost_per_1m": 0.11,
+      "cache_write_cost_per_1m": 0.0,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "glm-4.5-air": {
+      "name": "glm-4.5-air",
+      "context_length": 131072,
+      "max_output_tokens": 98304,
+      "input_cost_per_1m": 0.2,
+      "output_cost_per_1m": 1.1,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "zai",
+      "modalities": [
+        "text"
+      ],
+      "family": "glm-air",
+      "release_date": "2025-07-28",
+      "description": "GLM-4.5-Air",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "cache_read_cost_per_1m": 0.03,
+      "cache_write_cost_per_1m": 0.0,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "glm-4.5-flash": {
+      "name": "glm-4.5-flash",
+      "context_length": 131072,
+      "max_output_tokens": 98304,
+      "input_cost_per_1m": 0.0,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "zai",
+      "modalities": [
+        "text"
+      ],
+      "family": "glm-flash",
+      "release_date": "2025-07-28",
+      "description": "GLM-4.5-Flash",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "cache_read_cost_per_1m": 0.0,
+      "cache_write_cost_per_1m": 0.0,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "glm-4.5v": {
+      "name": "glm-4.5v",
+      "context_length": 64000,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 1.8,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "zai",
+      "modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "family": "glm",
+      "release_date": "2025-08-11",
+      "description": "GLM-4.5V",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "glm-4.6": {
+      "name": "glm-4.6",
+      "context_length": 204800,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 2.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "zai",
+      "modalities": [
+        "text"
+      ],
+      "family": "glm",
+      "release_date": "2025-09-30",
+      "description": "GLM-4.6",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "cache_read_cost_per_1m": 0.11,
+      "cache_write_cost_per_1m": 0.0,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "glm-4.6v": {
+      "name": "glm-4.6v",
+      "context_length": 128000,
+      "max_output_tokens": 32768,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 0.9,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "vision"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "zai",
+      "modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "family": "glm",
+      "release_date": "2025-12-08",
+      "description": "GLM-4.6V",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_attachment": true,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "glm-4.7": {
+      "name": "glm-4.7",
+      "context_length": 204800,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 2.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "zai",
+      "modalities": [
+        "text"
+      ],
+      "family": "glm",
+      "release_date": "2025-12-22",
+      "description": "GLM-4.7",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "interleaved": {
+        "field": "reasoning_content"
+      },
+      "cache_read_cost_per_1m": 0.11,
+      "cache_write_cost_per_1m": 0.0,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "glm-4.7-flash": {
+      "name": "glm-4.7-flash",
+      "context_length": 200000,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 0.0,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "zai",
+      "modalities": [
+        "text"
+      ],
+      "family": "glm-flash",
+      "release_date": "2026-01-19",
+      "description": "GLM-4.7-Flash",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "cache_read_cost_per_1m": 0.0,
+      "cache_write_cost_per_1m": 0.0,
+      "knowledge_cutoff": "2025-04",
+      "open_weights": true
+    },
+    "glm-5": {
+      "name": "glm-5",
+      "context_length": 204800,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 1.0,
+      "output_cost_per_1m": 3.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "zai",
+      "modalities": [
+        "text"
+      ],
+      "family": "glm",
+      "release_date": "2026-02-11",
+      "description": "GLM-5",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "interleaved": {
+        "field": "reasoning_content"
+      },
+      "cache_read_cost_per_1m": 0.2,
+      "cache_write_cost_per_1m": 0.0
     }
   }
 }

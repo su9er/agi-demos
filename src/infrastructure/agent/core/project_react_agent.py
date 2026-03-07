@@ -507,6 +507,17 @@ class ProjectReActAgent:
             clamp_max_tokens as _clamp_max_tokens,
             get_model_context_window,
         )
+        from src.infrastructure.llm.reasoning_config import build_reasoning_config
+
+        _reasoning_cfg = build_reasoning_config(provider_config.llm_model)
+        _provider_opts: dict[str, Any] = {}
+        if _reasoning_cfg:
+            _provider_opts = {
+                **_reasoning_cfg.provider_options,
+                "__omit_temperature": _reasoning_cfg.omit_temperature,
+                "__use_max_completion_tokens": _reasoning_cfg.use_max_completion_tokens,
+                "__override_max_tokens": _reasoning_cfg.override_max_tokens,
+            }
 
         processor_config = ProcessorConfig(
             model=provider_config.llm_model,
@@ -516,6 +527,7 @@ class ProjectReActAgent:
             max_tokens=self.config.max_tokens,
             max_steps=self.config.max_steps,
             llm_client=llm_client,
+            provider_options=_provider_opts,
         )
 
         self._artifact_service = artifact_service

@@ -381,9 +381,6 @@ class AgentContainer:
 
     def agent_service(self, llm: LLMClient) -> AgentService:
         """Get AgentService with dependencies injected."""
-        if not self._graph_service:
-            raise ValueError("graph_service is required for AgentService")
-
         neo4j_client = self._neo4j_client_factory() if self._neo4j_client_factory else None
         storage_service = self._storage_service_factory() if self._storage_service_factory else None
         sequence_service = (

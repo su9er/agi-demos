@@ -787,6 +787,19 @@ class ReActAgent:
             self.tool_definitions = convert_tools(self.raw_tools)
             self._use_dynamic_tools = False
 
+        # Build reasoning-aware provider options for the model
+        from src.infrastructure.llm.reasoning_config import build_reasoning_config
+
+        _reasoning_cfg = build_reasoning_config(model)
+        _provider_opts: dict[str, Any] = {}
+        if _reasoning_cfg:
+            _provider_opts = {
+                **_reasoning_cfg.provider_options,
+                "__omit_temperature": _reasoning_cfg.omit_temperature,
+                "__use_max_completion_tokens": _reasoning_cfg.use_max_completion_tokens,
+                "__override_max_tokens": _reasoning_cfg.override_max_tokens,
+            }
+
         self.config = ProcessorConfig(
             model=model,
             api_key=api_key,
@@ -796,6 +809,7 @@ class ReActAgent:
             max_steps=max_steps,
             llm_client=self._llm_client,
             skill_names=[s.name for s in (self.skills or [])],
+            provider_options=_provider_opts,
         )
 
     def _build_tool_selection_context(
@@ -1827,6 +1841,7 @@ class ReActAgent:
             forced_skill_name=config.forced_skill_name,
             forced_skill_tools=config.forced_skill_tools,
             skill_names=config.skill_names,
+            provider_options=config.provider_options,
         )
         logger.debug("[ReActAgent] Created processor config with tool_provider for dynamic tools")
         return new_config

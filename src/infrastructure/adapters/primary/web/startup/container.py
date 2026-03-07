@@ -23,7 +23,7 @@ def get_app_container() -> DIContainer | None:
 
 
 def initialize_container(
-    graph_service: GraphServicePort,
+    graph_service: GraphServicePort | None,
     redis_client: object | None,
     workflow_engine: WorkflowEnginePort | None,
 ) -> DIContainer:

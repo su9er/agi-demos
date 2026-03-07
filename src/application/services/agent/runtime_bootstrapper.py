@@ -344,6 +344,7 @@ class AgentRuntimeBootstrapper:
                 return  # type: ignore[unreachable]
 
             from src.configuration.factories import create_native_graph_adapter
+            from src.domain.llm_providers.models import NoActiveProviderError
             from src.infrastructure.agent.state.agent_worker_state import (
                 get_agent_graph_service,
                 set_agent_graph_service,
@@ -360,6 +361,12 @@ class AgentRuntimeBootstrapper:
                     graph_service = await create_native_graph_adapter()
                     set_agent_graph_service(graph_service)
                     logger.info("[AgentService] Graph service bootstrapped for local execution")
+                except NoActiveProviderError:
+                    logger.warning(
+                        "[AgentService] No active LLM provider configured "
+                        "-- graph service disabled for local execution. "
+                        "Agent will work without knowledge graph features."
+                    )
                 except Exception as e:
                     logger.error("[AgentService] Graph service init failed: %s", e)
                     raise

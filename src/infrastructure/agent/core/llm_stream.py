@@ -317,16 +317,49 @@ class StreamConfig:
         """
         Convert to LiteLLM acompletion kwargs.
 
+        Applies reasoning-model-aware adjustments:
+        - Omits temperature for models that reject it (OpenAI o1/o3, Deepseek reasoner)
+        - Uses max_completion_tokens instead of max_tokens for OpenAI reasoning models
+        - Overrides max_tokens when required (e.g., Anthropic extended thinking)
+        - Merges provider-specific options (reasoning_effort, thinking config, etc.)
+
         Returns:
             Dictionary of kwargs for litellm.acompletion()
         """
+        from src.infrastructure.llm.reasoning_config import build_reasoning_config
+
+        # Resolve reasoning config from model name
+        reasoning_cfg = build_reasoning_config(self.model)
+
+        # Determine flags from reasoning config
+        omit_temp = reasoning_cfg.omit_temperature if reasoning_cfg else False
+        use_max_completion = reasoning_cfg.use_max_completion_tokens if reasoning_cfg else False
+        override_max = reasoning_cfg.override_max_tokens if reasoning_cfg else None
+
+        # Also check provider_options for explicit overrides (set at ProcessorConfig creation)
+        omit_temp = omit_temp or self.provider_options.get("__omit_temperature", False)
+        use_max_completion = use_max_completion or self.provider_options.get(
+            "__use_max_completion_tokens", False
+        )
+        if "__override_max_tokens" in self.provider_options:
+            override_max = self.provider_options["__override_max_tokens"]
+
         kwargs: dict[str, Any] = {
             "model": self.model,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
             "stream": True,
             "timeout": self.timeout,
         }
+
+        # Temperature: omit for reasoning models that reject non-default values
+        if not omit_temp:
+            kwargs["temperature"] = self.temperature
+
+        # Max tokens: use appropriate key and value
+        effective_max_tokens = override_max if override_max is not None else self.max_tokens
+        if use_max_completion:
+            kwargs["max_completion_tokens"] = effective_max_tokens
+        else:
+            kwargs["max_tokens"] = effective_max_tokens
 
         if self.api_key:
             kwargs["api_key"] = self.api_key
@@ -339,8 +372,15 @@ class StreamConfig:
             if self.tool_choice:
                 kwargs["tool_choice"] = self.tool_choice
 
-        # Merge provider-specific options
-        kwargs.update(self.provider_options)
+        # Merge provider-specific options (reasoning_effort, thinking, etc.)
+        # Strip internal sentinel keys before merging
+        merged_options: dict[str, Any] = {}
+        if reasoning_cfg:
+            merged_options.update(reasoning_cfg.provider_options)
+        for key, value in self.provider_options.items():
+            if not key.startswith("__"):
+                merged_options[key] = value
+        kwargs.update(merged_options)
 
         return kwargs
 

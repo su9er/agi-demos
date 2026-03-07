@@ -363,7 +363,7 @@ class SQLAlchemyProviderRepository(ProviderRepository):
         return self._orm_to_config(orm)
 
     @override
-    async def delete(self, provider_id: UUID, hard_delete: bool = False) -> bool:
+    async def delete(self, provider_id: UUID, *, hard_delete: bool = False) -> bool:
         """Delete provider.
 
         Args:

@@ -34,6 +34,7 @@ import type {
   EdgeMapping,
   SystemResilienceStatus,
   ProviderUsageStats,
+  ModelCatalogEntry,
 } from '../types/memory';
 
 // Use centralized HTTP client instead of creating a new axios instance
@@ -285,7 +286,7 @@ export const taskAPI = {
 
 export const providerAPI = {
   list: async (
-    params: { is_active?: boolean | undefined; provider_type?: string | undefined } = {}
+    params: { include_inactive?: boolean | undefined; provider_type?: string | undefined } = {}
   ): Promise<ProviderConfig[]> => {
     return await api.get('/llm-providers/', { params });
   },
@@ -370,6 +371,39 @@ export const providerAPI = {
     };
   }> => {
     return await api.get(`/llm-providers/models/${providerType}`);
+  },
+  getModelCatalog: async (
+    provider?: string,
+    includeDeprecated: boolean = false
+  ): Promise<{ total: number; models: ModelCatalogEntry[] }> => {
+    return await api.get('/llm-providers/models/catalog', {
+      params: { provider, include_deprecated: includeDeprecated },
+    });
+  },
+  searchModelCatalog: async (
+    query: string,
+    provider?: string,
+    limit: number = 20
+  ): Promise<{ query: string; total: number; models: ModelCatalogEntry[] }> => {
+    return await api.get('/llm-providers/models/catalog/search', {
+      params: { q: query, provider, limit },
+    });
+  },
+  detectEnvKeys: async (): Promise<{
+    detected_providers: Record<
+      string,
+      {
+        provider_type: string;
+        api_key: string | null;
+        base_url: string | null;
+        llm_model: string | null;
+        llm_small_model: string | null;
+        embedding_model: string | null;
+        reranker_model: string | null;
+      }
+    >;
+  }> => {
+    return await api.get('/llm-providers/env-detection');
   },
 };
 

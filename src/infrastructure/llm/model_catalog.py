@@ -3,6 +3,10 @@
 Loads model metadata from an embedded JSON snapshot file and merges
 with ``DEFAULT_MODEL_METADATA`` from the domain layer.  Implements
 ``ModelCatalogPort`` for read-only model lookups.
+
+Since v2.0.0 the snapshot is generated from the models.dev API via
+``models_dev_fetcher.py``.  The ``refresh()`` method can optionally
+re-fetch from the remote API and regenerate the local snapshot.
 """
 
 import json
@@ -107,12 +111,17 @@ class ModelCatalogService(ModelCatalogPort):
     # Public helpers
     # ------------------------------------------------------------------
 
-    def refresh(self) -> None:
-        """Reload the catalog from the snapshot file.
+    def refresh(self, *, from_remote: bool = False) -> None:
+        """Reload the catalog.
 
-        This is a stub for future remote-refresh support.
-        Currently re-reads the local JSON file.
+        Args:
+            from_remote: If True, fetch fresh data from models.dev API
+                and regenerate the local snapshot before reloading.
+                Requires network access.  Falls back to the existing
+                snapshot on failure.
         """
+        if from_remote:
+            self._refresh_from_remote()
         self._loaded = False
         self._models.clear()
         self._ensure_loaded()
@@ -137,6 +146,46 @@ class ModelCatalogService(ModelCatalogPort):
         if any(c.lower() == "vision" for c in meta.capabilities):
             return True
         return "image" in meta.modalities
+
+    def is_reasoning_model(self, model_name: str) -> bool | None:
+        """Check whether *model_name* is a reasoning/thinking model.
+
+        Returns ``True``/``False`` if the model is known, ``None`` if unknown
+        (caller should fall back to heuristic detection).
+        """
+        self._ensure_loaded()
+        meta = self._models.get(model_name)
+        if meta is None:
+            return None
+        return meta.reasoning
+
+    def model_supports_temperature(self, model_name: str) -> bool | None:
+        """Check whether *model_name* accepts the temperature parameter.
+
+        Returns ``True``/``False`` if the model is known, ``None`` if unknown
+        (caller should fall back to heuristic detection).
+        """
+        self._ensure_loaded()
+        meta = self._models.get(model_name)
+        if meta is None:
+            return None
+        return meta.supports_temperature
+
+    def get_model_fuzzy(self, model_name: str) -> ModelMetadata | None:
+        """Look up a model, stripping provider prefix if needed.
+
+        Tries exact match first, then strips common ``provider/`` prefixes
+        (e.g. ``openai/gpt-4o`` -> ``gpt-4o``).
+        """
+        self._ensure_loaded()
+        meta = self._models.get(model_name)
+        if meta is not None:
+            return meta
+        # Strip provider prefix
+        if "/" in model_name:
+            bare = model_name.split("/", 1)[-1]
+            return self._models.get(bare)
+        return None
 
     # ------------------------------------------------------------------
     # Internal
@@ -188,6 +237,27 @@ class ModelCatalogService(ModelCatalogPort):
         if meta.provider and query in meta.provider.lower():
             return True
         return bool(meta.description and query in meta.description.lower())
+
+    def _refresh_from_remote(self) -> None:
+        """Fetch models.dev data and regenerate the local snapshot."""
+        try:
+            from src.infrastructure.llm.models_dev_fetcher import (
+                convert_to_model_metadata,
+                fetch_models_dev,
+                generate_snapshot,
+            )
+
+            raw = fetch_models_dev()
+            models = convert_to_model_metadata(raw)
+            generate_snapshot(models, output_path=self._snapshot_path)
+            logger.info(
+                "Refreshed snapshot from models.dev: %d models",
+                len(models),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to refresh from models.dev; keeping existing snapshot"
+            )
 
 
 # ------------------------------------------------------------------

@@ -222,7 +222,7 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
         provider_type: provider.provider_type,
         api_key: '', // Don't pre-fill API key for security
         base_url: provider.base_url || '',
-        llm_model: provider.llm_model,
+        llm_model: provider.llm_model || '',
         llm_small_model: provider.llm_small_model || '',
         embedding_model: provider.embedding_model || '',
         reranker_model: provider.reranker_model || '',

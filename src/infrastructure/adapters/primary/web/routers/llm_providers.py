@@ -282,20 +282,15 @@ async def list_catalog_models(
         provider=provider,
         include_deprecated=include_deprecated,
     )
+    # Exclude internal-only fields from API response
+    exclude_fields = {'input_budget_ratio', 'chars_per_token', 'interleaved'}
     return {
         "total": len(models),
         "models": [
             {
-                "name": m.name,
-                "provider": m.provider,
-                "family": m.family,
-                "context_length": m.context_length,
-                "max_output_tokens": m.max_output_tokens,
-                "modalities": m.modalities,
-                "capabilities": [c.value for c in m.capabilities],
-                "supports_streaming": m.supports_streaming,
-                "is_deprecated": m.is_deprecated,
-                "description": m.description,
+                k: (v.isoformat() if hasattr(v, 'isoformat') else v)
+                for k, v in m.model_dump().items()
+                if k not in exclude_fields
             }
             for m in models
         ],
@@ -318,25 +313,48 @@ async def search_catalog_models(
 
     catalog = get_model_catalog_service()
     results = catalog.search_models(query=q, provider=provider, limit=limit)
+    exclude_fields = {'input_budget_ratio', 'chars_per_token', 'interleaved'}
     return {
         "query": q,
         "total": len(results),
         "models": [
             {
-                "name": m.name,
-                "provider": m.provider,
-                "family": m.family,
-                "context_length": m.context_length,
-                "max_output_tokens": m.max_output_tokens,
-                "modalities": m.modalities,
-                "capabilities": [c.value for c in m.capabilities],
-                "supports_streaming": m.supports_streaming,
-                "is_deprecated": m.is_deprecated,
-                "description": m.description,
+                k: (v.isoformat() if hasattr(v, 'isoformat') else v)
+                for k, v in m.model_dump().items()
+                if k not in exclude_fields
             }
             for m in results
         ],
     }
+
+@router.get("/env-detection")
+async def detect_env_providers(
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """
+    Detect LLM providers configured via environment variables.
+
+    Returns provider configs found in server env vars for auto-fill.
+    Requires admin access since it exposes API key values.
+    """
+    from src.infrastructure.llm.initializer import detect_env_providers as _detect
+
+    detected = _detect()
+    return {
+        "detected_providers": {
+            name: {
+                "provider_type": name,
+                "api_key": config.get("api_key"),
+                "base_url": config.get("base_url"),
+                "llm_model": config.get("llm_model"),
+                "llm_small_model": config.get("llm_small_model"),
+                "embedding_model": config.get("embedding_model"),
+                "reranker_model": config.get("reranker_model"),
+            }
+            for name, config in detected.items()
+        },
+    }
+
 
 
 @router.get("/{provider_id}", response_model=ProviderConfigResponse)

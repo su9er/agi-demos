@@ -58,8 +58,14 @@ class ProviderRepository(ABC):
         """Update provider configuration."""
 
     @abstractmethod
-    async def delete(self, provider_id: UUID) -> bool:
-        """Delete provider (soft delete by setting is_active=False)."""
+    async def delete(self, provider_id: UUID, *, hard_delete: bool = False) -> bool:
+        """Delete provider.
+        
+        Args:
+            provider_id: Provider ID to delete.
+            hard_delete: If True, permanently remove from database.
+                If False, soft delete (set is_active=False).
+        """
 
     @abstractmethod
     async def find_default_provider(self) -> ProviderConfig | None:

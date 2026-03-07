@@ -129,6 +129,7 @@ class DIContainer:
         redis_client: redis.Redis | None = None,
         session_factory: async_sessionmaker[AsyncSession] | None = None,
         workflow_engine: WorkflowEnginePort | None = None,
+        _infra: InfraContainer | None = None,
     ) -> None:
         # Store raw deps for with_db() and properties
         self._db = db
@@ -147,7 +148,9 @@ class DIContainer:
             user_repository_factory=self._auth.user_repository,
             tenant_repository_factory=self._auth.tenant_repository,
         )
-        self._infra = InfraContainer(
+        # Reuse InfraContainer when provided (e.g. from with_db()) to preserve
+        # cached singletons like MCPSandboxAdapter across per-request clones.
+        self._infra = _infra or InfraContainer(
             redis_client=redis_client,
             workflow_engine=workflow_engine,
             settings=self._settings,
@@ -173,13 +176,18 @@ class DIContainer:
         )
 
     def with_db(self, db: AsyncSession) -> "DIContainer":
-        """Create a new container instance with a specific db session."""
+        """Create a new container instance with a specific db session.
+
+        Reuses the same InfraContainer so that cached singletons
+        (e.g. MCPSandboxAdapter) are shared across per-request clones.
+        """
         return DIContainer(
             db=db,
             graph_service=self._graph_service,
             redis_client=self._redis_client,
             session_factory=self._session_factory,
             workflow_engine=self._infra.workflow_engine_port(),
+            _infra=self._infra,
         )
 
     def ai_service_factory(self) -> Any:

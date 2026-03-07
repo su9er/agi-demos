@@ -35,28 +35,6 @@ interface ProviderState {
   reset: () => void;
 }
 
-// Temporary mock catalog for models until backend has a full catalog endpoint
-const MOCK_CATALOG: ModelCatalogEntry[] = [
-  { name: 'gpt-4o', provider: 'openai', context_length: 128000, max_output_tokens: 4096, input_cost_per_1m: 5, output_cost_per_1m: 15, capabilities: ['chat', 'vision'], modalities: ['text', 'image'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'gpt-4-turbo', provider: 'openai', context_length: 128000, max_output_tokens: 4096, input_cost_per_1m: 10, output_cost_per_1m: 30, capabilities: ['chat', 'vision'], modalities: ['text', 'image'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'gpt-3.5-turbo', provider: 'openai', context_length: 16385, max_output_tokens: 4096, input_cost_per_1m: 0.5, output_cost_per_1m: 1.5, capabilities: ['chat'], modalities: ['text'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'claude-3-5-sonnet-20240620', provider: 'anthropic', context_length: 200000, max_output_tokens: 8192, input_cost_per_1m: 3, output_cost_per_1m: 15, capabilities: ['chat', 'vision'], modalities: ['text', 'image'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'claude-3-opus-20240229', provider: 'anthropic', context_length: 200000, max_output_tokens: 4096, input_cost_per_1m: 15, output_cost_per_1m: 75, capabilities: ['chat', 'vision'], modalities: ['text', 'image'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'claude-3-haiku-20240307', provider: 'anthropic', context_length: 200000, max_output_tokens: 4096, input_cost_per_1m: 0.25, output_cost_per_1m: 1.25, capabilities: ['chat', 'vision'], modalities: ['text', 'image'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'gemini-1.5-pro', provider: 'gemini', context_length: 2000000, max_output_tokens: 8192, input_cost_per_1m: 3.5, output_cost_per_1m: 10.5, capabilities: ['chat', 'vision', 'audio', 'video'], modalities: ['text', 'image', 'audio', 'video'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'gemini-1.5-flash', provider: 'gemini', context_length: 1000000, max_output_tokens: 8192, input_cost_per_1m: 0.075, output_cost_per_1m: 0.3, capabilities: ['chat', 'vision', 'audio', 'video'], modalities: ['text', 'image', 'audio', 'video'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'qwen-max', provider: 'dashscope', context_length: 8192, max_output_tokens: 2000, input_cost_per_1m: 1.5, output_cost_per_1m: 4.5, capabilities: ['chat'], modalities: ['text'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'qwen-plus', provider: 'dashscope', context_length: 32000, max_output_tokens: 2000, input_cost_per_1m: 0.4, output_cost_per_1m: 1.2, capabilities: ['chat'], modalities: ['text'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'qwen-turbo', provider: 'dashscope', context_length: 8192, max_output_tokens: 2000, input_cost_per_1m: 0.2, output_cost_per_1m: 0.6, capabilities: ['chat'], modalities: ['text'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'moonshot-v1-8k', provider: 'kimi', context_length: 8192, max_output_tokens: 4096, input_cost_per_1m: 1.2, output_cost_per_1m: 1.2, capabilities: ['chat'], modalities: ['text'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'moonshot-v1-32k', provider: 'kimi', context_length: 32768, max_output_tokens: 4096, input_cost_per_1m: 2.4, output_cost_per_1m: 2.4, capabilities: ['chat'], modalities: ['text'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'moonshot-v1-128k', provider: 'kimi', context_length: 128000, max_output_tokens: 4096, input_cost_per_1m: 6.0, output_cost_per_1m: 6.0, capabilities: ['chat'], modalities: ['text'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'deepseek-chat', provider: 'deepseek', context_length: 32768, max_output_tokens: 4096, input_cost_per_1m: 0.14, output_cost_per_1m: 0.28, capabilities: ['chat'], modalities: ['text'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'deepseek-coder', provider: 'deepseek', context_length: 32768, max_output_tokens: 4096, input_cost_per_1m: 0.14, output_cost_per_1m: 0.28, capabilities: ['chat'], modalities: ['text'], variants: [], supports_streaming: true, supports_json_mode: true, is_deprecated: false },
-  { name: 'text-embedding-3-small', provider: 'openai', context_length: 8191, max_output_tokens: 0, input_cost_per_1m: 0.02, output_cost_per_1m: 0, capabilities: ['embedding'], modalities: ['text'], variants: [], supports_streaming: false, supports_json_mode: false, is_deprecated: false },
-  { name: 'text-embedding-3-large', provider: 'openai', context_length: 8191, max_output_tokens: 0, input_cost_per_1m: 0.13, output_cost_per_1m: 0, capabilities: ['embedding'], modalities: ['text'], variants: [], supports_streaming: false, supports_json_mode: false, is_deprecated: false },
-  { name: 'text-embedding-004', provider: 'gemini', context_length: 2048, max_output_tokens: 0, input_cost_per_1m: 0.01, output_cost_per_1m: 0, capabilities: ['embedding'], modalities: ['text'], variants: [], supports_streaming: false, supports_json_mode: false, is_deprecated: false },
-];
 
 export const useProviderStore = create<ProviderState>()(
   devtools(
@@ -73,7 +51,7 @@ export const useProviderStore = create<ProviderState>()(
       fetchProviders: async () => {
         set({ loading: true, error: null });
         try {
-          const providers = await providerAPI.list();
+          const providers = await providerAPI.list({ include_inactive: true });
           set({ providers, loading: false });
         } catch (err) {
           set({ error: getErrorMessage(err), loading: false });
@@ -137,23 +115,15 @@ export const useProviderStore = create<ProviderState>()(
       fetchModelCatalog: async (provider?: string) => {
         set({ catalogLoading: true, error: null });
         try {
-          // If we had a real backend API:
-          // const catalog = await providerAPI.getModelCatalog(provider);
-          
-          // For now, use mock catalog and filter if provider is specified
-          await new Promise(resolve => setTimeout(resolve, 300)); // Simulate network
-          
-          const catalog = provider 
-            ? MOCK_CATALOG.filter(m => m.provider === provider)
-            : MOCK_CATALOG;
-            
-          set({ 
+          const response = await providerAPI.getModelCatalog(provider);
+          const catalog = response.models ?? [];
+          set({
             modelCatalog: catalog,
-            modelSearchResults: catalog, // Initialize search results with full catalog
-            catalogLoading: false 
+            modelSearchResults: catalog,
+            catalogLoading: false,
           });
         } catch (err) {
-          set({ error: getErrorMessage(err), catalogLoading: false });
+          set({ error: getErrorMessage(err), catalogLoading: false, modelSearchResults: [], modelCatalog: [] });
         }
       },
 
@@ -164,13 +134,13 @@ export const useProviderStore = create<ProviderState>()(
         if (!lowerQuery) {
           set({ 
             modelSearchQuery: query,
-            modelSearchResults: modelCatalog 
+            modelSearchResults: Array.isArray(modelCatalog) ? modelCatalog : [] 
           });
           return;
         }
         
         // Simple client-side fuzzy matching
-        const results = modelCatalog.filter(model => {
+        const results = (Array.isArray(modelCatalog) ? modelCatalog : []).filter(model => {
           // Exact substring match
           if (model.name.toLowerCase().includes(lowerQuery)) return true;
           if (model.provider?.toLowerCase().includes(lowerQuery)) return true;

@@ -228,11 +228,16 @@ class CleanupStaleResponse(BaseModel):
 
 
 def get_sandbox_adapter() -> MCPSandboxAdapter:
-    """Get or create the sandbox adapter singleton."""
-    from src.configuration.di_container import DIContainer
+    """Get or create the sandbox adapter singleton.
 
-    container = DIContainer()
-    return cast(MCPSandboxAdapter, container.sandbox_adapter())
+    Uses the shared singleton from sandbox/utils.py to avoid creating
+    a new MCPSandboxAdapter (and triggering Docker recovery) per request.
+    """
+    from src.infrastructure.adapters.primary.web.routers.sandbox.utils import (
+        get_sandbox_adapter as _get_singleton_adapter,
+    )
+
+    return _get_singleton_adapter()
 
 
 def get_lifecycle_service(

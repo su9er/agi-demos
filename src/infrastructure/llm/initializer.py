@@ -332,6 +332,44 @@ _PROVIDER_ENV_REGISTRY: dict[str, Any] = {
 }
 
 
+def detect_env_providers() -> dict[str, dict[str, Any]]:
+    """
+    Detect LLM providers configured via environment variables.
+
+    Scans all known provider env vars and returns their configurations.
+    Used by the env-detection API endpoint for frontend auto-fill.
+
+    Returns:
+        Dict mapping provider name to env config dict with keys:
+        api_key, base_url, llm_model, llm_small_model, embedding_model, reranker_model
+    """
+    detected: dict[str, dict[str, Any]] = {}
+    seen_providers: set[str] = set()
+
+    for env_var, provider_name in _PROVIDER_AUTO_DETECT:
+        # Skip duplicates (e.g. ZAI_API_KEY and ZHIPU_API_KEY both map to "zai")
+        if provider_name in seen_providers:
+            continue
+
+        if not os.getenv(env_var):
+            continue
+
+        env_fn = _PROVIDER_ENV_REGISTRY.get(provider_name)
+        if env_fn is None:
+            continue
+
+        env_config = env_fn()
+        # Only include providers with a valid key (or local providers)
+        provider_type = PROVIDER_TYPE_MAP.get(provider_name)
+        if provider_type and should_require_api_key(provider_type) and not env_config.get("api_key"):
+            continue
+
+        detected[provider_name] = env_config
+        seen_providers.add(provider_name)
+
+    return detected
+
+
 def _build_provider_config(
     provider_name: str,
 ) -> ProviderConfigCreate | None:

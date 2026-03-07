@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.application.services.artifact_service import ArtifactService
@@ -69,6 +69,7 @@ class ProcessorFactory:
         model_override: str | None = None,
         abort_signal: asyncio.Event | None = None,
         doom_loop_threshold: int | None = None,
+        thinking_override: bool | None = None,
     ) -> SessionProcessor:
         """Create a SessionProcessor configured for a SubAgent.
 
@@ -83,6 +84,7 @@ class ProcessorFactory:
             doom_loop_threshold: Optional doom-loop detection threshold.
                 Defaults to 3 (ProcessorConfig default). Subagents typically
                 use a tighter threshold than the main agent.
+            thinking_override: If True, enable extended thinking for Anthropic models.
 
         Returns:
             Configured SessionProcessor instance.
@@ -92,6 +94,18 @@ class ProcessorFactory:
             model = model_override or self.base_model
         else:
             model = subagent.model.value
+
+        from src.infrastructure.llm.reasoning_config import build_reasoning_config
+
+        _reasoning_cfg = build_reasoning_config(model, thinking_override=thinking_override)
+        _provider_opts: dict[str, Any] = {}
+        if _reasoning_cfg:
+            _provider_opts = {
+                **_reasoning_cfg.provider_options,
+                "__omit_temperature": _reasoning_cfg.omit_temperature,
+                "__use_max_completion_tokens": _reasoning_cfg.use_max_completion_tokens,
+                "__override_max_tokens": _reasoning_cfg.override_max_tokens,
+            }
 
         config = ProcessorConfig(
             model=model,
@@ -103,6 +117,7 @@ class ProcessorFactory:
             llm_client=self.llm_client,
             plugin_registry=self.plugin_registry,
             doom_loop_threshold=doom_loop_threshold if doom_loop_threshold is not None else 3,
+            provider_options=_provider_opts,
         )
 
         return SessionProcessor(

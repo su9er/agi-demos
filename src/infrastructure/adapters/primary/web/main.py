@@ -202,7 +202,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
     shutdown_telemetry_services()
 
     # Close Neo4j connection
-    await shutdown_graph_service(graph_service)
+    if graph_service is not None:
+        await shutdown_graph_service(graph_service)
 
 
 def create_app() -> FastAPI:  # noqa: PLR0915

@@ -187,10 +187,10 @@ class ProviderService:
         return updated
 
     async def delete_provider(self, provider_id: UUID) -> bool:
-        """Delete provider (soft delete)."""
+        """Delete provider (hard delete)."""
         logger.info(f"Deleting provider: {provider_id}")
 
-        success = await self.repository.delete(provider_id)
+        success = await self.repository.delete(provider_id, hard_delete=True)
 
         if success:
             # Invalidate cache

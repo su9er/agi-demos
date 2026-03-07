@@ -151,6 +151,7 @@ class InvocationConfig:
     max_tokens: int = 4096
     max_attempts: int = 3
     llm_client: Any | None = None  # Optional LiteLLMClient for unified resilience
+    provider_options: dict[str, Any] = field(default_factory=dict)  # Provider-specific options
 
 
 @dataclass
@@ -278,6 +279,7 @@ class LLMInvoker:
             temperature=config.temperature,
             max_tokens=config.max_tokens,
             tools=tools_for_llm,
+            provider_options=config.provider_options,
         )
 
         # Create LLM stream with optional client for unified resilience

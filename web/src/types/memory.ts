@@ -330,7 +330,7 @@ export interface ProviderConfig {
   name: string;
   provider_type: ProviderType;
   base_url?: string | undefined;
-  llm_model: string;
+  llm_model?: string | undefined;
   llm_small_model?: string | undefined;
   embedding_model?: string | undefined;
   embedding_config?: EmbeddingConfig | undefined;
@@ -357,7 +357,7 @@ export interface ProviderCreate {
   provider_type: ProviderType;
   api_key: string;
   base_url?: string | undefined;
-  llm_model: string;
+  llm_model?: string | undefined;
   llm_small_model?: string | undefined;
   embedding_model?: string | undefined;
   embedding_config?: EmbeddingConfig | undefined;
@@ -394,14 +394,27 @@ export interface ModelCatalogEntry {
   family?: string;
   context_length: number;
   max_output_tokens: number;
-  input_cost_per_1m: number;
-  output_cost_per_1m: number;
+  max_input_tokens?: number | null;
+  input_cost_per_1m?: number | null;
+  output_cost_per_1m?: number | null;
+  cache_read_cost_per_1m?: number | null;
+  cache_write_cost_per_1m?: number | null;
+  reasoning_cost_per_1m?: number | null;
   capabilities: string[];
   modalities: string[];
   variants: string[];
+  default_variant?: string | null;
   supports_streaming: boolean;
   supports_json_mode: boolean;
+  reasoning: boolean;
+  supports_temperature: boolean;
+  supports_tool_call: boolean;
+  supports_structured_output: boolean;
+  supports_attachment: boolean;
   is_deprecated: boolean;
+  open_weights: boolean;
+  knowledge_cutoff?: string | null;
+  release_date?: string | null;
   description?: string;
 }
 

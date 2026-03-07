@@ -354,6 +354,18 @@ class SubAgentProcess:
         from ..core.processor import ProcessorConfig, SessionProcessor
 
         effective_model = model_override or self._model
+        from src.infrastructure.llm.reasoning_config import build_reasoning_config
+
+        _reasoning_cfg = build_reasoning_config(effective_model)
+        _provider_opts: dict[str, Any] = {}
+        if _reasoning_cfg:
+            _provider_opts = {
+                **_reasoning_cfg.provider_options,
+                "__omit_temperature": _reasoning_cfg.omit_temperature,
+                "__use_max_completion_tokens": _reasoning_cfg.use_max_completion_tokens,
+                "__override_max_tokens": _reasoning_cfg.override_max_tokens,
+            }
+
         config = ProcessorConfig(
             model=effective_model,
             api_key=self._api_key,
@@ -362,6 +374,7 @@ class SubAgentProcess:
             max_tokens=self._subagent.max_tokens,
             max_steps=self._subagent.max_iterations,
             llm_client=self._llm_client,
+            provider_options=_provider_opts,
         )
         return SessionProcessor(
             config=config,

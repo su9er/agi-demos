@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 
 import { Select } from 'antd';
 import { useShallow } from 'zustand/react/shallow';
@@ -8,6 +8,7 @@ import { providerAPI } from '../../services/api';
 import { useProviderStore } from '../../stores/provider';
 import {
   EmbeddingConfig,
+  ModelCatalogEntry,
   ProviderConfig,
   ProviderCreate,
   ProviderType,
@@ -50,6 +51,14 @@ const PROVIDER_MODEL_PARENT: Partial<Record<ProviderType, ProviderType>> = {
 
 const resolveCatalogProviderType = (providerType: ProviderType): ProviderType =>
   PROVIDER_MODEL_PARENT[providerType] ?? providerType;
+
+type ProviderCategory = 'chat' | 'coding' | 'embedding' | 'reranker';
+const getProviderCategory = (pt: ProviderType): ProviderCategory => {
+  if (pt.endsWith('_coding')) return 'coding';
+  if (pt.endsWith('_embedding')) return 'embedding';
+  if (pt.endsWith('_reranker')) return 'reranker';
+  return 'chat';
+};
 
 const resolvePrimaryLlmModel = (models?: ProviderModels | null): string =>
   models?.chat[0] || models?.embedding[0] || models?.rerank[0] || '';
@@ -106,12 +115,22 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [showAdvancedEmbedding, setShowAdvancedEmbedding] = useState(false);
   const [showAdvancedLLM, setShowAdvancedLLM] = useState(false);
+  const [envProviders, setEnvProviders] = useState<Record<string, {
+    provider_type: string;
+    api_key: string | null;
+    base_url: string | null;
+    llm_model: string | null;
+    llm_small_model: string | null;
+    embedding_model: string | null;
+    reranker_model: string | null;
+  }>>({});
 
-  const { searchModels, modelSearchResults, fetchModelCatalog } = useProviderStore(
+  const { searchModels, modelSearchResults, fetchModelCatalog, modelCatalog } = useProviderStore(
     useShallow((s) => ({
       searchModels: s.searchModels,
       modelSearchResults: s.modelSearchResults,
       fetchModelCatalog: s.fetchModelCatalog,
+      modelCatalog: s.modelCatalog,
     }))
   );
 
@@ -134,6 +153,11 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     is_default: false,
     use_custom_base_url: false,
   });
+
+  const selectedModelMeta: ModelCatalogEntry | null = useMemo(() => {
+    if (!formData.llm_model || !modelCatalog.length) return null;
+    return modelCatalog.find((m) => m.name === formData.llm_model) ?? null;
+  }, [formData.llm_model, modelCatalog]);
 
   useEffect(() => {
     fetchModelCatalog(resolveCatalogProviderType(formData.provider_type));
@@ -190,7 +214,7 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
         const llmCandidates = getLlmCandidates(models);
 
         // Check if models are custom (not in fetched list)
-        const llmIsCustom = !llmCandidates.includes(provider.llm_model);
+        const llmIsCustom = !!provider.llm_model && !llmCandidates.includes(provider.llm_model);
         const smallIsCustom =
           !!provider.llm_small_model && !llmCandidates.includes(provider.llm_small_model);
         const embeddingModel = embeddingConfig?.model || provider.embedding_model || '';
@@ -213,7 +237,7 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
         provider_type: provider.provider_type,
         api_key: '',
         base_url: provider.base_url || '',
-        llm_model: provider.llm_model,
+        llm_model: provider.llm_model || '',
         llm_small_model: provider.llm_small_model || '',
         embedding_model: embeddingModel,
         embedding_dimensions:
@@ -237,6 +261,16 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
 
       setCurrentStep('credentials');
     } else {
+      const envDetectionPromise = providerAPI.detectEnvKeys()
+        .then((res) => {
+          if (res.detected_providers) {
+            setEnvProviders(res.detected_providers);
+            return res.detected_providers;
+          }
+          return null;
+        })
+        .catch(() => null);
+
       // Default state for new provider
       const defaultProvider = initialProviderType || 'openai';
       const providerMeta = PROVIDERS.find((p) => p.value === defaultProvider);
@@ -273,9 +307,27 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
             embedding_model: models.embedding[0] || '',
             reranker_model: models.rerank[0] || '',
           }));
+          
+          envDetectionPromise.then((envData) => {
+            if (envData && envData[defaultProvider]) {
+              const envValues = envData[defaultProvider];
+              setFormData((prev) => {
+                const newData = { ...prev };
+                if (envValues.api_key) newData.api_key = envValues.api_key;
+                if (envValues.base_url) {
+                  newData.base_url = envValues.base_url;
+                  newData.use_custom_base_url = true;
+                }
+                if (envValues.llm_model) newData.llm_model = envValues.llm_model;
+                if (envValues.llm_small_model) newData.llm_small_model = envValues.llm_small_model;
+                if (envValues.embedding_model) newData.embedding_model = envValues.embedding_model;
+                if (envValues.reranker_model) newData.reranker_model = envValues.reranker_model;
+                return newData;
+              });
+            }
+          });
         }
       });
-
       setUseCustomModel({
         llm: false,
         small: false,
@@ -296,16 +348,33 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     const models = await fetchModels(type);
     const primaryModel = resolvePrimaryLlmModel(models);
 
-    setFormData((prev) => ({
-      ...prev,
-      provider_type: type,
-      name: providerMeta?.label || prev.name || '',
-      llm_model: primaryModel,
-      llm_small_model: resolveSmallLlmModel(models, primaryModel),
-      embedding_model: models?.embedding[0] || '',
-      embedding_dimensions: '1536', // Default, user can change
-      reranker_model: models?.rerank[0] || '',
-    }));
+    setFormData((prev) => {
+      const newData = {
+        ...prev,
+        provider_type: type,
+        name: providerMeta?.label || prev.name || '',
+        llm_model: primaryModel,
+        llm_small_model: resolveSmallLlmModel(models, primaryModel),
+        embedding_model: models?.embedding[0] || '',
+        embedding_dimensions: '1536', // Default, user can change
+        reranker_model: models?.rerank[0] || '',
+      };
+      
+      const envValues = envProviders[type];
+      if (envValues) {
+        if (envValues.api_key) newData.api_key = envValues.api_key;
+        if (envValues.base_url) {
+          newData.base_url = envValues.base_url;
+          newData.use_custom_base_url = true;
+        }
+        if (envValues.llm_model) newData.llm_model = envValues.llm_model;
+        if (envValues.llm_small_model) newData.llm_small_model = envValues.llm_small_model;
+        if (envValues.embedding_model) newData.embedding_model = envValues.embedding_model;
+        if (envValues.reranker_model) newData.reranker_model = envValues.reranker_model;
+      }
+      
+      return newData;
+    });
 
     // Reset custom model mode when switching provider
     setUseCustomModel({
@@ -409,6 +478,17 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
           is_active: formData.is_active,
           is_default: formData.is_default,
         };
+        if (!showLlmFields) {
+          delete updateData.llm_model;
+          delete updateData.llm_small_model;
+        }
+        if (!showEmbeddingFields) {
+          delete updateData.embedding_model;
+          delete updateData.embedding_config;
+        }
+        if (!showRerankerFields) {
+          delete updateData.reranker_model;
+        }
         if (formData.api_key) {
           updateData.api_key = formData.api_key;
         }
@@ -428,6 +508,17 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
           is_active: formData.is_active,
           is_default: formData.is_default,
         };
+        if (!showLlmFields) {
+          delete createData.llm_model;
+          delete createData.llm_small_model;
+        }
+        if (!showEmbeddingFields) {
+          delete createData.embedding_model;
+          delete createData.embedding_config;
+        }
+        if (!showRerankerFields) {
+          delete createData.reranker_model;
+        }
         await providerAPI.create(createData);
       }
       onSuccess();
@@ -446,7 +537,7 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
         : [...availableModels.embedding, ...availableModels.rerank];
     const chatModels = Array.from(new Set([
       ...fallbackLlmModels,
-      ...modelSearchResults
+      ...(Array.isArray(modelSearchResults) ? modelSearchResults : [])
         .filter(
           (m) =>
             m.provider === catalogProvider &&
@@ -468,7 +559,7 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     const catalogProvider = resolveCatalogProviderType(formData.provider_type);
     const embedModels = Array.from(new Set([
       ...availableModels.embedding,
-      ...modelSearchResults
+      ...(Array.isArray(modelSearchResults) ? modelSearchResults : [])
         .filter((m) => m.capabilities.includes('embedding') && m.provider === catalogProvider)
         .map((m) => m.name)
     ]));
@@ -482,7 +573,7 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     const catalogProvider = resolveCatalogProviderType(formData.provider_type);
     const rerankModels = Array.from(new Set([
       ...availableModels.rerank,
-      ...modelSearchResults
+      ...(Array.isArray(modelSearchResults) ? modelSearchResults : [])
         .filter(
           (m) =>
             (m.capabilities.includes('reranking') || m.name.includes('rerank')) &&
@@ -495,6 +586,12 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
       { value: '__custom__', label: 'Custom model name...' }
     ];
   };
+
+  const category = getProviderCategory(formData.provider_type);
+  const providerMeta = PROVIDERS.find((p) => p.value === resolveCatalogProviderType(formData.provider_type));
+  const showLlmFields = category === 'chat' || category === 'coding';
+  const showEmbeddingFields = category === 'embedding' || (category === 'chat' && !!providerMeta?.hasEmbedding);
+  const showRerankerFields = category === 'reranker' || (category === 'chat' && !!providerMeta?.hasNativeRerank);
 
   if (!isOpen) return null;
 
@@ -613,6 +710,17 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
             {/* Step 2: Credentials */}
             {currentStep === 'credentials' && (
               <div className="space-y-4">
+                {!isEditing && envProviders[formData.provider_type] && (
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-start gap-3">
+                    <MaterialIcon name="auto_awesome" size={20} className="text-green-600 dark:text-green-400 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-medium text-green-800 dark:text-green-300">Environment Variables Detected</h4>
+                      <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">
+                        We found configuration in your environment variables. The fields below have been auto-filled.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
@@ -633,6 +741,9 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                     <div>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                         API Key
+                        {!isEditing && envProviders[formData.provider_type]?.api_key && (
+                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">From ENV</span>
+                        )}
                       </label>
                       <div className="flex gap-2">
                         <input
@@ -680,6 +791,9 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                       Base URL (Optional)
+                      {!isEditing && envProviders[formData.provider_type]?.base_url && (
+                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">From ENV</span>
+                      )}
                     </label>
                     <input
                       type="url"
@@ -756,7 +870,9 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                 )}
 
                 {/* Primary LLM Model */}
-                <div>
+                {showLlmFields && (
+                <>
+                  <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                     Primary LLM Model
                   </label>
@@ -811,7 +927,79 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                   )}
                 </div>
 
+                {/* Model Info Card */}
+                {selectedModelMeta && (
+                  <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                        Model Info
+                      </span>
+                      {selectedModelMeta.is_deprecated && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded">
+                          Deprecated
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <span className="text-slate-400 dark:text-slate-500">Context</span>
+                        <div className="font-medium text-slate-700 dark:text-slate-300">
+                          {selectedModelMeta.context_length >= 1_000_000
+                            ? `${(selectedModelMeta.context_length / 1_000_000).toFixed(1)}M`
+                            : `${Math.round(selectedModelMeta.context_length / 1000)}k`}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 dark:text-slate-500">Max Output</span>
+                        <div className="font-medium text-slate-700 dark:text-slate-300">
+                          {selectedModelMeta.max_output_tokens >= 1_000_000
+                            ? `${(selectedModelMeta.max_output_tokens / 1_000_000).toFixed(1)}M`
+                            : selectedModelMeta.max_output_tokens >= 1000
+                              ? `${Math.round(selectedModelMeta.max_output_tokens / 1000)}k`
+                              : selectedModelMeta.max_output_tokens}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 dark:text-slate-500">Cost ($/1M)</span>
+                        <div className="font-medium text-slate-700 dark:text-slate-300">
+                          {selectedModelMeta.input_cost_per_1m != null
+                            ? `$${selectedModelMeta.input_cost_per_1m} / ${selectedModelMeta.output_cost_per_1m != null ? '$' + selectedModelMeta.output_cost_per_1m : '?'}`
+                            : 'N/A'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {selectedModelMeta.reasoning && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 rounded">Reasoning</span>
+                      )}
+                      {selectedModelMeta.supports_tool_call && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded">Tools</span>
+                      )}
+                      {selectedModelMeta.capabilities.includes('vision') && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded">Vision</span>
+                      )}
+                      {selectedModelMeta.supports_structured_output && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 rounded">Structured</span>
+                      )}
+                      {selectedModelMeta.supports_temperature && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 rounded">Temperature</span>
+                      )}
+                      {selectedModelMeta.open_weights && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-slate-300 rounded">Open</span>
+                      )}
+                    </div>
+                    {selectedModelMeta.knowledge_cutoff && (
+                      <div className="text-[10px] text-slate-400 dark:text-slate-500">
+                        Knowledge cutoff: {selectedModelMeta.knowledge_cutoff}
+                      </div>
+                    )}
+                  </div>
+                )}
+                </>
+                )}
+
                 {/* Small/Fast Model */}
+                {showLlmFields && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                     Small/Fast Model (Optional)
@@ -864,12 +1052,13 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                       options={getLlmOptions()}
                       className="w-full h-[42px] custom-ant-select"
                       disabled={isLoadingModels}
-                      placeholder="Select or enter custom model..."
                     />
                   )}
                 </div>
+                )}
 
                 {/* Advanced LLM Settings */}
+                {showLlmFields && (
                 <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
                   <button
                     type="button"
@@ -912,6 +1101,11 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                             placeholder="e.g. 0.7"
                             className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
                           />
+                          {selectedModelMeta && !selectedModelMeta.supports_temperature && (
+                            <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+                              This model may not support temperature control
+                            </p>
+                          )}
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -929,7 +1123,7 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                               setFormData({ ...formData, config: newConfig });
                               setConfigJsonStr(JSON.stringify(newConfig, null, 2));
                             }}
-                            placeholder="e.g. 4096"
+                            placeholder={selectedModelMeta?.max_output_tokens ? `Max: ${selectedModelMeta.max_output_tokens.toLocaleString()}` : 'e.g. 4096'}
                             className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
                           />
                         </div>
@@ -1035,11 +1229,13 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Embedding Model */}
+                {showEmbeddingFields && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Embedding Model (Optional)
+                    {category === 'embedding' ? 'Embedding Model' : 'Embedding Model (Optional)'}
                   </label>
                   {useCustomModel.embedding ? (
                     <div className="flex gap-2">
@@ -1087,13 +1283,13 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                       options={getEmbeddingOptions()}
                       className="w-full h-[42px] custom-ant-select"
                       disabled={isLoadingModels}
-                      placeholder="Select or enter custom model..."
                     />
                   )}
                 </div>
+                )}
 
                 {/* Advanced Embedding Settings */}
-                {formData.embedding_model && (
+                {showEmbeddingFields && formData.embedding_model && (
                   <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
                     <button
                       type="button"
@@ -1204,9 +1400,10 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                 )}
 
                 {/* Reranker Model */}
+                {showRerankerFields && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Reranker Model (Optional)
+                    {category === 'reranker' ? 'Reranker Model' : 'Reranker Model (Optional)'}
                   </label>
                   {useCustomModel.reranker ? (
                     <div className="flex gap-2">
@@ -1258,6 +1455,7 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                     />
                   )}
                 </div>
+                )}
               </div>
             )}
 
@@ -1276,24 +1474,26 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                   </div>
 
                   <div className="border-t border-slate-200 dark:border-slate-600 pt-3 space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-500">Primary Model:</span>
-                      <span
-                        className={`font-medium ${
-                          useCustomModel.llm
-                            ? 'text-amber-600 dark:text-amber-400'
-                            : 'text-slate-900 dark:text-white'
-                        }`}
-                      >
-                        {formData.llm_model}
-                        {useCustomModel.llm && (
-                          <span className="ml-1.5 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded">
-                            Custom
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    {formData.llm_small_model && (
+                    {showLlmFields && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Primary Model:</span>
+                        <span
+                          className={`font-medium ${
+                            useCustomModel.llm
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-slate-900 dark:text-white'
+                          }`}
+                        >
+                          {formData.llm_model}
+                          {useCustomModel.llm && (
+                            <span className="ml-1.5 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded">
+                              Custom
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {showLlmFields && formData.llm_small_model && (
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-500">Small Model:</span>
                         <span
@@ -1312,7 +1512,7 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                         </span>
                       </div>
                     )}
-                    {formData.embedding_model && (
+                    {showEmbeddingFields && formData.embedding_model && (
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-500">Embedding:</span>
                         <span
@@ -1331,7 +1531,7 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                         </span>
                       </div>
                     )}
-                    {formData.reranker_model && (
+                    {showRerankerFields && formData.reranker_model && (
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-500">Reranker:</span>
                         <span

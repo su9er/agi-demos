@@ -942,6 +942,7 @@ const SURFACE_SHELL_CLASS =
   'h-full overflow-auto rounded-b-lg bg-gradient-to-br from-indigo-50/80 via-white to-fuchsia-50/80 px-4 py-6 sm:py-8 sm:px-6 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/30';
 const SURFACE_CARD_CLASS =
   'mx-auto w-full max-w-5xl rounded-2xl border border-white/60 bg-white/70 shadow-[0_8px_30px_rgb(0,0,0,0.06)] ring-1 ring-slate-900/5 backdrop-blur-xl transition-all duration-500 hover:shadow-[0_8px_30px_rgb(0,0,0,0.1)] hover:bg-white/90 dark:border-white/10 dark:bg-slate-900/60 dark:ring-white/10 dark:hover:bg-slate-900/80 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out';
+const A2UI_VIEWER_CLASS = 'a2ui-surface-theme';
 
 const A2UIRenderFallback = memo<A2UIRenderFallbackProps>(({ messages }) => {
   const textValues = useMemo(() => extractLiteralTextValues(messages).slice(0, 40), [messages]);
@@ -1087,6 +1088,7 @@ export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(({ surfaceId, 
             <A2UIViewer
               root={parsed.root}
               components={parsed.components}
+              className={A2UI_VIEWER_CLASS}
               {...(Object.keys(parsed.data).length > 0 ? { data: parsed.data } : {})}
               onAction={handleAction}
               {...(Object.keys(parsed.styles).length > 0 ? { styles: parsed.styles } : {})}

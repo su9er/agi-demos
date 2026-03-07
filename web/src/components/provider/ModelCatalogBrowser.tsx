@@ -59,6 +59,7 @@ export const ModelCatalogBrowser: React.FC<ModelCatalogBrowserProps> = ({
       title: 'Model',
       dataIndex: 'name',
       key: 'name',
+      width: 220,
       render: (text: string, record: ModelCatalogEntry) => (
         <Space direction="vertical" size={0}>
           <Text strong>
@@ -74,19 +75,53 @@ export const ModelCatalogBrowser: React.FC<ModelCatalogBrowserProps> = ({
       ),
     },
     {
-      title: 'Context Window',
+      title: 'Context',
       dataIndex: 'context_length',
       key: 'context_length',
-      render: (val: number) => <Text>{(val / 1000).toFixed(0)}k tokens</Text>,
+      width: 100,
+      sorter: (a: ModelCatalogEntry, b: ModelCatalogEntry) => a.context_length - b.context_length,
+      render: (val: number) => <Text>{val >= 1000000 ? `${(val / 1000000).toFixed(1)}M` : `${(val / 1000).toFixed(0)}k`}</Text>,
+    },
+    {
+      title: 'Cost ($/1M)',
+      key: 'cost',
+      width: 120,
+      render: (_: unknown, record: ModelCatalogEntry) => {
+        const inCost = record.input_cost_per_1m;
+        const outCost = record.output_cost_per_1m;
+        if (inCost == null && outCost == null) return <Text type="secondary">-</Text>;
+        return (
+          <Space direction="vertical" size={0}>
+            <Text className="text-xs">In: ${inCost?.toFixed(2) ?? '-'}</Text>
+            <Text className="text-xs">Out: ${outCost?.toFixed(2) ?? '-'}</Text>
+          </Space>
+        );
+      },
+    },
+    {
+      title: 'Features',
+      key: 'features',
+      width: 200,
+      render: (_: unknown, record: ModelCatalogEntry) => (
+        <Space size={[0, 4]} wrap>
+          {record.reasoning && <Tag color="gold">Reasoning</Tag>}
+          {record.supports_tool_call && <Tag color="green">Tools</Tag>}
+          {record.supports_attachment && <Tag color="purple">Vision</Tag>}
+          {record.supports_structured_output && <Tag color="cyan">Structured</Tag>}
+          {record.supports_temperature && <Tag>Temp</Tag>}
+          {record.open_weights && <Tag color="orange">Open</Tag>}
+        </Space>
+      ),
     },
     {
       title: 'Capabilities',
       dataIndex: 'capabilities',
       key: 'capabilities',
+      width: 150,
       render: (caps: string[]) => (
         <Space size={[0, 4]} wrap>
           {caps.map((cap) => (
-            <Tag key={cap} color={cap === 'chat' ? 'blue' : cap === 'vision' ? 'purple' : 'default'}>
+            <Tag key={cap} color={cap === 'chat' ? 'blue' : cap === 'vision' ? 'purple' : cap === 'embedding' ? 'geekblue' : 'default'}>
               {cap}
             </Tag>
           ))}
@@ -96,11 +131,13 @@ export const ModelCatalogBrowser: React.FC<ModelCatalogBrowserProps> = ({
     {
       title: 'Action',
       key: 'action',
+      width: 90,
       render: (_: unknown, record: ModelCatalogEntry) => {
         const isSelected = selectedModel === record.name;
         return (
           <Button
             type={isSelected ? 'primary' : 'default'}
+            size="small"
             onClick={() => onSelect?.(record)}
           >
             {isSelected ? 'Selected' : 'Select'}
@@ -124,8 +161,9 @@ export const ModelCatalogBrowser: React.FC<ModelCatalogBrowserProps> = ({
         columns={columns}
         rowKey="name"
         loading={catalogLoading}
-        pagination={{ pageSize: 5 }}
+        pagination={{ pageSize: 8 }}
         size="small"
+        scroll={{ x: 880 }}
       />
     </div>
   );

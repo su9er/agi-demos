@@ -176,6 +176,10 @@ class ProcessorConfig:
     # Available skill names (for /skills command)
     skill_names: list[str] = field(default_factory=list)
 
+    # Provider-specific options (reasoning config, etc.)
+    # Passed through to StreamConfig.provider_options -> to_litellm_kwargs()
+    provider_options: dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class ToolDefinition:
@@ -982,6 +986,7 @@ class SessionProcessor:
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
             tools=tools_for_llm if tools_for_llm else None,
+            provider_options=self.config.provider_options,
         )
 
         # Create LLM stream with optional client (provides circuit breaker + rate limiter)
@@ -1699,9 +1704,9 @@ class SessionProcessor:
                 return None
             arguments = parsed
 
-        # Inject session_id for todoread/todowrite
-        if tool_name in ("todoread", "todowrite") and "session_id" not in arguments:
-            arguments["session_id"] = session_id
+        # NOTE: session_id for todoread/todowrite is now provided via
+        # ToolContext.session_id rather than as a kwarg. The @tool_define
+        # functions do not accept session_id as a parameter.
 
         return arguments
 
@@ -1773,6 +1778,7 @@ class SessionProcessor:
         tool_part: ToolPart,
         tool_def: "ToolDefinition",
         call_id: str,
+        session_id: str = "",
     ) -> AsyncIterator[ProcessorEvent]:
         """Execute the tool and yield AgentObserveEvent + AgentMCPAppResultEvent.
 
@@ -1799,7 +1805,7 @@ class SessionProcessor:
         _runtime_ctx: ToolContext | None = None
         if _needs_direct_ctx or _has_runtime_ctx:
             _runtime_ctx = ToolContext(
-                session_id=call_id,
+                session_id=session_id or call_id,
                 message_id=call_id,
                 call_id=call_id,
                 agent_name=_lctx.get("agent_name", "main"),
@@ -2059,7 +2065,7 @@ class SessionProcessor:
         refresh_count: int | None = None
         refresh_status = "not_applicable"
         if tool_name in {"plugin_manager", "register_mcp_server"}:
-            if isinstance(output_str, str) and not output_str.startswith("Error:"):
+            if isinstance(output_str, str) and not output_str.startswith(("Error:", "Error executing tool")):
                 logger.info(
                     "[Processor] %s succeeded, refreshing tools",
                     tool_name,
@@ -2746,6 +2752,7 @@ class SessionProcessor:
                 tool_part,
                 tool_def,
                 call_id,
+                session_id,
             ):
                 yield ev
 

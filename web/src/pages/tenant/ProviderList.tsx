@@ -194,7 +194,7 @@ export const ProviderList: React.FC = () => {
     .filter((provider) => {
       const matchesSearch =
         provider.name.toLowerCase().includes(search.toLowerCase()) ||
-        provider.llm_model.toLowerCase().includes(search.toLowerCase());
+        (provider.llm_model || '').toLowerCase().includes(search.toLowerCase());
       const matchesType = typeFilter === 'all' || provider.provider_type === typeFilter;
       const matchesStatus =
         statusFilter === 'all' ||
