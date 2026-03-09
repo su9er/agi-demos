@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.application.services.mcp_runtime_service import MCPRuntimeService
-from src.domain.model.mcp.server import MCPServer
+from src.domain.model.mcp.server import MCPServer, MCPServerConfig
+from src.domain.model.mcp.transport import TransportType
 from src.domain.ports.services.sandbox_mcp_server_port import SandboxMCPServerStatus
 
 
@@ -18,13 +19,21 @@ def _make_server(
     project_id: str = "proj-1",
     transport_config: dict | None = None,
 ) -> MCPServer:
+    tc = transport_config or {"command": "node", "args": ["server.js"]}
+    cmd = [tc.get("command", "node"), *tc.get("args", [])]
+    config = MCPServerConfig(
+        server_name=name,
+        tenant_id="tenant-1",
+        transport_type=TransportType.LOCAL,
+        enabled=enabled,
+        command=cmd,
+    )
     return MCPServer(
         id=server_id,
         tenant_id="tenant-1",
         project_id=project_id,
         name=name,
-        server_type="stdio",
-        transport_config=transport_config or {"command": "node", "args": ["server.js"]},
+        config=config,
         enabled=enabled,
     )
 
@@ -32,11 +41,8 @@ def _make_server(
 @pytest.mark.unit
 class TestMCPRuntimeService:
     async def test_create_server_enabled_bootstraps_runtime(self):
-        db = AsyncMock()
-        db.execute = AsyncMock(
-            return_value=SimpleNamespace(
-                scalar_one_or_none=lambda: SimpleNamespace(id="proj-1", tenant_id="tenant-1")
-            )
+        project_repo = SimpleNamespace(
+            find_by_id=AsyncMock(return_value=SimpleNamespace(id="proj-1", tenant_id="tenant-1"))
         )
         server_repo = SimpleNamespace(
             create=AsyncMock(return_value="srv-1"),
@@ -69,11 +75,12 @@ class TestMCPRuntimeService:
         )
 
         service = MCPRuntimeService(
-            db=db,
             server_repo=server_repo,  # type: ignore[arg-type]
             app_repo=app_repo,  # type: ignore[arg-type]
             app_service=app_service,  # type: ignore[arg-type]
             sandbox_manager=sandbox_manager,
+            lifecycle_event_repo=AsyncMock(),
+            project_repo=project_repo,  # type: ignore[arg-type]
         )
 
         server = await service.create_server(
@@ -89,15 +96,9 @@ class TestMCPRuntimeService:
         assert server.id == "srv-1"
         assert server_repo.update_discovered_tools.await_count == 1
         assert server_repo.update_runtime_metadata.await_count >= 1
-        assert db.add.call_count >= 1
 
     async def test_create_server_rejects_cross_tenant_project(self):
-        db = AsyncMock()
-        db.execute = AsyncMock(
-            return_value=SimpleNamespace(
-                scalar_one_or_none=lambda: None,
-            )
-        )
+        project_repo = SimpleNamespace(find_by_id=AsyncMock(return_value=None))
         server_repo = SimpleNamespace(
             create=AsyncMock(return_value="srv-1"),
             get_by_id=AsyncMock(return_value=_make_server()),
@@ -121,11 +122,12 @@ class TestMCPRuntimeService:
         )
 
         service = MCPRuntimeService(
-            db=db,
             server_repo=server_repo,  # type: ignore[arg-type]
             app_repo=app_repo,  # type: ignore[arg-type]
             app_service=app_service,  # type: ignore[arg-type]
             sandbox_manager=sandbox_manager,
+            lifecycle_event_repo=AsyncMock(),
+            project_repo=project_repo,  # type: ignore[arg-type]
         )
 
         with pytest.raises(PermissionError, match="Access denied"):
@@ -142,7 +144,6 @@ class TestMCPRuntimeService:
         server_repo.create.assert_not_called()
 
     async def test_update_server_disable_with_rename_stops_old_runtime_name(self):
-        db = AsyncMock()
         old_server = _make_server(name="old-server", enabled=True)
         updated_server = _make_server(name="new-server", enabled=False)
         server_repo = SimpleNamespace(
@@ -167,11 +168,12 @@ class TestMCPRuntimeService:
         )
 
         service = MCPRuntimeService(
-            db=db,
             server_repo=server_repo,  # type: ignore[arg-type]
             app_repo=app_repo,  # type: ignore[arg-type]
             app_service=app_service,  # type: ignore[arg-type]
             sandbox_manager=sandbox_manager,
+            lifecycle_event_repo=AsyncMock(),
+            project_repo=SimpleNamespace(),  # type: ignore[arg-type]
         )
 
         await service.update_server(
@@ -184,7 +186,6 @@ class TestMCPRuntimeService:
         sandbox_manager.stop_server.assert_awaited_once_with("proj-1", "old-server")
 
     async def test_update_server_reconfigure_with_rename_stops_old_runtime_before_restart(self):
-        db = AsyncMock()
         old_server = _make_server(name="old-server", enabled=True)
         updated_server = _make_server(
             name="new-server",
@@ -221,11 +222,12 @@ class TestMCPRuntimeService:
         )
 
         service = MCPRuntimeService(
-            db=db,
             server_repo=server_repo,  # type: ignore[arg-type]
             app_repo=app_repo,  # type: ignore[arg-type]
             app_service=app_service,  # type: ignore[arg-type]
             sandbox_manager=sandbox_manager,
+            lifecycle_event_repo=AsyncMock(),
+            project_repo=SimpleNamespace(),  # type: ignore[arg-type]
         )
 
         await service.update_server(
@@ -239,7 +241,6 @@ class TestMCPRuntimeService:
         sandbox_manager.install_and_start.assert_awaited_once()
 
     async def test_delete_server_stops_runtime_and_deletes_apps(self):
-        db = AsyncMock()
         server = _make_server(enabled=True)
         server_repo = SimpleNamespace(
             get_by_id=AsyncMock(return_value=server),
@@ -259,11 +260,12 @@ class TestMCPRuntimeService:
         )
 
         service = MCPRuntimeService(
-            db=db,
             server_repo=server_repo,  # type: ignore[arg-type]
             app_repo=app_repo,  # type: ignore[arg-type]
             app_service=app_service,  # type: ignore[arg-type]
             sandbox_manager=sandbox_manager,
+            lifecycle_event_repo=AsyncMock(),
+            project_repo=SimpleNamespace(),  # type: ignore[arg-type]
         )
 
         await service.delete_server("srv-1", "tenant-1")
@@ -273,7 +275,6 @@ class TestMCPRuntimeService:
         server_repo.delete.assert_awaited_once_with("srv-1")
 
     async def test_delete_server_fails_when_runtime_stop_fails(self):
-        db = AsyncMock()
         server = _make_server(enabled=True)
         server_repo = SimpleNamespace(
             get_by_id=AsyncMock(return_value=server),
@@ -293,11 +294,12 @@ class TestMCPRuntimeService:
         )
 
         service = MCPRuntimeService(
-            db=db,
             server_repo=server_repo,  # type: ignore[arg-type]
             app_repo=app_repo,  # type: ignore[arg-type]
             app_service=app_service,  # type: ignore[arg-type]
             sandbox_manager=sandbox_manager,
+            lifecycle_event_repo=AsyncMock(),
+            project_repo=SimpleNamespace(),  # type: ignore[arg-type]
         )
 
         with pytest.raises(RuntimeError, match="Failed to stop MCP runtime"):
@@ -308,11 +310,8 @@ class TestMCPRuntimeService:
         server_repo.delete.assert_not_awaited()
 
     async def test_reconcile_project_restores_missing_runtime_servers(self):
-        db = AsyncMock()
-        db.execute = AsyncMock(
-            return_value=SimpleNamespace(
-                scalar_one_or_none=lambda: SimpleNamespace(id="proj-1", tenant_id="tenant-1")
-            )
+        project_repo = SimpleNamespace(
+            find_by_id=AsyncMock(return_value=SimpleNamespace(id="proj-1", tenant_id="tenant-1"))
         )
         server = _make_server(enabled=True)
         server_repo = SimpleNamespace(
@@ -341,25 +340,24 @@ class TestMCPRuntimeService:
         )
 
         service = MCPRuntimeService(
-            db=db,
             server_repo=server_repo,  # type: ignore[arg-type]
             app_repo=app_repo,  # type: ignore[arg-type]
             app_service=app_service,  # type: ignore[arg-type]
             sandbox_manager=sandbox_manager,
+            lifecycle_event_repo=AsyncMock(),
+            project_repo=project_repo,  # type: ignore[arg-type]
         )
 
         result = await service.reconcile_project("proj-1", "tenant-1")
 
+        assert result is not None
         assert result.restored == 1
         assert result.failed == 0
         sandbox_manager.install_and_start.assert_awaited_once()
 
     async def test_reconcile_project_acquires_lock(self):
-        db = AsyncMock()
-        db.execute = AsyncMock(
-            return_value=SimpleNamespace(
-                scalar_one_or_none=lambda: SimpleNamespace(id="proj-1", tenant_id="tenant-1")
-            )
+        project_repo = SimpleNamespace(
+            find_by_id=AsyncMock(return_value=SimpleNamespace(id="proj-1", tenant_id="tenant-1"))
         )
         server_repo = SimpleNamespace(
             list_by_project=AsyncMock(return_value=[]),
@@ -379,11 +377,12 @@ class TestMCPRuntimeService:
         redis_client = SimpleNamespace(lock=lambda key, timeout: lock_mock)
 
         service = MCPRuntimeService(
-            db=db,
             server_repo=server_repo,  # type: ignore[arg-type]
             app_repo=app_repo,  # type: ignore[arg-type]
             app_service=app_service,  # type: ignore[arg-type]
             sandbox_manager=sandbox_manager,
+            lifecycle_event_repo=AsyncMock(),
+            project_repo=project_repo,  # type: ignore[arg-type]
             redis_client=redis_client,
         )
 
@@ -394,10 +393,6 @@ class TestMCPRuntimeService:
         assert lock_mock.release.await_count == 1
 
     async def test_reconcile_project_skips_when_lock_busy(self):
-        db = AsyncMock()
-        # Even if lock fails, we don't reach db/repo calls ideally,
-        # but let's mock them just in case implementation changes slightly.
-
         server_repo = SimpleNamespace()
         app_repo = SimpleNamespace()
         app_service = SimpleNamespace()
@@ -411,40 +406,29 @@ class TestMCPRuntimeService:
         redis_client = SimpleNamespace(lock=lambda key, timeout: lock_mock)
 
         service = MCPRuntimeService(
-            db=db,
             server_repo=server_repo,  # type: ignore[arg-type]
             app_repo=app_repo,  # type: ignore[arg-type]
             app_service=app_service,  # type: ignore[arg-type]
             sandbox_manager=sandbox_manager,
+            lifecycle_event_repo=AsyncMock(),
+            project_repo=SimpleNamespace(),  # type: ignore[arg-type]
             redis_client=redis_client,
         )
 
         result = await service.reconcile_project("proj-1", "tenant-1")
 
-        # Verify skipped result
-        assert result.project_id == "proj-1"
-        assert result.total_enabled_servers == 0
-        assert result.restored == 0
+        # Verify skipped result returns None (MCPLockBusyError caught)
+        assert result is None
 
-        # Lock acquired failed, so body skipped
+        # Lock acquire was attempted
         assert lock_mock.acquire.await_count == 1
-        # Release shouldn't be called if acquire returns False in our implementation
-        # (because we raise RuntimeError in _lock which is caught)
-        # Wait, looking at _lock implementation:
-        # if not acquired: raise RuntimeError("Lock ... busy")
-        # Except block catches RuntimeError if "Lock" in str(e)
-
-        # Release is in finally block of context manager, but we don't enter yield if not acquired.
-        # So release is NOT called.
+        # Release is NOT called because _lock raises MCPLockBusyError before yield
         assert lock_mock.release.await_count == 0
 
     async def test_reconcile_project_rejects_cross_tenant_project(self):
-        db = AsyncMock()
-        db.execute = AsyncMock(
-            return_value=SimpleNamespace(
-                scalar_one_or_none=lambda: SimpleNamespace(
-                    id="proj-other", tenant_id="tenant-other"
-                )
+        project_repo = SimpleNamespace(
+            find_by_id=AsyncMock(
+                return_value=SimpleNamespace(id="proj-other", tenant_id="tenant-other")
             )
         )
         server_repo = SimpleNamespace(
@@ -467,11 +451,12 @@ class TestMCPRuntimeService:
         )
 
         service = MCPRuntimeService(
-            db=db,
             server_repo=server_repo,  # type: ignore[arg-type]
             app_repo=app_repo,  # type: ignore[arg-type]
             app_service=app_service,  # type: ignore[arg-type]
             sandbox_manager=sandbox_manager,
+            lifecycle_event_repo=AsyncMock(),
+            project_repo=project_repo,  # type: ignore[arg-type]
         )
 
         with pytest.raises(PermissionError, match="Access denied"):

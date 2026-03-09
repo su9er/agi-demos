@@ -4,13 +4,18 @@ MCP Tool Domain Models.
 Defines the MCPTool entity, schema, and result value objects.
 """
 
+import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
+from src.domain.shared_kernel import Entity, ValueObject
 
-@dataclass(frozen=True)
-class MCPToolSchema:
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, kw_only=True)
+class MCPToolSchema(ValueObject):
     """
     MCP tool schema definition.
 
@@ -81,6 +86,10 @@ class MCPToolSchema:
                 deprecated_uri = meta.get("ui/resourceUri")
                 if deprecated_uri:
                     ui_metadata = {"resourceUri": deprecated_uri}
+                    logger.warning(
+                        "MCPToolSchema.from_dict: deprecated _meta['ui/resourceUri'] format detected for tool '%s'. Migrate to _meta.ui.resourceUri.",
+                        data.get("name", "unknown"),
+                    )
         return cls(
             name=data.get("name", ""),
             description=data.get("description"),
@@ -148,7 +157,7 @@ class MCPToolResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API responses."""
-        result = {
+        result: dict[str, Any] = {
             "content": self.content,
             "is_error": self.is_error,
         }
@@ -176,8 +185,8 @@ class MCPToolResult:
         return "\n".join(texts)
 
 
-@dataclass
-class MCPTool:
+@dataclass(kw_only=True)
+class MCPTool(Entity):
     """
     MCP Tool entity.
 
@@ -239,7 +248,7 @@ class MCPToolCallRequest:
     arguments: dict[str, Any] = field(default_factory=dict)
     timeout: int | None = None  # milliseconds
     request_id: str | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for logging/serialization."""

@@ -1108,6 +1108,11 @@ class MCPServer(Base):
     tenant: Mapped["Tenant"] = relationship(foreign_keys=[tenant_id])
     project: Mapped["Project"] = relationship(foreign_keys=[project_id])
 
+    __table_args__ = (
+        Index("ix_mcp_servers_project_enabled", "project_id", "enabled"),
+        Index("ix_mcp_servers_tenant_enabled", "tenant_id", "enabled"),
+    )
+
 
 class ProjectSandbox(Base):
     """
@@ -1482,6 +1487,7 @@ class MCPAppModel(Base):
             "project_id", "server_name", "tool_name", name="uq_mcp_app_project_server_tool"
         ),
         Index("ix_mcp_apps_project_status", "project_id", "status"),
+        Index("ix_mcp_apps_tenant_status", "tenant_id", "status"),
     )
 
 

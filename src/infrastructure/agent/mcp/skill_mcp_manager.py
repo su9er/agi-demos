@@ -7,6 +7,7 @@ when no skill needs them.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -62,6 +63,7 @@ class SkillMCPManager:
         self._active_clients: dict[str, MCPClient] = {}
         self._active_skills: set[str] = set()
         self._server_tools: dict[str, list[MCPTool]] = {}
+        self._lock = asyncio.Lock()
 
     @property
     def active_skills(self) -> frozenset[str]:
@@ -147,15 +149,16 @@ class SkillMCPManager:
         started_servers: list[str] = []
 
         try:
-            for config in configs:
-                if not config.auto_start:
-                    continue
-                await self._start_server_if_needed(config)
-                started_servers.append(config.server_name)
+            async with self._lock:
+                for config in configs:
+                    if not config.auto_start:
+                        continue
+                    await self._start_server_if_needed(config)
+                    started_servers.append(config.server_name)
 
-            self._active_skills.add(skill_id)
-            logger.info("Activated skill %s", skill_id)
-            return self.get_skill_tools(skill_id)
+                self._active_skills.add(skill_id)
+                logger.info("Activated skill %s", skill_id)
+                return self.get_skill_tools(skill_id)
 
         except Exception:
             # Rollback: decrement refcounts for servers we already started
@@ -178,13 +181,14 @@ class SkillMCPManager:
 
         configs = self._skill_configs.get(skill_id, [])
 
-        for config in configs:
-            if not config.auto_start:
-                continue
-            await self._stop_server_if_unused(config.server_name)
+        async with self._lock:
+            for config in configs:
+                if not config.auto_start:
+                    continue
+                await self._stop_server_if_unused(config.server_name)
 
-        self._active_skills.discard(skill_id)
-        logger.info("Deactivated skill %s", skill_id)
+            self._active_skills.discard(skill_id)
+            logger.info("Deactivated skill %s", skill_id)
 
     def get_skill_tools(self, skill_id: str) -> list[MCPTool]:
         """Return all MCP tools available for a skill.
@@ -244,20 +248,21 @@ class SkillMCPManager:
             return False
 
         try:
-            # Disconnect old client
-            old_client = self._active_clients[server_name]
-            await self._safe_disconnect(old_client)
+            async with self._lock:
+                # Disconnect old client
+                old_client = self._active_clients[server_name]
+                await self._safe_disconnect(old_client)
 
-            # Start new client
-            client = self._create_client(config)
-            await client.connect()
-            self._active_clients[server_name] = client
+                # Start new client
+                client = self._create_client(config)
+                await client.connect()
+                self._active_clients[server_name] = client
 
-            # Refresh tool cache
-            await self._cache_server_tools(server_name, client)
+                # Refresh tool cache
+                await self._cache_server_tools(server_name, client)
 
-            logger.info("Restarted MCP server %s", server_name)
-            return True
+                logger.info("Restarted MCP server %s", server_name)
+                return True
 
         except Exception:
             logger.exception("Failed to restart MCP server %s", server_name)
@@ -268,14 +273,15 @@ class SkillMCPManager:
 
     async def shutdown(self) -> None:
         """Disconnect all active MCP servers and reset state."""
-        for server_name, client in list(self._active_clients.items()):
-            await self._safe_disconnect(client)
-            logger.info("Shut down MCP server %s", server_name)
+        async with self._lock:
+            for server_name, client in list(self._active_clients.items()):
+                await self._safe_disconnect(client)
+                logger.info("Shut down MCP server %s", server_name)
 
-        self._active_clients.clear()
-        self._server_refcounts.clear()
-        self._server_tools.clear()
-        self._active_skills.clear()
+            self._active_clients.clear()
+            self._server_refcounts.clear()
+            self._server_tools.clear()
+            self._active_skills.clear()
 
     def get_server_refcount(self, server_name: str) -> int:
         """Return the current reference count for a server.

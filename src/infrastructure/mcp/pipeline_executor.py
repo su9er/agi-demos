@@ -95,14 +95,25 @@ class PipelineMCPExecutor:
         """
         effective_timeout = timeout or self._default_timeout
 
-        coro = self._inner.call_tool(server_id, tool_name, arguments)
+        try:
+            coro = self._inner.call_tool(server_id, tool_name, arguments)
 
-        if ctx is not None:
-            from src.infrastructure.agent.tools.abort import abort_aware_timeout
+            if ctx is not None:
+                from src.infrastructure.agent.tools.abort import abort_aware_timeout
 
-            return await abort_aware_timeout(ctx, coro, effective_timeout)
+                return await abort_aware_timeout(ctx, coro, effective_timeout)
 
-        return await asyncio.wait_for(coro, timeout=effective_timeout)
+            return await asyncio.wait_for(coro, timeout=effective_timeout)
+        except (ConnectionError, TimeoutError, Exception) as exc:
+            from src.infrastructure.agent.tools.context import ToolAbortedError
+
+            if isinstance(exc, (ConnectionError, TimeoutError, ToolAbortedError)):
+                error_result = MCPErrorHandler.handle_error(server_id, tool_name, exc)
+                return MCPCallResult(
+                    content=error_result.output,
+                    is_error=True,
+                )
+            raise
 
 
 __all__ = ["MCPErrorHandler", "PipelineMCPExecutor"]

@@ -7,6 +7,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { useShallow } from 'zustand/react/shallow';
 
 import { mcpAPI } from '../services/mcpService';
 
@@ -133,8 +134,8 @@ export const useMCPStore = create<MCPState>()(
         try {
           const servers = await mcpAPI.list(params);
           set({
-            servers: servers || [],
-            total: servers?.length || 0,
+            servers: servers,
+            total: servers.length,
             isLoading: false,
           });
         } catch (error: unknown) {
@@ -337,32 +338,34 @@ export const useMCPServers = () => useMCPStore((state) => state.servers);
  * Get filtered servers based on search and filters
  */
 export const useFilteredMCPServers = () =>
-  useMCPStore((state) => {
-    const { servers, filters } = state;
-    return servers.filter((server) => {
-      // Search filter
-      if (filters.search) {
-        const search = filters.search.toLowerCase();
-        const matchesName = server.name.toLowerCase().includes(search);
-        const matchesDescription = server.description?.toLowerCase().includes(search);
-        if (!matchesName && !matchesDescription) {
+  useMCPStore(
+    useShallow((state) => {
+      const { servers, filters } = state;
+      return servers.filter((server) => {
+        // Search filter
+        if (filters.search) {
+          const search = filters.search.toLowerCase();
+          const matchesName = server.name.toLowerCase().includes(search);
+          const matchesDescription = server.description?.toLowerCase().includes(search);
+          if (!matchesName && !matchesDescription) {
+            return false;
+          }
+        }
+
+        // Enabled filter
+        if (filters.enabled !== null && server.enabled !== filters.enabled) {
           return false;
         }
-      }
 
-      // Enabled filter
-      if (filters.enabled !== null && server.enabled !== filters.enabled) {
-        return false;
-      }
+        // Server type filter
+        if (filters.serverType && server.server_type !== filters.serverType) {
+          return false;
+        }
 
-      // Server type filter
-      if (filters.serverType && server.server_type !== filters.serverType) {
-        return false;
-      }
-
-      return true;
-    });
-  });
+        return true;
+      });
+    })
+  );
 
 /**
  * Get current server
@@ -405,7 +408,7 @@ export const useEnabledMCPServersCount = () =>
  */
 export const useTotalMCPToolsCount = () =>
   useMCPStore((state) =>
-    state.servers.reduce((sum, s) => sum + (s.discovered_tools?.length || 0), 0)
+    state.servers.reduce((sum, s) => sum + s.discovered_tools.length, 0)
   );
 
 /**
@@ -413,17 +416,20 @@ export const useTotalMCPToolsCount = () =>
  * Note: Returns a stable reference using JSON stringification for shallow comparison
  */
 export const useMCPServersByType = () => {
-  const servers = useMCPStore((state) => state.servers);
-  const result: Record<MCPServerType, number> = {
-    stdio: 0,
-    sse: 0,
-    http: 0,
-    websocket: 0,
-  };
-  servers.forEach((s) => {
-    result[s.server_type]++;
-  });
-  return result;
+  return useMCPStore(
+    useShallow((state) => {
+      const result: Record<MCPServerType, number> = {
+        stdio: 0,
+        sse: 0,
+        http: 0,
+        websocket: 0,
+      };
+      state.servers.forEach((s) => {
+        result[s.server_type]++;
+      });
+      return result;
+    })
+  );
 };
 
 /**

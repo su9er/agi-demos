@@ -20,12 +20,8 @@ def get_container_with_db(request: Request, db: AsyncSession) -> DIContainer:
     """
     Get DI container with database session for the current request.
     """
-    app_container = request.app.state.container
-    return DIContainer(
-        db=db,
-        graph_service=app_container.graph_service,
-        redis_client=app_container._redis_client,
-    )
+    app_container: DIContainer = request.app.state.container
+    return app_container.with_db(db)
 
 
 async def get_sandbox_mcp_server_manager(request: Request, db: AsyncSession) -> Any:
@@ -39,7 +35,14 @@ async def get_sandbox_mcp_server_manager(request: Request, db: AsyncSession) -> 
 
 
 async def ensure_project_access(db: AsyncSession, project_id: str, tenant_id: str) -> None:
-    """Ensure project belongs to the requesting tenant."""
+    """Ensure project belongs to the requesting tenant.
+
+    NOTE (M12 audit): This single-field existence check uses raw SQLAlchemy
+    deliberately.  It lives in the infrastructure/router layer (not domain or
+    application) and mirrors identical patterns in projects.py and memories.py.
+    Creating a dedicated repository method for a one-off access guard would
+    add unnecessary abstraction.
+    """
     result = await db.execute(
         select(Project.id).where(
             Project.id == project_id,

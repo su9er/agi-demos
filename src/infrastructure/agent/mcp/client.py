@@ -75,6 +75,18 @@ class MCPTransport(ABC):
             True if ping successful, False otherwise
         """
 
+    async def cancel_request(self, request_id: str | int) -> None:
+        """
+        Send a cancellation notification for an in-flight request.
+
+        MCP protocol defines cancel as ``notifications/cancelled``.
+        Default implementation is a no-op; subclasses with bidirectional
+        transports should override to send the notification.
+
+        Args:
+            request_id: The ID of the request to cancel.
+        """
+        logger.debug(f"cancel_request not implemented for {type(self).__name__}")
     @abstractmethod
     async def set_logging_level(self, level: str) -> bool:
         """
@@ -133,6 +145,9 @@ class StdioTransport(MCPTransport):
             self.env = {**os.environ, **custom_env}
         self._request_id = 0
         self._initialized = False
+        self._pending_requests: dict[int, asyncio.Future[Any]] = {}
+        self._reader_task: asyncio.Task[None] | None = None
+        self._write_lock = asyncio.Lock()
 
     @override
     async def connect(self) -> None:
@@ -148,7 +163,15 @@ class StdioTransport(MCPTransport):
                 stderr=asyncio.subprocess.PIPE,
                 env=self.env,
             )
-            logger.info(f"Started MCP server process: {self.command} (pid={self.process.pid})")
+            logger.info(
+                f"Started MCP server process: {self.command}"
+                f" (pid={self.process.pid})"
+            )
+
+            # Start background reader task
+            self._reader_task = asyncio.create_task(
+                self._read_messages()
+            )
 
             # Perform MCP initialization handshake
             await self._initialize()
@@ -189,14 +212,33 @@ class StdioTransport(MCPTransport):
         if not self.process or not self.process.stdin:
             raise RuntimeError("MCP server process not started")
 
-        notification = {"jsonrpc": "2.0", "method": method, "params": params}
+        notification = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        }
         notification_json = json.dumps(notification) + "\n"
-        self.process.stdin.write(notification_json.encode())
-        await self.process.stdin.drain()
+        async with self._write_lock:
+            self.process.stdin.write(notification_json.encode())
+            await self.process.stdin.drain()
 
     @override
     async def disconnect(self) -> None:
         """Terminate subprocess."""
+        if self._reader_task:
+            self._reader_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._reader_task
+            self._reader_task = None
+
+        # Fail all pending requests
+        for future in self._pending_requests.values():
+            if not future.done():
+                future.set_exception(
+                    RuntimeError("Transport disconnected")
+                )
+        self._pending_requests.clear()
+
         if self.process:
             self.process.terminate()
             await self.process.wait()
@@ -209,48 +251,129 @@ class StdioTransport(MCPTransport):
         self, method: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Send JSON-RPC request via stdin and read response from stdout."""
-        if not self.process or not self.process.stdin or not self.process.stdout:
+        if (
+            not self.process
+            or not self.process.stdin
+            or not self.process.stdout
+        ):
             raise RuntimeError("MCP server process not started")
 
         self._request_id += 1
+        request_id = self._request_id
         request = {
             "jsonrpc": "2.0",
-            "id": self._request_id,
+            "id": request_id,
             "method": method,
             "params": params or {},
         }
 
-        # Write request to stdin
-        request_json = json.dumps(request) + "\n"
-        logger.debug(f"Sending MCP request: {method} (id={self._request_id})")
-        self.process.stdin.write(request_json.encode())
-        await self.process.stdin.drain()
+        # Create future for response
+        future: asyncio.Future[Any] = asyncio.Future()
+        self._pending_requests[request_id] = future
 
-        # Read response from stdout with timeout
+        # Write request to stdin (serialized)
+        request_json = json.dumps(request) + "\n"
+        logger.debug(
+            f"Sending MCP request: {method} (id={request_id})"
+        )
+        async with self._write_lock:
+            self.process.stdin.write(request_json.encode())
+            await self.process.stdin.drain()
+
+        # Wait for response from background reader
         try:
-            logger.debug("Waiting for MCP response (timeout=30s)...")
-            response_line = await asyncio.wait_for(self.process.stdout.readline(), timeout=30.0)
+            result = await asyncio.wait_for(
+                future, timeout=30.0
+            )
+            return cast(dict[str, Any], result)
         except TimeoutError:
+            self._pending_requests.pop(request_id, None)
             # Check if process is still running
             if self.process.returncode is not None:
                 stderr = await self.process.stderr.read()  # type: ignore[union-attr]
                 logger.error(
-                    f"MCP process exited with code {self.process.returncode}, stderr: {stderr.decode()[:500]}"
+                    f"MCP process exited with code"
+                    f" {self.process.returncode},"
+                    f" stderr: {stderr.decode()[:500]}"
                 )
             raise RuntimeError(f"Timeout waiting for response to {method}") from None
 
-        if not response_line:
-            stderr = await self.process.stderr.read()  # type: ignore[union-attr]
-            logger.error(f"MCP server closed connection, stderr: {stderr.decode()[:500]}")
-            raise RuntimeError("MCP server closed connection")
+    async def _read_messages(self) -> None:  # noqa: C901, PLR0912
+        """Background task to read incoming messages from stdout."""
+        try:
+            while True:
+                if (
+                    not self.process
+                    or not self.process.stdout
+                ):
+                    break
 
-        logger.debug(f"Received MCP response: {response_line.decode()[:200]}...")
-        response = json.loads(response_line.decode())
+                line = await self.process.stdout.readline()
+                if not line:
+                    logger.warning(
+                        "MCP server closed stdout (EOF)"
+                    )
+                    break
 
-        if "error" in response:
-            raise RuntimeError(f"MCP server error: {response['error']}")
+                try:
+                    response = json.loads(line.decode())
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"Non-JSON line from MCP server:"
+                        f" {line.decode()[:200]}"
+                    )
+                    continue
 
-        return cast(dict[str, Any], response.get("result", {}))
+                # Route by request ID
+                msg_id = response.get("id")
+                if msg_id is None:
+                    # Server-initiated notification
+                    logger.debug(
+                        f"MCP server notification:"
+                        f" {response.get('method', 'unknown')}"
+                    )
+                    continue
+
+                future = self._pending_requests.pop(
+                    msg_id, None
+                )
+                if future is None or future.done():
+                    logger.warning(
+                        f"No pending request for id={msg_id}"
+                    )
+                    continue
+
+                if "error" in response:
+                    future.set_exception(
+                        RuntimeError(
+                            f"MCP server error:"
+                            f" {response['error']}"
+                        )
+                    )
+                else:
+                    future.set_result(
+                        response.get("result", {})
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Error in stdio reader: {e}")
+            # Fail all pending requests
+            for future in self._pending_requests.values():
+                if not future.done():
+                    future.set_exception(e)
+            self._pending_requests.clear()
+            return
+
+        # EOF path: fail all pending requests
+        for future in self._pending_requests.values():
+            if not future.done():
+                future.set_exception(
+                    RuntimeError(
+                        "MCP server closed connection"
+                    )
+                )
+        self._pending_requests.clear()
 
     @override
     async def list_tools(self) -> list[dict[str, Any]]:
@@ -284,6 +407,16 @@ class StdioTransport(MCPTransport):
             logger.error(f"Set logging level failed: {e}")
             return False
 
+    @override
+    async def cancel_request(self, request_id: str | int) -> None:
+        """Send a cancellation notification for an in-flight request."""
+        try:
+            await self._send_notification(
+                "notifications/cancelled",
+                {"requestId": request_id, "reason": "Client cancelled"},
+            )
+        except Exception:
+            logger.debug(f"Cannot cancel request {request_id}: transport error")
     @override
     async def list_prompts(self) -> list[dict[str, Any]]:
         """List all available prompts from the MCP server."""
@@ -340,7 +473,7 @@ class HTTPTransport(MCPTransport):
         request = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
 
         try:
-            response = await self.client.post("/rpc", json=request)
+            response = await self.client.post("/mcp", json=request)
             response.raise_for_status()
             data = response.json()
 
@@ -384,6 +517,10 @@ class HTTPTransport(MCPTransport):
             logger.error(f"Set logging level failed: {e}")
             return False
 
+    @override
+    async def cancel_request(self, request_id: str | int) -> None:
+        """No-op: HTTP is request-response; cancel is not meaningful."""
+        logger.debug(f"cancel_request is a no-op for HTTP transport (id={request_id})")
     @override
     async def list_prompts(self) -> list[dict[str, Any]]:
         """List all available prompts from the MCP server."""
@@ -663,6 +800,27 @@ class SSETransport(MCPTransport):
             params["arguments"] = arguments
         return await self.send_request("prompts/get", params)
 
+    @override
+    async def cancel_request(self, request_id: str | int) -> None:
+        """Send a cancellation notification for an in-flight request via SSE."""
+        if not self._write_stream:
+            logger.debug(f"Cannot cancel request {request_id}: stream closed")
+            return
+
+        try:
+            from mcp.shared.message import SessionMessage
+            from mcp.types import JSONRPCMessage, JSONRPCNotification
+
+            notification = JSONRPCNotification(
+                jsonrpc="2.0",
+                method="notifications/cancelled",
+                params={"requestId": request_id, "reason": "Client cancelled"},
+            )
+            await self._write_stream.send(
+                SessionMessage(message=JSONRPCMessage(root=notification))
+            )
+        except Exception:
+            logger.debug(f"Cannot cancel request {request_id}: transport error")
 
 class WebSocketTransport(MCPTransport):
     """MCP transport using WebSocket for bidirectional communication.
@@ -981,6 +1139,16 @@ class WebSocketTransport(MCPTransport):
             params["arguments"] = arguments
         return await self.send_request("prompts/get", params)
 
+    @override
+    async def cancel_request(self, request_id: str | int) -> None:
+        """Send a cancellation notification for an in-flight request."""
+        try:
+            await self._send_notification(
+                "notifications/cancelled",
+                {"requestId": request_id, "reason": "Client cancelled"},
+            )
+        except Exception:
+            logger.debug(f"Cannot cancel request {request_id}: transport error")
 
 class MCPClient:
     """

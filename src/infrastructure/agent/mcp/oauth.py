@@ -113,7 +113,7 @@ class MCPAuthStorage:
 
     async def _ensure_dir(self) -> None:
         """Ensure data directory exists."""
-        self._data_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(self._data_dir.mkdir, parents=True, exist_ok=True)
 
     def _encrypt_value(self, value: str) -> str:
         """Encrypt a sensitive string value. Returns original if no encryption available."""
@@ -146,7 +146,7 @@ class MCPAuthStorage:
             return {}
 
         try:
-            content = self._filepath.read_text()
+            content = await asyncio.to_thread(self._filepath.read_text)
             return cast(dict[str, dict[str, Any]], json.loads(content))
         except (OSError, json.JSONDecodeError):
             return {}
@@ -163,9 +163,10 @@ class MCPAuthStorage:
         result: dict[str, Any] = {}
 
         if entry.tokens:
-            result["tokens"] = {
+            tokens_dict: dict[str, Any] = {
                 "accessToken": self._encrypt_value(entry.tokens.access_token),
             }
+            result["tokens"] = tokens_dict
             if entry.tokens.refresh_token:
                 result["tokens"]["refreshToken"] = self._encrypt_value(entry.tokens.refresh_token)
             if entry.tokens.expires_at:
@@ -174,9 +175,10 @@ class MCPAuthStorage:
                 result["tokens"]["scope"] = entry.tokens.scope
 
         if entry.client_info:
-            result["clientInfo"] = {
+            client_dict: dict[str, Any] = {
                 "clientId": entry.client_info.client_id,
             }
+            result["clientInfo"] = client_dict
             if entry.client_info.client_secret:
                 result["clientInfo"]["clientSecret"] = self._encrypt_value(
                     entry.client_info.client_secret
@@ -307,8 +309,8 @@ class MCPAuthStorage:
             all_data[mcp_name] = self._entry_to_dict(entry)
 
             # Write with restricted permissions
-            self._filepath.write_text(json.dumps(all_data, indent=2))
-            os.chmod(self._filepath, 0o600)
+            await asyncio.to_thread(self._filepath.write_text, json.dumps(all_data, indent=2))
+            await asyncio.to_thread(os.chmod, self._filepath, 0o600)
 
             logger.info(f"Saved auth entry for MCP server: {mcp_name}")
 
@@ -324,8 +326,8 @@ class MCPAuthStorage:
             if mcp_name in all_data:
                 del all_data[mcp_name]
                 await self._ensure_dir()
-                self._filepath.write_text(json.dumps(all_data, indent=2))
-                os.chmod(self._filepath, 0o600)
+                await asyncio.to_thread(self._filepath.write_text, json.dumps(all_data, indent=2))
+                await asyncio.to_thread(os.chmod, self._filepath, 0o600)
                 logger.info(f"Removed auth entry for MCP server: {mcp_name}")
 
     async def update_tokens(
@@ -437,8 +439,8 @@ class MCPAuthStorage:
 
             del all_data[mcp_name]
             await self._ensure_dir()
-            self._filepath.write_text(json.dumps(all_data, indent=2))
-            os.chmod(self._filepath, 0o600)
+            await asyncio.to_thread(self._filepath.write_text, json.dumps(all_data, indent=2))
+            await asyncio.to_thread(os.chmod, self._filepath, 0o600)
             logger.info(f"Revoked all OAuth credentials for MCP server: {mcp_name}")
             return True
 
@@ -482,6 +484,7 @@ class MCPOAuthProvider:
         self._client_id = client_id
         self._client_secret = client_secret
         self._scope = scope
+        self._refresh_lock = asyncio.Lock()
 
     @property
     def redirect_url(self) -> str:
@@ -601,55 +604,60 @@ class MCPOAuthProvider:
         Returns:
             True if refresh succeeded, False otherwise
         """
-        try:
-            import aiohttp
+        async with self._refresh_lock:
+            try:
+                import aiohttp
 
-            tokens = await self.get_tokens()
-            if not tokens or not tokens.refresh_token:
-                logger.warning(f"No refresh token available for {self._mcp_name}")
-                return False
-
-            client_info = await self.client_information()
-            if not client_info:
-                logger.warning(f"No client info available for refresh: {self._mcp_name}")
-                return False
-
-            # Build token endpoint URL from server URL
-            token_url = f"{self._server_url.rstrip('/')}/token"
-
-            data = {
-                "grant_type": "refresh_token",
-                "refresh_token": tokens.refresh_token,
-                "client_id": client_info.client_id,
-            }
-            if client_info.client_secret:
-                data["client_secret"] = client_info.client_secret
-
-            async with (
-                aiohttp.ClientSession() as session,
-                session.post(token_url, data=data, timeout=aiohttp.ClientTimeout(total=30)) as resp,
-            ):
-                if resp.status != 200:
-                    body = await resp.text()
-                    logger.warning(
-                        f"Token refresh failed for {self._mcp_name}: "
-                        f"status={resp.status}, body={body[:200]}"
-                    )
+                tokens = await self.get_tokens()
+                if not tokens or not tokens.refresh_token:
+                    logger.warning(f"No refresh token available for {self._mcp_name}")
                     return False
 
-                result = await resp.json()
-                await self.save_tokens(
-                    access_token=result["access_token"],
-                    refresh_token=result.get("refresh_token", tokens.refresh_token),
-                    expires_in=result.get("expires_in"),
-                    scope=result.get("scope", tokens.scope),
-                )
-                logger.info(f"Successfully refreshed OAuth token for {self._mcp_name}")
-                return True
+                client_info = await self.client_information()
+                if not client_info:
+                    logger.warning(f"No client info available for refresh: {self._mcp_name}")
+                    return False
 
-        except Exception as e:
-            logger.error(f"Failed to refresh OAuth token for {self._mcp_name}: {e}")
-            return False
+                # Build token endpoint URL from server URL
+                token_url = f"{self._server_url.rstrip('/')}/token"
+
+                data = {
+                    "grant_type": "refresh_token",
+                    "refresh_token": tokens.refresh_token,
+                    "client_id": client_info.client_id,
+                }
+                if client_info.client_secret:
+                    data["client_secret"] = client_info.client_secret
+
+                async with (
+                    aiohttp.ClientSession() as session,
+                    session.post(
+                        token_url,
+                        data=data,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as resp,
+                ):
+                    if resp.status != 200:
+                        body = await resp.text()
+                        logger.warning(
+                            f"Token refresh failed for {self._mcp_name}: "
+                            f"status={resp.status}, body={body[:200]}"
+                        )
+                        return False
+
+                    result = await resp.json()
+                    await self.save_tokens(
+                        access_token=result["access_token"],
+                        refresh_token=result.get("refresh_token", tokens.refresh_token),
+                        expires_in=result.get("expires_in"),
+                        scope=result.get("scope", tokens.scope),
+                    )
+                    logger.info(f"Successfully refreshed OAuth token for {self._mcp_name}")
+                    return True
+
+            except Exception as e:
+                logger.error(f"Failed to refresh OAuth token for {self._mcp_name}: {e}")
+                return False
 
     async def save_tokens(
         self,

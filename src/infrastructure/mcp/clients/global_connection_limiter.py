@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -113,8 +114,13 @@ class GlobalConnectionLimiter:
         Args:
             pool_url: Identifier of the pool requesting a connection slot.
         """
-        # Fast path: try non-blocking acquire
-        acquired = self._semaphore._value > 0
+        # Fast path: try non-blocking acquire via zero-timeout wait
+        try:
+            await asyncio.wait_for(self._semaphore.acquire(), timeout=0)
+            acquired = True
+        except TimeoutError:
+            acquired = False
+
         if not acquired:
             # Global limit reached -- try to evict an idle connection
             logger.debug(
@@ -125,8 +131,7 @@ class GlobalConnectionLimiter:
             evicted = await self.try_evict_lru(exclude_pool=pool_url)
             if evicted:
                 logger.debug("LRU eviction freed a slot")
-
-        _ = await self._semaphore.acquire()
+            _ = await self._semaphore.acquire()
 
         async with self._lock:
             now = time.monotonic()
@@ -141,6 +146,20 @@ class GlobalConnectionLimiter:
             self.active_count,
             self._max_connections,
         )
+
+    async def touch(self, pool_url: str) -> None:
+        """Update last_used timestamp on the most recent entry for a pool.
+
+        Call this when a pooled connection is reused to maintain accurate
+        LRU ordering for eviction decisions.
+
+        Args:
+            pool_url: Identifier of the pool to touch.
+        """
+        async with self._lock:
+            entries = self._active_connections.get(pool_url, [])
+            if entries:
+                entries[-1].last_used = time.monotonic()
 
     async def release(self, pool_url: str) -> None:
         """Release a global connection slot for a pool.
@@ -247,6 +266,7 @@ class GlobalConnectionLimiter:
 
 # Module-level singleton
 _global_limiter: GlobalConnectionLimiter | None = None
+_global_limiter_lock = threading.Lock()
 
 
 def get_global_limiter(
@@ -267,9 +287,11 @@ def get_global_limiter(
     """
     global _global_limiter
     if _global_limiter is None:
-        _global_limiter = GlobalConnectionLimiter(
-            max_connections=max_connections,
-            ttl=ttl,
-        )
+        with _global_limiter_lock:
+            if _global_limiter is None:
+                _global_limiter = GlobalConnectionLimiter(
+                    max_connections=max_connections,
+                    ttl=ttl,
+                )
         logger.info(f"Initialized global connection limiter: max={max_connections}, ttl={ttl}s")
     return _global_limiter

@@ -5,7 +5,6 @@ This module provides MCP tool integration for the MemStack Agent system.
 MCP servers run inside project sandbox containers for security and isolation.
 
 Architecture:
-- MCPConfig: Configuration models for local/remote MCP servers
 - SandboxMCPServerToolAdapter: Adapts sandbox-hosted MCP tools to AgentTool interface
 - SandboxMCPServerManager: Manages MCP server lifecycle in sandbox containers
 - Transport: Protocol implementations (stdio, http, websocket)
@@ -27,14 +26,6 @@ Ports (src.domain.ports.mcp):
 - MCPTransportPort, MCPTransportFactoryPort
 """
 
-from src.infrastructure.mcp.config import (
-    McpConfig,
-    McpLocalConfig,
-    McpOAuthConfig,
-    McpRemoteConfig,
-    MCPStatus,
-)
-
 # Tools layer
 from src.infrastructure.mcp.tools import (
     BaseMCPToolAdapter,
@@ -50,18 +41,10 @@ from src.infrastructure.mcp.transport import (
 )
 
 __all__ = [
-    # Tools layer
     "BaseMCPToolAdapter",
     "HTTPTransport",
-    "MCPStatus",
     "MCPToolFactory",
-    # Config
-    "McpConfig",
-    "McpLocalConfig",
-    "McpOAuthConfig",
-    "McpRemoteConfig",
     "StdioTransport",
-    # Transport layer
     "TransportFactory",
     "WebSocketTransport",
 ]

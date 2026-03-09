@@ -1030,8 +1030,14 @@ class ProjectSandboxLifecycleService:
             from src.infrastructure.adapters.secondary.persistence.sql_mcp_app_repository import (
                 SqlMCPAppRepository,
             )
+            from src.infrastructure.adapters.secondary.persistence.sql_mcp_lifecycle_event_repository import (
+                SqlMCPLifecycleEventRepository,
+            )
             from src.infrastructure.adapters.secondary.persistence.sql_mcp_server_repository import (
                 SqlMCPServerRepository,
+            )
+            from src.infrastructure.adapters.secondary.persistence.sql_project_repository import (
+                SqlProjectRepository,
             )
             from src.infrastructure.mcp.resource_resolver import MCPAppResourceResolver
 
@@ -1049,23 +1055,27 @@ class ProjectSandboxLifecycleService:
                     app_service=app_service,
                 )
                 runtime = MCPRuntimeService(
-                    db=session,
                     server_repo=server_repo,
                     app_repo=app_repo,
                     app_service=app_service,
                     sandbox_manager=manager,
+                    lifecycle_event_repo=SqlMCPLifecycleEventRepository(session),
+                    project_repo=SqlProjectRepository(session),
                 )
                 result = await runtime.reconcile_project(project_id=project_id, tenant_id=tenant_id)
                 await session.commit()
-                logger.info(
-                    "Reconciled MCP runtime after sandbox recreation: "
-                    "project=%s enabled=%d restored=%d failed=%d already_running=%d",
-                    project_id,
-                    result.total_enabled_servers,
-                    result.restored,
-                    result.failed,
-                    result.already_running,
-                )
+                if result is None:
+                    logger.info("Reconcile skipped (lock busy) for project %s", project_id)
+                else:
+                    logger.info(
+                        "Reconciled MCP runtime after sandbox recreation: "
+                        "project=%s enabled=%d restored=%d failed=%d already_running=%d",
+                        project_id,
+                        result.total_enabled_servers,
+                        result.restored,
+                        result.failed,
+                        result.already_running,
+                    )
 
         except Exception as e:
             logger.warning("_reinstall_mcp_servers failed for project %s: %s", project_id, e)

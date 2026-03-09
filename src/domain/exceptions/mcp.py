@@ -16,7 +16,7 @@ Exception Hierarchy:
     └── MCPConnectionError              - Connection/transport failure
 """
 
-from typing import Any
+from typing import Any, override
 
 
 class MCPError(Exception):
@@ -33,6 +33,7 @@ class MCPError(Exception):
         self.original_error = original_error
         self.details = details or {}
 
+    @override
     def __str__(self) -> str:
         if self.original_error:
             return f"{self.message} (caused by: {self.original_error})"
@@ -127,3 +128,12 @@ class MCPConnectionError(MCPError):
         if endpoint:
             msg += f" (endpoint: {endpoint})"
         super().__init__(msg, original_error=original_error, details={"endpoint": endpoint})
+
+
+class MCPLockBusyError(MCPError):
+    """Raised when a reconciliation lock cannot be acquired."""
+
+    def __init__(self, key: str, message: str | None = None) -> None:
+        self.key = key
+        msg = message or f"Lock for '{key}' is busy"
+        super().__init__(msg, details={"lock_key": key})

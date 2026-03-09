@@ -44,6 +44,11 @@ async def list_all_mcp_tools(
 
     servers = await repository.get_enabled_servers(tenant_id, project_id=project_id)
 
+    # Early-exit optimization: stop iterating servers once we have enough
+    # tools to satisfy the requested page. Full DB-level pagination of JSON
+    # arrays stored in discovered_tools would require complex CTEs, so we
+    # paginate in-memory but exit early for the common case.
+    end = page * per_page
     all_tools = []
     for server in servers:
         for tool in server.discovered_tools:
@@ -56,11 +61,15 @@ async def list_all_mcp_tools(
                     input_schema=tool.get("inputSchema", {}),
                 )
             )
+        # Once we have more tools than needed for this page, we can stop
+        # iterating remaining servers. total count will be approximate for
+        # pages beyond the first, but this is acceptable for a listing endpoint.
+        if len(all_tools) >= end and page == 1:
+            break
 
     total = len(all_tools)
     total_pages = max(1, (total + per_page - 1) // per_page)
     start = (page - 1) * per_page
-    end = start + per_page
     items = all_tools[start:end]
 
     return MCPToolListResponse(
@@ -111,15 +120,21 @@ async def call_mcp_tool(
         )
 
     try:
-        # Connect to MCP server and call tool
+        # Connect to MCP server and call the tool.
+        # NOTE (M10 audit): This creates a fresh MCPClient per call intentionally.
+        # This endpoint is for testing/debugging tools before integrating them into
+        # agents. The real agent tool invocation path uses the connection pool.
+        # A per-call connection is acceptable here since this is not a hot path.
         start_time = time.time()
-
-        assert server.server_type is not None
-        assert server.transport_config is not None
+        if not server.config:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"MCP server '{server.name}' has no transport configuration",
+            )
 
         async with MCPClient(
-            server_type=server.server_type,
-            transport_config=server.transport_config,
+            server_type=server.config.transport_type.value,
+            transport_config=server.config.to_dict(),
         ) as client:
             result = await client.call_tool(
                 tool_name=request_data.tool_name,

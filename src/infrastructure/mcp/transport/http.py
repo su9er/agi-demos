@@ -5,7 +5,7 @@ Simple HTTP request/response transport for MCP servers.
 """
 
 import logging
-from typing import Any, cast
+from typing import Any, cast, override
 
 import httpx
 
@@ -32,6 +32,7 @@ class HTTPTransport(BaseTransport):
         super().__init__(config)
         self._client: httpx.AsyncClient | None = None
 
+    @override
     async def start(self, config: TransportConfig) -> None:
         """
         Initialize HTTP client.
@@ -62,6 +63,7 @@ class HTTPTransport(BaseTransport):
         self._is_open = True
         logger.info(f"HTTP transport connected to: {config.url}")
 
+    @override
     async def stop(self) -> None:
         """Close HTTP client."""
         if not self._is_open:
@@ -74,31 +76,6 @@ class HTTPTransport(BaseTransport):
             self._client = None
 
         logger.info("HTTP transport stopped")
-
-    async def send(
-        self,
-        message: dict[str, Any],
-        timeout: float | None = None,
-    ) -> None:
-        """
-        Send is combined with receive in HTTP transport.
-
-        For standalone send, this is a no-op. Use send_request instead.
-        """
-        # HTTP transport doesn't have separate send; it's request/response
-
-    async def receive(
-        self,
-        timeout: float | None = None,
-    ) -> dict[str, Any]:
-        """
-        Receive is combined with send in HTTP transport.
-
-        For standalone receive, this raises an error.
-        """
-        raise MCPTransportError(
-            "HTTP transport doesn't support standalone receive; use send_request"
-        )
 
     async def send_request(
         self,
@@ -135,7 +112,7 @@ class HTTPTransport(BaseTransport):
 
         try:
             logger.debug(f"Sending HTTP request: {method}")
-            response = await self._client.post("/rpc", json=request)
+            response = await self._client.post("/mcp", json=request)
             response.raise_for_status()
             data = response.json()
 
@@ -147,6 +124,11 @@ class HTTPTransport(BaseTransport):
         except httpx.HTTPError as e:
             logger.error(f"HTTP request failed: {e}")
             raise MCPTransportError(f"HTTP request failed: {e}") from e
+
+    @override
+    async def cancel_request(self, request_id: int) -> None:
+        """No-op: HTTP is request-response; cancel is not meaningful."""
+        logger.debug(f"cancel_request is a no-op for HTTP transport (id={request_id})")
 
     # High-level API methods
 

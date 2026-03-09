@@ -8,7 +8,7 @@ import asyncio
 import contextlib
 import json
 import logging
-from typing import Any, cast
+from typing import Any, cast, override
 
 import aiohttp
 
@@ -43,6 +43,7 @@ class WebSocketTransport(BaseTransport):
         self._initialized = False
         self._closed = False
 
+    @override
     async def start(self, config: TransportConfig) -> None:
         """
         Establish WebSocket connection to MCP server.
@@ -108,6 +109,8 @@ class WebSocketTransport(BaseTransport):
         }
 
         result = await self._send_request("initialize", init_params)
+        if result is None:  # type: ignore[reportUnnecessaryComparison]  # defensive guard
+            raise MCPTransportError("Initialization failed: no response from server")
         logger.info(f"MCP server initialized: {result.get('serverInfo', {})}")
 
         # Step 2: Send initialized notification
@@ -122,6 +125,17 @@ class WebSocketTransport(BaseTransport):
 
         notification = {"jsonrpc": "2.0", "method": method, "params": params}
         await self._ws.send_json(notification)
+
+    @override
+    async def cancel_request(self, request_id: int) -> None:
+        """Send a cancellation notification for an in-flight request."""
+        try:
+            await self._send_notification(
+                "notifications/cancelled",
+                {"requestId": request_id, "reason": "Client cancelled"},
+            )
+        except MCPTransportClosedError:
+            logger.debug(f"Cannot cancel request {request_id}: transport closed")
 
     async def _send_request(
         self,
@@ -143,7 +157,7 @@ class WebSocketTransport(BaseTransport):
         }
 
         # Create future for response
-        future: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
+        future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
         self._pending_requests[request_id] = future
 
         try:
@@ -216,6 +230,7 @@ class WebSocketTransport(BaseTransport):
         else:
             logger.warning(f"Received unexpected message: {data}")
 
+    @override
     async def stop(self) -> None:
         """Close WebSocket connection."""
         if self._closed:
@@ -252,36 +267,6 @@ class WebSocketTransport(BaseTransport):
             if not future.done():
                 future.set_exception(MCPTransportClosedError("WebSocket closed"))
         self._pending_requests.clear()
-
-    async def send(
-        self,
-        message: dict[str, Any],
-        timeout: float | None = None,
-    ) -> None:
-        """
-        Send a message over WebSocket.
-
-        Args:
-            message: JSON-RPC message to send.
-            timeout: Ignored for WebSocket send.
-        """
-        if not self._ws or self._ws.closed:
-            raise MCPTransportClosedError("WebSocket not connected")
-
-        await self._ws.send_json(message)
-
-    async def receive(
-        self,
-        timeout: float | None = None,
-    ) -> dict[str, Any]:
-        """
-        Receive is handled by background task.
-
-        For WebSocket, use send_request for request/response pattern.
-        """
-        raise MCPTransportError(
-            "WebSocket transport uses async receive loop; use send_request instead"
-        )
 
     # High-level API methods
 

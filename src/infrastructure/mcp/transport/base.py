@@ -71,7 +71,6 @@ class BaseTransport(ABC):
         """
         ...
 
-    @abstractmethod
     async def send(
         self,
         message: dict[str, Any],
@@ -85,11 +84,23 @@ class BaseTransport(ABC):
             timeout: Optional send timeout in seconds.
 
         Raises:
+            NotImplementedError: If subclass uses request-response pattern.
             MCPTransportError: If send fails.
         """
-        ...
+        raise NotImplementedError("Subclass uses request-response pattern via send_request()")
 
-    @abstractmethod
+    async def cancel_request(self, request_id: int) -> None:
+        """
+        Send a cancellation notification for an in-flight request.
+
+        MCP protocol defines cancel as `notifications/cancelled`.
+        Default implementation is a no-op; bidirectional transports
+        (WebSocket, Stdio) override to send the notification.
+
+        Args:
+            request_id: The ID of the request to cancel.
+        """
+        logger.debug(f"cancel_request not implemented for {type(self).__name__}")
     async def receive(
         self,
         timeout: float | None = None,
@@ -104,10 +115,11 @@ class BaseTransport(ABC):
             Received JSON-RPC message.
 
         Raises:
+            NotImplementedError: If subclass uses request-response pattern.
             MCPTransportError: If receive fails.
             asyncio.TimeoutError: If timeout expires.
         """
-        ...
+        raise NotImplementedError("Subclass uses request-response pattern via send_request()")
 
     async def receive_stream(self) -> AsyncIterator[dict[str, Any]]:
         """
@@ -144,12 +156,9 @@ class MCPTransportError(Exception):
     """Base exception for transport errors."""
 
 
-
 class MCPTransportClosedError(MCPTransportError):
     """Exception raised when transport is closed."""
 
 
-
 class MCPTransportTimeoutError(MCPTransportError):
     """Exception raised on transport timeout."""
-

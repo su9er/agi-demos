@@ -8,7 +8,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, cast
+from typing import Any, cast, override
 
 from src.domain.model.mcp.transport import TransportConfig, TransportType
 from src.infrastructure.mcp.transport.base import (
@@ -34,6 +34,7 @@ class StdioTransport(BaseTransport):
         self._process: asyncio.subprocess.Process | None = None
         self._initialized = False
 
+    @override
     async def start(self, config: TransportConfig) -> None:
         """
         Start subprocess and establish stdio connection.
@@ -101,6 +102,8 @@ class StdioTransport(BaseTransport):
         }
 
         result = await self._send_request("initialize", init_params)
+        if result is None:  # type: ignore[reportUnnecessaryComparison]  # defensive guard
+            raise MCPTransportError("Initialization failed: no response from server")
         logger.info(f"MCP server initialized: {result.get('serverInfo', {})}")
 
         # Step 2: Send initialized notification
@@ -115,6 +118,17 @@ class StdioTransport(BaseTransport):
 
         notification = {"jsonrpc": "2.0", "method": method, "params": params}
         await self.send(notification)
+
+    @override
+    async def cancel_request(self, request_id: int) -> None:
+        """Send a cancellation notification for an in-flight request."""
+        try:
+            await self._send_notification(
+                "notifications/cancelled",
+                {"requestId": request_id, "reason": "Client cancelled"},
+            )
+        except MCPTransportClosedError:
+            logger.debug(f"Cannot cancel request {request_id}: transport closed")
 
     async def _send_request(
         self,
@@ -140,6 +154,7 @@ class StdioTransport(BaseTransport):
 
         return cast(dict[str, Any], response.get("result", {}))
 
+    @override
     async def stop(self) -> None:
         """Terminate subprocess."""
         if not self._is_open:
@@ -162,6 +177,7 @@ class StdioTransport(BaseTransport):
 
         logger.info("Stdio transport stopped")
 
+    @override
     async def send(
         self,
         message: dict[str, Any],
@@ -183,6 +199,7 @@ class StdioTransport(BaseTransport):
         self._process.stdin.write(message_json.encode())
         await self._process.stdin.drain()
 
+    @override
     async def receive(
         self,
         timeout: float | None = None,

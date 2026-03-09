@@ -56,7 +56,7 @@ class MCPConnectionPool:
         self._pool_size = pool_size
         self._timeout = timeout
         self._connect_timeout = connect_timeout
-        self._connections: asyncio.Queue[MCPWebSocketClient] = asyncio.Queue()
+        self._connections: asyncio.Queue[MCPWebSocketClient] = asyncio.Queue(maxsize=pool_size)
         self._lock = asyncio.Lock()
         self._created_count = 0
         self._semaphore = asyncio.Semaphore(pool_size)

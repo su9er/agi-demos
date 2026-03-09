@@ -26,10 +26,11 @@ DEFAULT_TIMEOUT = 600
 
 @dataclass
 class MCPToolSchema:
-    """Schema for an MCP tool.
+    """Schema for an MCP tool (wire-format DTO).
 
-    DEPRECATED: Use src.domain.model.mcp.tool.MCPToolSchema instead.
-    Kept for Temporal activity serialization compatibility.
+    NOTE: Uses camelCase fields (inputSchema) to match the MCP JSON-RPC
+    wire format. Not interchangeable with domain MCPToolSchema (snake_case).
+    Kept for MCP protocol serialization compatibility.
     """
 
     name: str
@@ -40,10 +41,11 @@ class MCPToolSchema:
 
 @dataclass
 class MCPToolResult:
-    """Result from an MCP tool call.
+    """Result from an MCP tool call (wire-format DTO).
 
-    DEPRECATED: Use src.domain.model.mcp.tool.MCPToolResult instead.
-    Kept for Temporal activity serialization compatibility.
+    NOTE: Uses camelCase fields (isError) to match the MCP JSON-RPC
+    wire format. Not interchangeable with domain MCPToolResult (snake_case).
+    Kept for MCP protocol serialization compatibility.
     """
 
     content: list[dict[str, Any]] = field(default_factory=list)
@@ -131,7 +133,6 @@ class MCPSubprocessClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
-                limit=16 * 1024 * 1024,  # 16MB buffer limit for large responses
             )
 
             # Send initialize request
@@ -252,6 +253,7 @@ class MCPSubprocessClient:
             ]
 
         return []
+
     async def call_tool(
         self,
         name: str,

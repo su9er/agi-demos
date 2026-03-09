@@ -27,9 +27,10 @@ export interface McpToolItemV2Props {
 }
 
 export const McpToolItemV2: React.FC<McpToolItemV2Props> = ({ tool, isExpanded, onToggle }) => {
-  const typeStyle =
-    SERVER_TYPE_STYLES[tool.serverType as keyof typeof SERVER_TYPE_STYLES] ||
-    SERVER_TYPE_STYLES.stdio;
+  const typeStyle: (typeof SERVER_TYPE_STYLES)[keyof typeof SERVER_TYPE_STYLES] =
+    (tool.serverType as keyof typeof SERVER_TYPE_STYLES) in SERVER_TYPE_STYLES
+      ? SERVER_TYPE_STYLES[tool.serverType as keyof typeof SERVER_TYPE_STYLES]
+      : SERVER_TYPE_STYLES.stdio;
 
   return (
     <div
@@ -38,7 +39,11 @@ export const McpToolItemV2: React.FC<McpToolItemV2Props> = ({ tool, isExpanded, 
       } transition-all duration-200 overflow-hidden`}
     >
       {/* Header - Clickable */}
-      <div className="p-4 cursor-pointer" onClick={onToggle}>
+      <button
+        type="button"
+        className="w-full p-4 cursor-pointer text-left bg-transparent border-0"
+        onClick={onToggle}
+      >
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             {/* Tool Icon */}
@@ -99,7 +104,7 @@ export const McpToolItemV2: React.FC<McpToolItemV2Props> = ({ tool, isExpanded, 
             </div>
           </div>
         </div>
-      </div>
+      </button>
 
       {/* Expanded Content */}
       {isExpanded && (

@@ -9,27 +9,21 @@ Orchestrates MCP Server + MCP App lifecycle as one runtime boundary, including:
 from __future__ import annotations
 
 import logging
-import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.application.services.mcp_app_service import MCPAppService
+from src.domain.exceptions.mcp import MCPLockBusyError
 from src.domain.model.mcp.app import MCPApp
 from src.domain.model.mcp.server import MCPServer
+from src.domain.ports.mcp.app_repository_port import MCPAppRepositoryPort
+from src.domain.ports.mcp.lifecycle_event_repository_port import MCPLifecycleEventRepositoryPort
+from src.domain.ports.repositories.mcp_server_repository import MCPServerRepositoryPort
+from src.domain.ports.repositories.project_repository import ProjectRepository
 from src.domain.ports.services.sandbox_mcp_server_port import SandboxMCPServerStatus
-from src.infrastructure.adapters.secondary.persistence.models import MCPLifecycleEvent, Project
-from src.infrastructure.adapters.secondary.persistence.sql_mcp_app_repository import (
-    SqlMCPAppRepository,
-)
-from src.infrastructure.adapters.secondary.persistence.sql_mcp_server_repository import (
-    SqlMCPServerRepository,
-)
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
@@ -70,18 +64,20 @@ class MCPRuntimeService:
 
     def __init__(
         self,
-        db: AsyncSession,
-        server_repo: SqlMCPServerRepository,
-        app_repo: SqlMCPAppRepository,
+        server_repo: MCPServerRepositoryPort,
+        app_repo: MCPAppRepositoryPort,
         app_service: MCPAppService,
         sandbox_manager: SandboxMCPServerManager,
+        lifecycle_event_repo: MCPLifecycleEventRepositoryPort,
+        project_repo: ProjectRepository,
         redis_client: Redis | None = None,
     ) -> None:
-        self._db = db
         self._server_repo = server_repo
         self._app_repo = app_repo
         self._app_service = app_service
         self._sandbox_manager = sandbox_manager
+        self._lifecycle_event_repo = lifecycle_event_repo
+        self._project_repo = project_repo
         self._redis_client = redis_client
 
     async def create_server(
@@ -96,11 +92,8 @@ class MCPRuntimeService:
         enabled: bool,
     ) -> MCPServer:
         """Create server and bootstrap runtime metadata/lifecycle."""
-        project_result = await self._db.execute(
-            select(Project).where(Project.id == project_id, Project.tenant_id == tenant_id)
-        )
-        project = project_result.scalar_one_or_none()
-        if not project:
+        project = await self._project_repo.find_by_id(project_id)
+        if not project or project.tenant_id != tenant_id:
             raise PermissionError("Access denied")
 
         server_id = await self._server_repo.create(
@@ -269,8 +262,8 @@ class MCPRuntimeService:
                 project_id=server.project_id,
                 tenant_id=tenant_id,
                 server_name=server.name,
-                server_type=server.server_type or "",
-                transport_config=server.transport_config or {},
+                server_type=server.config.transport_type.value if server.config else "",
+                transport_config=server.config.to_dict() if server.config else {},
             )
             await self._server_repo.update_discovered_tools(
                 server_id=server.id,
@@ -355,8 +348,8 @@ class MCPRuntimeService:
             project_id=server.project_id,
             tenant_id=tenant_id,
             server_name=server.name,
-            server_type=server.server_type or "",
-            transport_config=server.transport_config or {},
+            server_type=server.config.transport_type.value if server.config else "",
+            transport_config=server.config.to_dict() if server.config else {},
         )
         test_status = "success" if result.status != "failed" else "failed"
         existing_runtime_metadata = server.runtime_metadata if server.runtime_metadata else {}
@@ -478,7 +471,7 @@ class MCPRuntimeService:
             # We yield None to signal skipping, but the caller needs to handle it.
             # Actually, let's just raise an exception or handle it gracefully.
             # If we can't lock, another process is reconciling. We can probably just return early.
-            raise RuntimeError(f"Lock for {key} is busy")
+            raise MCPLockBusyError(key)
 
         try:
             yield
@@ -486,29 +479,19 @@ class MCPRuntimeService:
             with suppress(Exception):
                 await lock.release()
 
-    async def reconcile_project(self, project_id: str, tenant_id: str) -> MCPReconcileResult:
+    async def reconcile_project(self, project_id: str, tenant_id: str) -> MCPReconcileResult | None:
         """Reconcile enabled DB servers with sandbox runtime."""
         # Try to acquire lock to prevent concurrent reconciliation storms
         try:
             async with self._lock(f"reconcile:{project_id}"):
                 return await self._reconcile_project_impl(project_id, tenant_id)
-        except RuntimeError as e:
-            if "Lock" in str(e):
-                logger.info(f"Skipping reconcile for {project_id}: {e}")
-                # Return a dummy result indicating skipped
-                return MCPReconcileResult(
-                    project_id=project_id,
-                    total_enabled_servers=0,
-                    already_running=0,
-                    restored=0,
-                    failed=0,
-                )
-            raise e
+        except MCPLockBusyError:
+            logger.info("Skipping reconcile for project %s: lock busy", project_id)
+            return None
 
     async def _reconcile_project_impl(self, project_id: str, tenant_id: str) -> MCPReconcileResult:
         """Internal implementation of reconcile logic."""
-        project_result = await self._db.execute(select(Project).where(Project.id == project_id))
-        project = project_result.scalar_one_or_none()
+        project = await self._project_repo.find_by_id(project_id)
         if not project or project.tenant_id != tenant_id:
             raise PermissionError("Access denied")
 
@@ -646,8 +629,8 @@ class MCPRuntimeService:
             project_id=server.project_id,
             tenant_id=tenant_id,
             server_name=server.name,
-            server_type=server.server_type or "",
-            transport_config=server.transport_config or {},
+            server_type=server.config.transport_type.value if server.config else "",
+            transport_config=server.config.to_dict() if server.config else {},
         )
         if start_status.status == "failed":
             raise RuntimeError(start_status.error or "install/start failed")
@@ -669,8 +652,8 @@ class MCPRuntimeService:
             project_id=server.project_id,
             tenant_id=tenant_id,
             server_name=server.name,
-            server_type=server.server_type or "",
-            transport_config=server.transport_config or {},
+            server_type=server.config.transport_type.value if server.config else "",
+            transport_config=server.config.to_dict() if server.config else {},
             ensure_running=False,
         )
         await self._server_repo.update_discovered_tools(
@@ -796,19 +779,13 @@ class MCPRuntimeService:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Persist lifecycle audit event."""
-        if not tenant_id or not project_id:
-            return
-
-        event = MCPLifecycleEvent(
-            id=str(uuid.uuid4()),
+        await self._lifecycle_event_repo.record_event(
             tenant_id=tenant_id,
             project_id=project_id,
-            server_id=server_id,
-            app_id=app_id,
             event_type=event_type,
             status=status,
+            server_id=server_id,
+            app_id=app_id,
             error_message=error_message,
-            metadata_json=metadata or {},
+            metadata=metadata,
         )
-        self._db.add(event)
-        await self._db.flush()

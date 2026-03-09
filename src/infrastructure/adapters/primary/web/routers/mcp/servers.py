@@ -15,9 +15,6 @@ from src.application.services.mcp_runtime_service import MCPRuntimeService
 from src.domain.model.mcp.server import MCPServer
 from src.infrastructure.adapters.primary.web.dependencies import get_current_user_tenant
 from src.infrastructure.adapters.secondary.persistence.database import get_db
-from src.infrastructure.adapters.secondary.persistence.sql_mcp_app_repository import (
-    SqlMCPAppRepository,
-)
 from src.infrastructure.adapters.secondary.persistence.sql_mcp_server_repository import (
     SqlMCPServerRepository,
 )
@@ -31,7 +28,7 @@ from .schemas import (
     MCPServerTestResult,
     MCPServerUpdate,
 )
-from .utils import ensure_project_access, get_sandbox_mcp_server_manager
+from .utils import ensure_project_access
 
 logger = logging.getLogger(__name__)
 
@@ -39,17 +36,9 @@ router = APIRouter()
 
 
 async def _get_runtime_service(request: Request, db: AsyncSession) -> MCPRuntimeService:
-    """Build unified MCP runtime service for request scope."""
+    """Get unified MCP runtime service from DI container (H2 fix)."""
     container = request.app.state.container.with_db(db)
-    manager = await get_sandbox_mcp_server_manager(request, db)
-    return MCPRuntimeService(
-        db=db,
-        server_repo=SqlMCPServerRepository(db),
-        app_repo=SqlMCPAppRepository(db),
-        app_service=container.mcp_app_service(),
-        sandbox_manager=manager,
-        redis_client=container.redis(),
-    )
+    return container.mcp_runtime_service()
 
 
 @router.post("/create", response_model=MCPServerResponse, status_code=status.HTTP_201_CREATED)
@@ -244,10 +233,10 @@ async def delete_mcp_server(
         from src.infrastructure.agent.state.agent_session_pool import (
             invalidate_mcp_tools_cache,
         )
-        from src.infrastructure.mcp.tools.factory import MCPToolFactory
 
         invalidate_mcp_tools_cache(tenant_id)
-        MCPToolFactory.remove_adapter(server.name)
+        # NOTE: MCPToolFactory.remove_adapter() was removed -- it was a bug
+        # (calling instance method on class). Cache invalidation above is sufficient.
         await db.commit()
 
     except ValueError as e:
@@ -337,7 +326,6 @@ async def test_mcp_server_connection(
         start_time = time.time()
         runtime = await _get_runtime_service(request, db)
         result = await runtime.test_server(server_id, tenant_id)
-        await db.commit()
 
         latency_ms = (time.time() - start_time) * 1000
 
@@ -394,6 +382,14 @@ async def reconcile_mcp_project(
         runtime = await _get_runtime_service(request, db)
         result = await runtime.reconcile_project(project_id, tenant_id)
         await db.commit()
+        if result is None:
+            return MCPReconcileResultResponse(
+                project_id=project_id,
+                total_enabled_servers=0,
+                already_running=0,
+                restored=0,
+                failed=0,
+            )
         return MCPReconcileResultResponse(
             project_id=result.project_id,
             total_enabled_servers=result.total_enabled_servers,

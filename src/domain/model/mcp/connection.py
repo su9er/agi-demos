@@ -8,11 +8,12 @@ Consolidates definitions from:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 from src.domain.model.mcp.tool import MCPToolSchema
+from src.domain.shared_kernel import ValueObject
 
 
 class ConnectionState(str, Enum):
@@ -31,8 +32,8 @@ class ConnectionState(str, Enum):
         return self in (ConnectionState.CONNECTED, ConnectionState.CONNECTING)
 
 
-@dataclass
-class ConnectionInfo:
+@dataclass(frozen=True, kw_only=True)
+class ConnectionInfo(ValueObject):
     """
     MCP connection information.
 
@@ -61,7 +62,7 @@ class ConnectionInfo:
         """Get connection duration in seconds."""
         if not self.connected_at:
             return None
-        end_time = self.disconnected_at or datetime.now()
+        end_time = self.disconnected_at or datetime.now(UTC)
         return (end_time - self.connected_at).total_seconds()
 
     def mark_connected(
@@ -70,7 +71,7 @@ class ConnectionInfo:
         tools: list[MCPToolSchema] | None = None,
     ) -> "ConnectionInfo":
         """Create new instance marking as connected."""
-        now = datetime.now()
+        now = datetime.now(UTC)
         return ConnectionInfo(
             endpoint=self.endpoint,
             state=ConnectionState.CONNECTED,
@@ -79,11 +80,12 @@ class ConnectionInfo:
             tools=tools or self.tools,
             server_info=server_info or self.server_info,
             reconnect_count=self.reconnect_count,
+            last_ping_at=self.last_ping_at,
         )
 
     def mark_disconnected(self, error_message: str | None = None) -> "ConnectionInfo":
         """Create new instance marking as disconnected."""
-        now = datetime.now()
+        now = datetime.now(UTC)
         state = ConnectionState.ERROR if error_message else ConnectionState.DISCONNECTED
         return ConnectionInfo(
             endpoint=self.endpoint,
@@ -104,7 +106,7 @@ class ConnectionInfo:
             state=self.state,
             connected_at=self.connected_at,
             disconnected_at=self.disconnected_at,
-            last_activity_at=datetime.now(),
+            last_activity_at=datetime.now(UTC),
             last_ping_at=self.last_ping_at,
             tools=self.tools,
             server_info=self.server_info,
@@ -119,7 +121,7 @@ class ConnectionInfo:
             state=ConnectionState.RECONNECTING,
             connected_at=self.connected_at,
             disconnected_at=self.disconnected_at,
-            last_activity_at=datetime.now(),
+            last_activity_at=datetime.now(UTC),
             tools=self.tools,
             server_info=self.server_info,
             error_message=self.error_message,
@@ -173,7 +175,7 @@ class ConnectionMetrics:
         self.total_connections += 1
         self.failed_connections += 1
         self.last_error = error
-        self.last_error_at = datetime.now()
+        self.last_error_at = datetime.now(UTC)
 
     def record_tool_call(self, success: bool, latency_ms: float) -> None:
         """Record a tool call result."""

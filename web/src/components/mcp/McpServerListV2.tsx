@@ -108,13 +108,13 @@ export const McpServerListV2: React.FC = () => {
     };
 
     const toolStats: ToolStats = {
-      total: servers.reduce((acc, s) => acc + (s.discovered_tools?.length || 0), 0),
+      total: servers.reduce((acc, s) => acc + s.discovered_tools.length, 0),
       available: servers.reduce(
-        (acc, s) => acc + (s.discovered_tools?.filter((t) => !t.is_error)?.length || 0),
+        (acc, s) => acc + s.discovered_tools.filter((t) => !t.is_error).length,
         0
       ),
       error: servers.reduce(
-        (acc, s) => acc + (s.discovered_tools?.filter((t) => t.is_error)?.length || 0),
+        (acc, s) => acc + s.discovered_tools.filter((t) => t.is_error).length,
         0
       ),
     };
@@ -128,8 +128,9 @@ export const McpServerListV2: React.FC = () => {
     try {
       await mcpAPI.reconcileProject(servers[0]?.project_id || 'default');
       message.success('Servers reconciled');
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Reconciliation failed');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } }; message?: string };
+      message.error(error.response?.data?.detail ?? error.message ?? 'Reconciliation failed');
     } finally {
       setIsReconciling(false);
     }
@@ -148,7 +149,8 @@ export const McpServerListV2: React.FC = () => {
           </p>
         </div>
         <button
-          onClick={handleReconcile}
+          type="button"
+          onClick={() => void handleReconcile()}
           disabled={isReconciling}
           className="inline-flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50"
         >
@@ -170,7 +172,7 @@ export const McpServerListV2: React.FC = () => {
           bgColor="bg-blue-500"
           textColor="text-slate-900 dark:text-white"
           iconBg="bg-blue-100 dark:bg-blue-900/30"
-          subtitle={`${stats.serverStats.running} running`}
+          subtitle={`${String(stats.serverStats.running)} running`}
         />
         <StatsCard
           title="Tools"
@@ -181,7 +183,7 @@ export const McpServerListV2: React.FC = () => {
           bgColor="bg-purple-500"
           textColor="text-slate-900 dark:text-white"
           iconBg="bg-purple-100 dark:bg-purple-900/30"
-          subtitle={`${stats.toolStats.available} available`}
+          subtitle={`${String(stats.toolStats.available)} available`}
         />
         <StatsCard
           title="Applications"
@@ -196,7 +198,7 @@ export const McpServerListV2: React.FC = () => {
           bgColor="bg-emerald-500"
           textColor="text-slate-900 dark:text-white"
           iconBg="bg-emerald-100 dark:bg-emerald-900/30"
-          subtitle={`${stats.appStats.ready} ready`}
+          subtitle={`${String(stats.appStats.ready)} ready`}
         />
         <StatsCard
           title="Health"
@@ -235,8 +237,12 @@ export const McpServerListV2: React.FC = () => {
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         {/* Tab Navigation */}
         <div className="border-b border-slate-200 dark:border-slate-800">
-          <nav className="flex items-center gap-2 px-4" aria-label="Tabs">
+          <div className="flex items-center gap-2 px-4" aria-label="Tabs" role="tablist">
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'servers'}
+              aria-controls="tabpanel-servers"
               onClick={() => {
                 setActiveTab('servers');
               }}
@@ -250,6 +256,10 @@ export const McpServerListV2: React.FC = () => {
               Servers
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'tools'}
+              aria-controls="tabpanel-tools"
               onClick={() => {
                 setActiveTab('tools');
               }}
@@ -263,6 +273,10 @@ export const McpServerListV2: React.FC = () => {
               Tools
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'apps'}
+              aria-controls="tabpanel-apps"
               onClick={() => {
                 setActiveTab('apps');
               }}
@@ -275,14 +289,14 @@ export const McpServerListV2: React.FC = () => {
               <MaterialIcon name="apps" size={18} />
               Applications
             </button>
-          </nav>
+          </div>
         </div>
 
         {/* Tab Content */}
         <div className="p-4">
-          {activeTab === 'servers' && <McpServerTabV2 />}
-          {activeTab === 'tools' && <McpToolsTabV2 />}
-          {activeTab === 'apps' && <McpAppsTabV2 />}
+          {activeTab === 'servers' && <div id="tabpanel-servers" role="tabpanel"><McpServerTabV2 /></div>}
+          {activeTab === 'tools' && <div id="tabpanel-tools" role="tabpanel"><McpToolsTabV2 /></div>}
+          {activeTab === 'apps' && <div id="tabpanel-apps" role="tabpanel"><McpAppsTabV2 /></div>}
         </div>
       </div>
     </div>

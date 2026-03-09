@@ -7,6 +7,7 @@ incremental discovery - only re-discover tools when they have changed.
 import hashlib
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,6 +39,7 @@ class MCPToolRegistry:
         """Initialize the tool registry."""
         self._hashes: dict[tuple[str, str], str] = {}
         self._stats = RegistryStats()
+        self._lock = threading.Lock()
 
     def compute_tools_hash(self, tools: list[dict[str, Any]]) -> str:
         """Compute a SHA256 hash of the tools list.
@@ -82,11 +84,12 @@ class MCPToolRegistry:
             hash_value: SHA256 hash of tools list
         """
         key = (sandbox_id, server_name)
-        is_new = key not in self._hashes
-        self._hashes[key] = hash_value
+        with self._lock:
+            is_new = key not in self._hashes
+            self._hashes[key] = hash_value
 
-        if is_new:
-            self._stats.total_servers += 1
+            if is_new:
+                self._stats.total_servers += 1
 
         logger.debug(
             "Stored hash for server %s in sandbox %s: %s...",
@@ -110,7 +113,8 @@ class MCPToolRegistry:
             Stored hash or None if not found
         """
         key = (sandbox_id, server_name)
-        return self._hashes.get(key)
+        with self._lock:
+            return self._hashes.get(key)
 
     def check_updates(
         self,
@@ -175,10 +179,11 @@ class MCPToolRegistry:
             server_name: MCP server name
         """
         key = (sandbox_id, server_name)
-        if key in self._hashes:
-            del self._hashes[key]
-            self._stats.total_servers = max(0, self._stats.total_servers - 1)
-            logger.debug("Invalidated hash for server %s in sandbox %s", server_name, sandbox_id)
+        with self._lock:
+            if key in self._hashes:
+                del self._hashes[key]
+                self._stats.total_servers = max(0, self._stats.total_servers - 1)
+                logger.debug("Invalidated hash for server %s in sandbox %s", server_name, sandbox_id)
 
     def invalidate_sandbox(self, sandbox_id: str) -> int:
         """Invalidate all stored hashes for a sandbox.
@@ -189,18 +194,19 @@ class MCPToolRegistry:
         Returns:
             Number of hashes invalidated
         """
-        keys_to_remove = [key for key in self._hashes if key[0] == sandbox_id]
+        with self._lock:
+            keys_to_remove = [key for key in self._hashes if key[0] == sandbox_id]
 
-        for key in keys_to_remove:
-            del self._hashes[key]
+            for key in keys_to_remove:
+                del self._hashes[key]
 
-        self._stats.total_servers -= len(keys_to_remove)
-        self._stats.total_servers = max(0, self._stats.total_servers)
+            self._stats.total_servers -= len(keys_to_remove)
+            self._stats.total_servers = max(0, self._stats.total_servers)
 
-        if keys_to_remove:
-            logger.debug("Invalidated %d hash(es) for sandbox %s", len(keys_to_remove), sandbox_id)
+            if keys_to_remove:
+                logger.debug("Invalidated %d hash(es) for sandbox %s", len(keys_to_remove), sandbox_id)
 
-        return len(keys_to_remove)
+            return len(keys_to_remove)
 
     def get_stats(self) -> dict[str, int]:
         """Get registry statistics.
@@ -217,13 +223,15 @@ class MCPToolRegistry:
 
     def clear(self) -> None:
         """Clear all stored hashes and reset statistics."""
-        self._hashes.clear()
-        self._stats = RegistryStats()
-        logger.debug("Cleared all stored hashes")
+        with self._lock:
+            self._hashes.clear()
+            self._stats = RegistryStats()
+            logger.debug("Cleared all stored hashes")
 
 
 # Global registry instance
 _registry: MCPToolRegistry | None = None
+_registry_lock = threading.Lock()
 
 
 def get_tool_registry() -> MCPToolRegistry:
@@ -234,7 +242,9 @@ def get_tool_registry() -> MCPToolRegistry:
     """
     global _registry
     if _registry is None:
-        _registry = MCPToolRegistry()
+        with _registry_lock:
+            if _registry is None:
+                _registry = MCPToolRegistry()
     return _registry
 
 

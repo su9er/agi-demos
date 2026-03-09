@@ -251,7 +251,7 @@ class SandboxToolRegistry:
             assert self._redis is not None
             await self._redis.set(
                 reg_key,
-                str(reg_data),
+                json.dumps(reg_data),
                 ex=3600,  # 1 hour TTL
             )
 

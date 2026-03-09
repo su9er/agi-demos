@@ -19,13 +19,13 @@ from src.application.services.mcp_app_service import MCPAppService
 from src.application.services.mcp_runtime_service import MCPRuntimeService
 from src.infrastructure.adapters.primary.web.dependencies import get_current_user_tenant
 from src.infrastructure.adapters.secondary.persistence.database import get_db
-from src.infrastructure.adapters.secondary.persistence.sql_mcp_app_repository import (
-    SqlMCPAppRepository,
-)
-from src.infrastructure.adapters.secondary.persistence.sql_mcp_server_repository import (
-    SqlMCPServerRepository,
-)
 
+from .schemas import (
+    MCPAppResourceResponse,
+    MCPAppResponse,
+    MCPAppToolCallRequest,
+    MCPAppToolCallResponse,
+)
 from .utils import ensure_project_access, get_container_with_db
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 # Avoids querying the sandbox on every proxy call.
 _TOOL_VISIBILITY_CACHE: dict[tuple[str, str, str], tuple[list[str], float]] = {}
 _TOOL_VISIBILITY_TTL = 60.0  # seconds
+_TOOL_VISIBILITY_LOCK = asyncio.Lock()
 
 
 async def _get_cached_tool_visibility(
@@ -48,18 +49,22 @@ async def _get_cached_tool_visibility(
     Falls back to the spec default ``["model", "app"]`` on errors.
     """
     key = (project_id, server_name, tool_name)
-    cached = _TOOL_VISIBILITY_CACHE.get(key)
-    if cached is not None:
-        vis, expiry = cached
-        if time.monotonic() < expiry:
-            return vis
+    async with _TOOL_VISIBILITY_LOCK:
+        cached = _TOOL_VISIBILITY_CACHE.get(key)
+        if cached is not None:
+            vis, expiry = cached
+            if time.monotonic() < expiry:
+                return vis
 
     vis = await mcp_manager.get_tool_visibility(
         project_id=project_id,
         server_name=server_name,
         tool_name=tool_name,
     )
-    _TOOL_VISIBILITY_CACHE[key] = (vis, time.monotonic() + _TOOL_VISIBILITY_TTL)
+    async with _TOOL_VISIBILITY_LOCK:
+        if len(_TOOL_VISIBILITY_CACHE) >= 1000:
+            _TOOL_VISIBILITY_CACHE.clear()
+        _TOOL_VISIBILITY_CACHE[key] = (vis, time.monotonic() + _TOOL_VISIBILITY_TTL)
     return vis
 
 
@@ -91,59 +96,6 @@ if TYPE_CHECKING:
 router = APIRouter(prefix="/apps", tags=["MCP Apps"])
 
 
-# === Schemas ===
-
-
-class MCPAppResponse(BaseModel):
-    """Response schema for MCP App."""
-
-    id: str
-    project_id: str
-    tenant_id: str
-    server_id: str | None = None
-    server_name: str
-    tool_name: str
-    ui_metadata: dict[str, Any]
-    source: str
-    status: str
-    lifecycle_metadata: dict[str, Any] = Field(default_factory=dict)
-    error_message: str | None = None
-    has_resource: bool = False
-    resource_size_bytes: int | None = None
-    created_at: str | None = None
-    updated_at: str | None = None
-
-
-class MCPAppResourceResponse(BaseModel):
-    """Response schema for MCP App HTML resource."""
-
-    app_id: str
-    resource_uri: str
-    html_content: str
-    mime_type: str = "text/html;profile=mcp-app"
-    size_bytes: int = 0
-    ui_metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class MCPAppToolCallRequest(BaseModel):
-    """Request schema for proxying a tool call from an MCP App iframe."""
-
-    tool_name: str = Field(..., description="Name of the MCP tool to call")
-    arguments: dict[str, Any] = Field(default_factory=dict, description="Tool call arguments")
-
-
-class MCPAppToolCallResponse(BaseModel):
-    """Response schema for proxied tool call.
-
-    Error responses follow JSON-RPC -32000 convention per SEP-1865.
-    """
-
-    content: list[Any] = Field(default_factory=list)
-    is_error: bool = False
-    error_message: str | None = None
-    error_code: int | None = Field(None, description="JSON-RPC error code (-32000 for proxy)")
-
-
 # === Dependency ===
 
 
@@ -154,16 +106,9 @@ def _get_mcp_app_service(request: Request, db: AsyncSession) -> MCPAppService:
 
 
 async def _get_mcp_runtime_service(request: Request, db: AsyncSession) -> MCPRuntimeService:
-    """Get MCP runtime service from request-scoped dependencies."""
+    """Get MCP runtime service from DI container (H2 fix)."""
     container = request.app.state.container.with_db(db)
-    return MCPRuntimeService(
-        db=db,
-        server_repo=SqlMCPServerRepository(db),
-        app_repo=SqlMCPAppRepository(db),
-        app_service=container.mcp_app_service(),
-        sandbox_manager=container.sandbox_mcp_server_manager(),
-        redis_client=container.redis(),
-    )
+    return container.mcp_runtime_service()
 
 
 def _validate_tenant(app: MCPApp, tenant_id: str) -> None:
@@ -558,17 +503,18 @@ async def _retry_resource_after_reinstall(
     try:
         mcp_repo = SqlMCPServerRepository(db)
         mcp_server = await mcp_repo.get_by_name(body.project_id, server_name)
-        if mcp_server and mcp_server.transport_config:
+        if mcp_server and mcp_server.config:
             logger.info(
                 "resources/read failed -- reinstalling server '%s' and retrying",
                 server_name,
             )
+            transport_config = mcp_server.config.to_dict() if mcp_server.config else {}
             await mcp_manager.install_and_start(
                 project_id=body.project_id,
                 tenant_id=tenant_id,
                 server_name=server_name,
-                server_type=mcp_server.server_type,
-                transport_config=mcp_server.transport_config,
+                server_type=mcp_server.config.transport_type.value,
+                transport_config=transport_config,
             )
             return await read_fn()
         raise HTTPException(status_code=404, detail=f"Resource not found: {body.uri}")
