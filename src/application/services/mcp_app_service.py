@@ -5,7 +5,7 @@ resource resolution, tool call proxying, and status management.
 """
 
 import logging
-from typing import Any, cast
+from typing import Any
 
 from src.domain.model.mcp.app import (
     MCPApp,
@@ -101,19 +101,33 @@ class MCPAppService:
             if not tool_name:
                 continue
 
-            # Check if already registered
-            existing = await self._app_repo.find_by_server_and_tool(server_id, tool_name)
+            # Check if already registered using the same key as the DB unique
+            # constraint (project_id, server_name, tool_name). This prevents duplicates
+            # when a server is deleted and re-created with a new server_id.
+            existing = await self._app_repo.find_by_project_server_name_and_tool(
+                project_id, server_name, tool_name
+            )
             if existing:
+                # Update server_id reference if the server was re-created
+                needs_save = False
+                if existing.server_id != server_id:
+                    existing.server_id = server_id
+                    needs_save = True
+
                 # Compare ui_metadata to detect changes (e.g. resourceUri update)
                 new_ui_metadata = MCPAppUIMetadata.from_dict(ui_meta)
                 if existing.ui_metadata.to_dict() != new_ui_metadata.to_dict():
                     existing.ui_metadata = new_ui_metadata
                     existing.mark_discovered()
+                    needs_save = True
+
+                if needs_save:
                     await self._app_repo.save(existing)
                     logger.info(
-                        "Updated MCP App metadata: server=%s, tool=%s",
+                        "Updated MCP App: server=%s, tool=%s (server_id=%s)",
                         server_name,
                         tool_name,
+                        server_id,
                     )
                 else:
                     logger.debug(
@@ -217,7 +231,7 @@ class MCPAppService:
         include_disabled: bool = False,
     ) -> list[MCPApp]:
         """List all MCP Apps for a tenant (across all projects)."""
-        return cast(list[MCPApp], await self._app_repo.find_by_tenant(tenant_id, include_disabled))  # type: ignore[attr-defined]
+        return await self._app_repo.find_by_tenant(tenant_id, include_disabled=include_disabled)
 
     async def list_ready_apps(self, project_id: str) -> list[MCPApp]:
         """List all ready-to-render MCP Apps for a project."""

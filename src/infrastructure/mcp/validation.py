@@ -85,7 +85,7 @@ class MCPValidator:
         """
         model_cls = self._models.get(tool_name)
         if model_cls is None:
-            logger.warning(
+            logger.debug(
                 "No schema registered for tool '%s'; skipping validation",
                 tool_name,
             )

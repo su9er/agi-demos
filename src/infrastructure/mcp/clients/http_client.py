@@ -11,6 +11,7 @@ protocol support.
 """
 
 import asyncio
+import itertools
 import json
 import logging
 from contextlib import AsyncExitStack, suppress
@@ -87,7 +88,7 @@ class MCPHttpClient:
         self.timeout = timeout
         self.transport_type = transport_type
         self._session: aiohttp.ClientSession | None = None
-        self._request_id = 0
+        self._request_id_counter = itertools.count(1)
         self.server_info: dict[str, Any] | None = None
         self._tools: list[MCPToolSchema] = []
         self._connected = False
@@ -217,10 +218,10 @@ class MCPHttpClient:
             self._reader_task = asyncio.create_task(self._read_messages())
 
             # Send initialize request
-            self._request_id += 1
+            request_id = next(self._request_id_counter)
             init_request = JSONRPCRequest(
                 jsonrpc="2.0",
-                id=self._request_id,
+                id=request_id,
                 method="initialize",
                 params={
                     "protocolVersion": "2024-11-05",
@@ -231,14 +232,14 @@ class MCPHttpClient:
 
             from mcp.shared.session import SessionMessage  # type: ignore[attr-defined]
 
-            future = asyncio.get_event_loop().create_future()
-            self._pending_requests[self._request_id] = future
+            future = asyncio.get_running_loop().create_future()
+            self._pending_requests[request_id] = future
             await self._write_stream.send(SessionMessage(message=JSONRPCMessage(root=init_request)))
 
             try:
                 result = await asyncio.wait_for(future, timeout=timeout)
             except TimeoutError:
-                self._pending_requests.pop(self._request_id, None)
+                self._pending_requests.pop(request_id, None)
                 raise
 
             if result and hasattr(result, "result"):
@@ -304,24 +305,24 @@ class MCPHttpClient:
         from mcp.shared.session import SessionMessage  # type: ignore[attr-defined]
         from mcp.types import JSONRPCMessage, JSONRPCRequest
 
-        self._request_id += 1
+        request_id = next(self._request_id_counter)
         request = JSONRPCRequest(
             jsonrpc="2.0",
-            id=self._request_id,
+            id=request_id,
             method="tools/list",
             params={},
         )
 
-        logger.debug(f"Sending tools/list request with id={self._request_id}")
+        logger.debug(f"Sending tools/list request with id={request_id}")
 
-        future = asyncio.get_event_loop().create_future()
-        self._pending_requests[self._request_id] = future
+        future = asyncio.get_running_loop().create_future()
+        self._pending_requests[request_id] = future
         await self._write_stream.send(SessionMessage(message=JSONRPCMessage(root=request)))
 
         try:
             result = await asyncio.wait_for(future, timeout=timeout)
         except TimeoutError:
-            self._pending_requests.pop(self._request_id, None)
+            self._pending_requests.pop(request_id, None)
             logger.error(f"tools/list request timed out after {timeout}s")
             return []
 
@@ -372,14 +373,14 @@ class MCPHttpClient:
             try:
                 result = await self._send_sse_tool_request(name, arguments, timeout)
             except TimeoutError:
-                if self._should_retry_on_failure(attempt, timeout, "Tool call timed out"):
+                if await self._retry_sse_after_failure(attempt, timeout, "Tool call timed out"):
                     continue
                 return MCPToolResult(
                     content=[{"type": "text", "text": f"Tool call timed out after {timeout}s"}],
                     isError=True,
                 )
             except Exception as e:
-                if self._should_retry_on_failure(attempt, timeout, f"Tool call failed: {e}"):
+                if await self._retry_sse_after_failure(attempt, timeout, f"Tool call failed: {e}"):
                     continue
                 logger.error(f"Tool call failed after reconnect attempt: {e}")
                 return MCPToolResult(
@@ -406,35 +407,23 @@ class MCPHttpClient:
         from mcp.shared.session import SessionMessage  # type: ignore[attr-defined]
         from mcp.types import JSONRPCMessage, JSONRPCRequest
 
-        self._request_id += 1
+        request_id = next(self._request_id_counter)
         request = JSONRPCRequest(
             jsonrpc="2.0",
-            id=self._request_id,
+            id=request_id,
             method="tools/call",
             params={"name": name, "arguments": arguments},
         )
 
-        future = asyncio.get_event_loop().create_future()
-        self._pending_requests[self._request_id] = future
+        future = asyncio.get_running_loop().create_future()
+        self._pending_requests[request_id] = future
         await self._write_stream.send(SessionMessage(message=JSONRPCMessage(root=request)))
 
         try:
             return await asyncio.wait_for(future, timeout=timeout)
         except TimeoutError:
-            self._pending_requests.pop(self._request_id, None)
+            self._pending_requests.pop(request_id, None)
             raise
-
-    def _should_retry_on_failure(self, attempt: int, timeout: float, reason: str) -> bool:
-        """Determine if the SSE tool call should be retried after a failure.
-
-        On the first attempt, disconnects and attempts reconnection.
-        Returns True if reconnection succeeded and a retry should occur.
-        """
-        if attempt != 0:
-            return False
-        logger.warning(f"{reason}, attempting reconnect...")
-        # Schedule reconnect synchronously is not possible; caller handles via loop
-        return False
 
     async def _retry_sse_after_failure(self, attempt: int, timeout: float, reason: str) -> bool:
         """Attempt reconnection after SSE failure on first attempt.
@@ -633,12 +622,12 @@ class MCPHttpClient:
             logger.error("HTTP session not initialized")
             return None
 
-        self._request_id += 1
+        request_id = next(self._request_id_counter)
         request = {
             "jsonrpc": "2.0",
             "method": method,
             "params": params,
-            "id": self._request_id,
+            "id": request_id,
         }
 
         logger.debug(f"Remote MCP request: {json.dumps(request)}")

@@ -11,7 +11,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.model.mcp.server import MCPServer
+from src.domain.model.mcp.server import MCPServer, MCPServerConfig
+from src.domain.model.mcp.transport import TransportType
 from src.domain.ports.repositories.mcp_server_repository import MCPServerRepositoryPort
 from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
 from src.infrastructure.adapters.secondary.persistence.models import MCPServer as DBMCPServer
@@ -43,6 +44,8 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
         enabled: bool = True,
     ) -> str:
         """Create a new MCP server configuration."""
+        # Intentional: create() takes raw params (not a domain entity),
+        # so we generate the UUID here rather than relying on Entity base class.
         server_id = str(uuid.uuid4())
 
         db_server = DBMCPServer(
@@ -230,14 +233,37 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
         if db_server is None:
             return None
 
+        transport_cfg: dict[str, Any] = db_server.transport_config or {}
+        config: MCPServerConfig | None = None
+        try:
+            config = MCPServerConfig(
+                server_name=db_server.name,
+                tenant_id=db_server.tenant_id,
+                transport_type=TransportType.normalize(db_server.server_type or "local"),
+                enabled=db_server.enabled,
+                command=transport_cfg.get("command"),
+                environment=transport_cfg.get("environment"),
+                url=transport_cfg.get("url"),
+                headers=transport_cfg.get("headers"),
+                heartbeat_interval=transport_cfg.get("heartbeat_interval", 30),
+                reconnect_attempts=transport_cfg.get("reconnect_attempts", 3),
+                timeout=transport_cfg.get("timeout", 30000),
+            )
+        except (ValueError, KeyError) as exc:
+            logger.warning(
+                "Invalid config for MCP server %s (type=%s): %s",
+                db_server.id,
+                db_server.server_type,
+                exc,
+            )
+
         return MCPServer(
             id=db_server.id,
             tenant_id=db_server.tenant_id,
             project_id=db_server.project_id,
             name=db_server.name,
             description=db_server.description,
-            server_type=db_server.server_type,
-            transport_config=db_server.transport_config,
+            config=config,
             enabled=db_server.enabled,
             runtime_status=db_server.runtime_status or "unknown",
             runtime_metadata=db_server.runtime_metadata or {},
@@ -250,14 +276,31 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
 
     def _to_db(self, entity: MCPServer) -> DBMCPServer:
         """Convert MCPServer domain entity to database model."""
+        server_type = entity.config.transport_type.value if entity.config else "local"
+        transport_config: dict[str, Any] = {}
+        if entity.config:
+            tc = entity.config
+            transport_config = {
+                k: v
+                for k, v in {
+                    "command": tc.command,
+                    "environment": tc.environment,
+                    "url": tc.url,
+                    "headers": tc.headers,
+                    "timeout": tc.timeout,
+                    "heartbeat_interval": tc.heartbeat_interval,
+                    "reconnect_attempts": tc.reconnect_attempts,
+                }.items()
+                if v is not None
+            }
         return DBMCPServer(
             id=entity.id,
             tenant_id=entity.tenant_id,
             project_id=entity.project_id,
             name=entity.name,
             description=entity.description,
-            server_type=entity.server_type,
-            transport_config=entity.transport_config or {},
+            server_type=server_type,
+            transport_config=transport_config,
             enabled=entity.enabled,
             runtime_status=entity.runtime_status,
             runtime_metadata=entity.runtime_metadata or {},
@@ -271,10 +314,22 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
         """Update database model fields from MCPServer entity."""
         db_model.name = entity.name
         db_model.description = entity.description
-        if entity.server_type is not None:
-            db_model.server_type = entity.server_type
-        if entity.transport_config is not None:
-            db_model.transport_config = entity.transport_config
+        if entity.config:
+            db_model.server_type = entity.config.transport_type.value
+            tc = entity.config
+            db_model.transport_config = {
+                k: v
+                for k, v in {
+                    "command": tc.command,
+                    "environment": tc.environment,
+                    "url": tc.url,
+                    "headers": tc.headers,
+                    "timeout": tc.timeout,
+                    "heartbeat_interval": tc.heartbeat_interval,
+                    "reconnect_attempts": tc.reconnect_attempts,
+                }.items()
+                if v is not None
+            }
         db_model.enabled = entity.enabled
         if entity.runtime_status:
             db_model.runtime_status = entity.runtime_status

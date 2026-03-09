@@ -6,11 +6,12 @@ which are interactive HTML interfaces returned by MCP tools via
 the _meta.ui.resourceUri extension.
 """
 
-import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
+
+from src.domain.shared_kernel import Entity
 
 
 class MCPAppSource(str, Enum):
@@ -123,7 +124,7 @@ class MCPAppResource:
     uri: str
     html_content: str
     mime_type: str = "text/html;profile=mcp-app"
-    resolved_at: datetime = field(default_factory=datetime.utcnow)
+    resolved_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     size_bytes: int = 0
 
     def to_dict(self) -> dict[str, Any]:
@@ -138,7 +139,7 @@ class MCPAppResource:
 
 
 @dataclass(kw_only=True)
-class MCPApp:
+class MCPApp(Entity):
     """MCP App entity.
 
     Represents an interactive HTML interface declared by an MCP tool
@@ -161,7 +162,6 @@ class MCPApp:
         updated_at: Last update timestamp.
     """
 
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     project_id: str
     tenant_id: str
     server_id: str | None = None
@@ -173,12 +173,12 @@ class MCPApp:
     status: MCPAppStatus = MCPAppStatus.DISCOVERED
     error_message: str | None = None
     lifecycle_metadata: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime | None = None
 
     def _record_lifecycle(self, status: MCPAppStatus, **metadata: Any) -> None:
         """Record lifecycle transition metadata for persistence/audit."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         self.lifecycle_metadata["last_status"] = status.value
         self.lifecycle_metadata["last_transition_at"] = now.isoformat()
         self.lifecycle_metadata.update(metadata)

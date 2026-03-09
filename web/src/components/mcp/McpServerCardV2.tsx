@@ -41,8 +41,10 @@ function formatLastSync(dateStr?: string): string {
 
 function formatConfigPreview(server: MCPServerResponse): string {
   const config = server.transport_config;
-  if (server.server_type === 'stdio') {
-    return (config.command as string) || 'N/A';
+  if (server.server_type === 'stdio' || server.server_type === 'local') {
+    const cmd = config.command;
+    if (Array.isArray(cmd)) return cmd.join(' ') || 'N/A';
+    return (cmd as string) || 'N/A';
   }
   return (config.url as string) || 'N/A';
 }

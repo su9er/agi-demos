@@ -182,3 +182,22 @@ class MCPServerRepositoryPort(ABC):
         Returns:
             List of enabled MCPServer entities
         """
+
+    @abstractmethod
+    async def update_runtime_metadata(
+        self,
+        server_id: str,
+        runtime_status: str | None = None,
+        runtime_metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        """
+        Update runtime status and metadata for an MCP server.
+
+        Args:
+            server_id: Server ID
+            runtime_status: Optional new runtime status string
+            runtime_metadata: Optional metadata dict to merge into existing
+
+        Returns:
+            True if updated successfully, False if server not found
+        """

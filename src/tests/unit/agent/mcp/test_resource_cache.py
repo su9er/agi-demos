@@ -107,14 +107,14 @@ class TestMCPResourceCache:
         await cache.get("uri1")  # hit
         await cache.get("uri2")  # miss
 
-        stats = cache.get_stats()
+        stats = await cache.get_stats()
         assert stats["hits"] == 1
         assert stats["misses"] == 1
         assert stats["size"] == 1
 
     async def test_stats_initial(self) -> None:
         cache = MCPResourceCache()
-        stats = cache.get_stats()
+        stats = await cache.get_stats()
         assert stats == {"hits": 0, "misses": 0, "size": 0}
 
     async def test_prefetch(self) -> None:
@@ -163,7 +163,7 @@ class TestMCPResourceCache:
 
         removed = await cache.cleanup_expired()
         assert removed == 2
-        assert cache.get_stats()["size"] == 0
+        assert (await cache.get_stats())["size"] == 0
 
     async def test_cleanup_expired_partial(self) -> None:
         cache = MCPResourceCache()
@@ -182,4 +182,4 @@ class TestMCPResourceCache:
 
         result = await cache.get("uri1")
         assert result == "v2"
-        assert cache.get_stats()["size"] == 1
+        assert (await cache.get_stats())["size"] == 1

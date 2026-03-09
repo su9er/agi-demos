@@ -48,6 +48,11 @@ export function getRuntimeStatus(server: MCPServerResponse): RuntimeStatus {
   if (runtimeState === 'starting' || runtimeState === 'pending') return 'starting';
   if (runtimeState === 'stopping') return 'stopping';
   if (runtimeState === 'stopped' || runtimeState === 'not_started') return 'stopped';
+
+  // For newly registered servers, runtime_state is undefined.
+  // Treat undefined/unknown states as 'stopped' rather than 'error'.
+  if (!runtimeState || runtimeState === 'unknown') return 'stopped';
+
   return 'error';
 }
 

@@ -87,7 +87,8 @@ class TestSqlMCPServerRepositoryCreate:
         server = await v2_mcp_repo.get_by_id(server_id)
         assert server is not None
         assert server.name == "Test Server"
-        assert server.server_type == "stdio"
+        assert server.config is not None
+        assert server.config.transport_type.value == "local"  # "stdio" normalizes to LOCAL
         assert server.project_id == PROJECT_ID
 
 

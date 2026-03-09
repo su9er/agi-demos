@@ -6,7 +6,7 @@ transport type and configuration.
 """
 
 import logging
-from typing import Any, ClassVar
+from typing import Any
 
 from src.domain.model.mcp.transport import TransportType
 from src.infrastructure.mcp.tools.base import (
@@ -26,11 +26,12 @@ class MCPToolFactory:
     and server configuration.
     """
 
-    _adapters: ClassVar[dict[str, BaseMCPToolAdapter]] = {}
+    def __init__(self) -> None:
+        """Initialize the tool factory with an empty adapter cache."""
+        self._adapters: dict[str, BaseMCPToolAdapter] = {}
 
-    @classmethod
     def create_adapter(
-        cls,
+        self,
         server_name: str,
         transport_type: TransportType,
         **config: Any,
@@ -59,23 +60,23 @@ class MCPToolFactory:
             transport = transport_type
 
         if transport in (TransportType.LOCAL, TransportType.STDIO):
-            return cls._create_local_adapter(server_name, **config)
+            return self._create_local_adapter(server_name, **config)
 
         elif transport == TransportType.WEBSOCKET:
-            return cls._create_websocket_adapter(server_name, **config)
+            return self._create_websocket_adapter(server_name, **config)
 
         elif transport == TransportType.HTTP:
             # HTTP adapters use WebSocket for bidirectional MCP communication
             # Fall back to WebSocket if websocket_url provided
             if "websocket_url" in config:
-                return cls._create_websocket_adapter(server_name, **config)
+                return self._create_websocket_adapter(server_name, **config)
             raise ValueError("HTTP transport requires websocket_url for MCP communication")
 
         else:
             raise ValueError(f"Unsupported transport type: {transport}")
 
-    @classmethod
-    def _create_local_adapter(cls, server_name: str, **config: Any) -> LocalToolAdapter:
+    @staticmethod
+    def _create_local_adapter(server_name: str, **config: Any) -> LocalToolAdapter:
         """Create local (stdio) adapter."""
         command = config.get("command")
         if not command:
@@ -88,8 +89,8 @@ class MCPToolFactory:
             env=config.get("env", {}),
         )
 
-    @classmethod
-    def _create_websocket_adapter(cls, server_name: str, **config: Any) -> WebSocketToolAdapter:
+    @staticmethod
+    def _create_websocket_adapter(server_name: str, **config: Any) -> WebSocketToolAdapter:
         """Create WebSocket adapter."""
         websocket_url = config.get("websocket_url")
         if not websocket_url:
@@ -100,9 +101,8 @@ class MCPToolFactory:
             websocket_url=websocket_url,
         )
 
-    @classmethod
     def get_or_create(
-        cls,
+        self,
         server_name: str,
         transport_type: TransportType,
         **config: Any,
@@ -120,15 +120,14 @@ class MCPToolFactory:
         Returns:
             BaseMCPToolAdapter instance
         """
-        if server_name in cls._adapters:
-            return cls._adapters[server_name]
+        if server_name in self._adapters:
+            return self._adapters[server_name]
 
-        adapter = cls.create_adapter(server_name, transport_type, **config)
-        cls._adapters[server_name] = adapter
+        adapter = self.create_adapter(server_name, transport_type, **config)
+        self._adapters[server_name] = adapter
         return adapter
 
-    @classmethod
-    def remove_adapter(cls, server_name: str) -> BaseMCPToolAdapter | None:
+    def remove_adapter(self, server_name: str) -> BaseMCPToolAdapter | None:
         """
         Remove adapter from cache.
 
@@ -138,14 +137,12 @@ class MCPToolFactory:
         Returns:
             Removed adapter or None
         """
-        return cls._adapters.pop(server_name, None)
+        return self._adapters.pop(server_name, None)
 
-    @classmethod
-    def clear_all(cls) -> None:
+    def clear_all(self) -> None:
         """Clear all cached adapters."""
-        cls._adapters.clear()
+        self._adapters.clear()
 
-    @classmethod
-    def list_adapters(cls) -> list[str]:
+    def list_adapters(self) -> list[str]:
         """List all cached adapter server names."""
-        return list(cls._adapters.keys())
+        return list(self._adapters.keys())

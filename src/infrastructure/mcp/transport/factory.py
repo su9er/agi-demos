@@ -5,7 +5,7 @@ Creates appropriate transport instances based on configuration.
 """
 
 import logging
-from typing import Any, ClassVar
+from typing import Any
 
 from src.domain.model.mcp.transport import TransportConfig, TransportType
 from src.infrastructure.mcp.transport.base import BaseTransport, MCPTransportError
@@ -21,10 +21,11 @@ class TransportFactory:
     TransportConfig or transport type string.
     """
 
-    _transports: ClassVar[dict[TransportType, type[BaseTransport]]] = {}
+    def __init__(self) -> None:
+        """Initialize the transport factory with an empty registry."""
+        self._transports: dict[TransportType, type[BaseTransport]] = {}
 
-    @classmethod
-    def register(cls, transport_type: TransportType, transport_class: type[BaseTransport]) -> None:
+    def register(self, transport_type: TransportType, transport_class: type[BaseTransport]) -> None:
         """
         Register a transport implementation.
 
@@ -32,11 +33,10 @@ class TransportFactory:
             transport_type: Transport type enum value.
             transport_class: Transport class implementing BaseTransport.
         """
-        cls._transports[transport_type] = transport_class
+        self._transports[transport_type] = transport_class
         logger.debug(f"Registered transport: {transport_type.value} -> {transport_class.__name__}")
 
-    @classmethod
-    def create(cls, config: TransportConfig) -> BaseTransport:
+    def create(self, config: TransportConfig) -> BaseTransport:
         """
         Create a transport instance from configuration.
 
@@ -55,21 +55,20 @@ class TransportFactory:
         if transport_type == TransportType.STDIO:
             transport_type = TransportType.LOCAL
 
-        transport_class = cls._transports.get(transport_type)
+        transport_class = self._transports.get(transport_type)
 
         if not transport_class:
             # Lazy import and register
-            cls._lazy_register()
-            transport_class = cls._transports.get(transport_type)
+            self._lazy_register()
+            transport_class = self._transports.get(transport_type)
 
         if not transport_class:
             raise MCPTransportError(f"Unsupported transport type: {transport_type.value}")
 
         return transport_class(config)
 
-    @classmethod
     def create_from_type(
-        cls,
+        self,
         transport_type: str,
         config_dict: dict[str, Any],
     ) -> BaseTransport:
@@ -97,10 +96,9 @@ class TransportFactory:
             reconnect_attempts=config_dict.get("reconnect_attempts") or 3,
         )
 
-        return cls.create(config)
+        return self.create(config)
 
-    @classmethod
-    def supports(cls, transport_type: str) -> bool:
+    def supports(self, transport_type: str) -> bool:
         """
         Check if a transport type is supported.
 
@@ -112,15 +110,14 @@ class TransportFactory:
         """
         try:
             normalized = TransportType.normalize(transport_type)
-            cls._lazy_register()
-            return normalized in cls._transports
+            self._lazy_register()
+            return normalized in self._transports
         except ValueError:
             return False
 
-    @classmethod
-    def _lazy_register(cls) -> None:
+    def _lazy_register(self) -> None:
         """Lazily register built-in transports."""
-        if cls._transports:
+        if self._transports:
             return
 
         # Import and register built-in transports
@@ -128,16 +125,15 @@ class TransportFactory:
         from src.infrastructure.mcp.transport.stdio import StdioTransport
         from src.infrastructure.mcp.transport.websocket import WebSocketTransport
 
-        cls.register(TransportType.LOCAL, StdioTransport)
-        cls.register(TransportType.STDIO, StdioTransport)
-        cls.register(TransportType.HTTP, HTTPTransport)
-        cls.register(TransportType.WEBSOCKET, WebSocketTransport)
+        self.register(TransportType.LOCAL, StdioTransport)
+        self.register(TransportType.STDIO, StdioTransport)
+        self.register(TransportType.HTTP, HTTPTransport)
+        self.register(TransportType.WEBSOCKET, WebSocketTransport)
 
         # SSE uses the existing implementation from agent/mcp/client.py
         # Will be added when extracted
 
-    @classmethod
-    def get_supported_types(cls) -> list[str]:
+    def get_supported_types(self) -> list[str]:
         """Get list of supported transport type strings."""
-        cls._lazy_register()
-        return [t.value for t in cls._transports.keys()]
+        self._lazy_register()
+        return [t.value for t in self._transports.keys()]

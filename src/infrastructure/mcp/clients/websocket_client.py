@@ -154,9 +154,13 @@ class MCPWebSocketClient:
     def __del__(self) -> None:
         """Destructor - ensure cleanup warning if not properly closed."""
         if self._connected or self._ws is not None or self._session is not None:
-            logger.warning(
-                f"MCPWebSocketClient for {self.url} was not properly closed. "
-                "Use 'await client.disconnect()' or async context manager."
+            import warnings
+
+            warnings.warn(
+                f"MCPWebSocketClient was not properly closed: {self.url}. "
+                "Use 'await client.disconnect()' or async context manager.",
+                ResourceWarning,
+                stacklevel=2,
             )
 
     @property
@@ -460,9 +464,7 @@ class MCPWebSocketClient:
                 # MCPToolResult is a dataclass — extract known fields
                 # and store extra MCP fields (results, errors) in metadata
                 known_keys = {"content", "isError", "metadata", "artifact"}
-                extra_fields = {
-                    k: v for k, v in result.items() if k not in known_keys
-                }
+                extra_fields = {k: v for k, v in result.items() if k not in known_keys}
                 metadata = result.get("metadata") or {}
                 if extra_fields:
                     metadata.update(extra_fields)
@@ -715,7 +717,7 @@ class MCPWebSocketClient:
             self._request_id += 1
             request_id = self._request_id
             # Create future for response
-            future: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
+            future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
             self._pending_requests[request_id] = future
 
         # Build request outside of lock

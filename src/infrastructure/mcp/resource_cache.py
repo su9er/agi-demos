@@ -144,17 +144,18 @@ class MCPResourceCache:
         except RuntimeError:
             pass  # No event loop running
 
-    def get_stats(self) -> dict[str, int]:
+    async def get_stats(self) -> dict[str, int]:
         """Return cache statistics.
 
         Returns:
             Dict with hits, misses, and current size.
         """
-        return {
-            "hits": self._stats["hits"],
-            "misses": self._stats["misses"],
-            "size": len(self._cache),
-        }
+        async with self._lock:
+            return {
+                "hits": self._stats["hits"],
+                "misses": self._stats["misses"],
+                "size": len(self._cache),
+            }
 
     async def cleanup_expired(self) -> int:
         """Remove all expired entries.

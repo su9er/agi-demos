@@ -6,7 +6,7 @@ following hexagonal architecture principles.
 """
 
 from abc import abstractmethod
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from src.domain.model.mcp.app import MCPApp
 
@@ -53,6 +53,25 @@ class MCPAppRepositoryPort(Protocol):
         ...
 
     @abstractmethod
+    async def find_by_project_server_name_and_tool(
+        self, project_id: str, server_name: str, tool_name: str
+    ) -> MCPApp | None:
+        """Find an MCP App by project, server name, and tool name.
+
+        Uses the same key as the DB unique constraint
+        (project_id, server_name, tool_name) for reliable deduplication.
+
+        Args:
+            project_id: Project ID for scoping.
+            server_name: Human-readable server name.
+            tool_name: The tool name that declares this app.
+
+        Returns:
+            MCPApp if found, None otherwise.
+        """
+        ...
+
+    @abstractmethod
     async def find_by_project(
         self, project_id: str, include_disabled: bool = False
     ) -> list[MCPApp]:
@@ -76,6 +95,24 @@ class MCPAppRepositoryPort(Protocol):
 
         Returns:
             List of MCPApp entities with status READY.
+        """
+        ...
+
+    @abstractmethod
+    async def find_by_tenant(
+        self,
+        tenant_id: str,
+        *,
+        include_disabled: bool = False,
+    ) -> list[MCPApp]:
+        """Find all MCP apps belonging to a tenant.
+
+        Args:
+            tenant_id: The tenant identifier.
+            include_disabled: If True, include disabled apps.
+
+        Returns:
+            List of MCP apps for the tenant.
         """
         ...
 
@@ -114,5 +151,18 @@ class MCPAppRepositoryPort(Protocol):
 
         Returns:
             Number of apps disabled.
+        """
+        ...
+
+    @abstractmethod
+    async def update_lifecycle_metadata(self, app_id: str, metadata: dict[str, Any]) -> bool:
+        """Merge lifecycle metadata into existing app metadata.
+
+        Args:
+            app_id: Unique identifier of the app.
+            metadata: Metadata dict to merge into existing lifecycle_metadata.
+
+        Returns:
+            True if updated, False if not found.
         """
         ...

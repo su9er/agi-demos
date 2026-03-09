@@ -5,11 +5,12 @@ Defines the MCPServer entity, configuration, and status value objects.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 from src.domain.model.mcp.transport import TransportConfig, TransportType
+from src.domain.shared_kernel import Entity, ValueObject
 
 
 class MCPServerStatusType(str, Enum):
@@ -23,8 +24,8 @@ class MCPServerStatusType(str, Enum):
     NEEDS_AUTH = "needs_auth"
 
 
-@dataclass(frozen=True)
-class MCPServerStatus:
+@dataclass(frozen=True, kw_only=True)
+class MCPServerStatus(ValueObject):
     """
     MCP server status value object.
 
@@ -51,7 +52,7 @@ class MCPServerStatus:
             connected=True,
             tool_count=tool_count,
             server_info=server_info,
-            last_check_at=datetime.now(),
+            last_check_at=datetime.now(UTC),
         )
 
     @classmethod
@@ -60,7 +61,7 @@ class MCPServerStatus:
         return cls(
             status=MCPServerStatusType.DISCONNECTED,
             connected=False,
-            last_check_at=datetime.now(),
+            last_check_at=datetime.now(UTC),
         )
 
     @classmethod
@@ -70,7 +71,7 @@ class MCPServerStatus:
             status=MCPServerStatusType.FAILED,
             connected=False,
             error=error,
-            last_check_at=datetime.now(),
+            last_check_at=datetime.now(UTC),
         )
 
     @classmethod
@@ -79,12 +80,12 @@ class MCPServerStatus:
         return cls(
             status=MCPServerStatusType.CONNECTING,
             connected=False,
-            last_check_at=datetime.now(),
+            last_check_at=datetime.now(UTC),
         )
 
 
-@dataclass(frozen=True)
-class MCPServerConfig:
+@dataclass(frozen=True, kw_only=True)
+class MCPServerConfig(ValueObject):
     """
     MCP server configuration.
 
@@ -155,8 +156,8 @@ class MCPServerConfig:
         }
 
 
-@dataclass
-class MCPServer:
+@dataclass(kw_only=True)
+class MCPServer(Entity):
     """
     MCP Server entity.
 
@@ -164,15 +165,11 @@ class MCPServer:
     This is the aggregate root for MCP server management.
     """
 
-    id: str
     tenant_id: str
     name: str
     project_id: str | None = None
     description: str | None = None
 
-    # Flat DB-column fields used by repository and routers
-    server_type: str | None = None
-    transport_config: dict[str, Any] | None = None
     enabled: bool = True
     discovered_tools: list[Any] = field(default_factory=list)
     runtime_status: str = "unknown"
@@ -198,7 +195,7 @@ class MCPServer:
     ) -> None:
         """Update discovered tools and sync timestamp."""
         self.discovered_tools = tools
-        self.last_sync_at = sync_time or datetime.now()
+        self.last_sync_at = sync_time or datetime.now(UTC)
 
     def update_runtime(
         self,
@@ -220,6 +217,41 @@ class MCPServer:
         """Get number of discovered tools."""
         return len(self.discovered_tools)
 
+    @property
+    def server_type(self) -> str:
+        """Server type string derived from config transport type.
+
+        Normalizes LOCAL and STDIO transport types to 'stdio' for frontend compatibility.
+        """
+        if self.config is not None:
+            transport_value = self.config.transport_type.value
+            if transport_value in ("local", "stdio"):
+                return "stdio"
+            return transport_value
+        return "unknown"
+
+    @property
+    def transport_config(self) -> dict[str, Any]:
+        """Transport configuration dict derived from config."""
+        if self.config is None:
+            return {}
+        result: dict[str, Any] = {}
+        if self.config.command is not None:
+            result["command"] = self.config.command
+        if self.config.environment is not None:
+            result["environment"] = self.config.environment
+        if self.config.url is not None:
+            result["url"] = self.config.url
+        if self.config.headers is not None:
+            result["headers"] = self.config.headers
+        if self.config.timeout != 30000:
+            result["timeout"] = self.config.timeout
+        if self.config.heartbeat_interval != 30:
+            result["heartbeat_interval"] = self.config.heartbeat_interval
+        if self.config.reconnect_attempts != 3:
+            result["reconnect_attempts"] = self.config.reconnect_attempts
+        return result
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API responses."""
         return {
@@ -228,8 +260,6 @@ class MCPServer:
             "project_id": self.project_id,
             "name": self.name,
             "description": self.description,
-            "server_type": self.server_type,
-            "transport_config": self.transport_config,
             "enabled": self.enabled,
             "discovered_tools": self.discovered_tools,
             "runtime_status": self.runtime_status,

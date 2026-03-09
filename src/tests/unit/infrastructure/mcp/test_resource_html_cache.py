@@ -253,7 +253,7 @@ class TestResourceCacheStats:
         )
 
         # Get initial stats
-        stats = tool.get_cache_stats()
+        stats = await tool.get_cache_stats()
 
         assert "hits" in stats
         assert "misses" in stats
@@ -265,6 +265,6 @@ class TestResourceCacheStats:
         # Fetch again (cache hit)
         await tool.fetch_resource_html()
 
-        updated_stats = tool.get_cache_stats()
+        updated_stats = await tool.get_cache_stats()
         assert updated_stats["hits"] >= 1
         assert updated_stats["misses"] >= 1

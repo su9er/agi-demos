@@ -63,10 +63,17 @@ class SqlMCPAppRepository(MCPAppRepositoryPort):
         db_app = result.scalar_one_or_none()
         return self._to_domain(db_app) if db_app else None
 
-    async def find_by_server_name_and_tool(self, server_name: str, tool_name: str) -> MCPApp | None:
-        """Find an MCP App by server name and tool name."""
+    async def find_by_project_server_name_and_tool(
+        self, project_id: str, server_name: str, tool_name: str
+    ) -> MCPApp | None:
+        """Find an MCP App by project, server name, and tool name.
+
+        Matches the DB unique constraint (project_id, server_name, tool_name)
+        for reliable deduplication regardless of server_id changes.
+        """
         result = await self._session.execute(
             select(MCPAppModel).where(
+                MCPAppModel.project_id == project_id,
                 MCPAppModel.server_name == server_name,
                 MCPAppModel.tool_name == tool_name,
             )

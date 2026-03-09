@@ -163,11 +163,12 @@ class TestMCPToolFactory:
 
     def setup_method(self):
         """Clear factory cache before each test."""
-        MCPToolFactory.clear_all()
+        self.factory = MCPToolFactory()
+        self.factory.clear_all()
 
     def test_create_local_adapter(self):
         """Test creating local adapter."""
-        adapter = MCPToolFactory.create_adapter(
+        adapter = self.factory.create_adapter(
             server_name="fetch",
             transport_type=TransportType.LOCAL,
             command="uvx",
@@ -179,7 +180,7 @@ class TestMCPToolFactory:
 
     def test_create_stdio_adapter(self):
         """Test creating stdio adapter (alias for local)."""
-        adapter = MCPToolFactory.create_adapter(
+        adapter = self.factory.create_adapter(
             server_name="fetch",
             transport_type=TransportType.STDIO,
             command="uvx",
@@ -189,7 +190,7 @@ class TestMCPToolFactory:
 
     def test_create_websocket_adapter(self):
         """Test creating WebSocket adapter."""
-        adapter = MCPToolFactory.create_adapter(
+        adapter = self.factory.create_adapter(
             server_name="sandbox",
             transport_type=TransportType.WEBSOCKET,
             websocket_url="ws://localhost:8765/mcp",
@@ -201,7 +202,7 @@ class TestMCPToolFactory:
     def test_create_local_missing_command(self):
         """Test local adapter requires command."""
         with pytest.raises(ValueError, match="command"):
-            MCPToolFactory.create_adapter(
+            self.factory.create_adapter(
                 server_name="test",
                 transport_type=TransportType.LOCAL,
             )
@@ -209,7 +210,7 @@ class TestMCPToolFactory:
     def test_create_websocket_missing_url(self):
         """Test WebSocket adapter requires URL."""
         with pytest.raises(ValueError, match="websocket_url"):
-            MCPToolFactory.create_adapter(
+            self.factory.create_adapter(
                 server_name="test",
                 transport_type=TransportType.WEBSOCKET,
             )
@@ -217,20 +218,20 @@ class TestMCPToolFactory:
     def test_unsupported_transport(self):
         """Test unsupported transport raises error."""
         with pytest.raises(ValueError, match="Unsupported"):
-            MCPToolFactory.create_adapter(
+            self.factory.create_adapter(
                 server_name="test",
                 transport_type=TransportType.SSE,  # SSE not fully supported
             )
 
     def test_get_or_create_caches_adapter(self):
         """Test get_or_create caches adapters."""
-        adapter1 = MCPToolFactory.get_or_create(
+        adapter1 = self.factory.get_or_create(
             server_name="fetch",
             transport_type=TransportType.LOCAL,
             command="uvx",
         )
 
-        adapter2 = MCPToolFactory.get_or_create(
+        adapter2 = self.factory.get_or_create(
             server_name="fetch",
             transport_type=TransportType.LOCAL,
             command="uvx",
@@ -240,40 +241,40 @@ class TestMCPToolFactory:
 
     def test_remove_adapter(self):
         """Test removing adapter from cache."""
-        MCPToolFactory.get_or_create(
+        self.factory.get_or_create(
             server_name="fetch",
             transport_type=TransportType.LOCAL,
             command="uvx",
         )
 
-        removed = MCPToolFactory.remove_adapter("fetch")
+        removed = self.factory.remove_adapter("fetch")
 
         assert removed is not None
-        assert "fetch" not in MCPToolFactory.list_adapters()
+        assert "fetch" not in self.factory.list_adapters()
 
     def test_remove_nonexistent_adapter(self):
         """Test removing nonexistent adapter returns None."""
-        removed = MCPToolFactory.remove_adapter("nonexistent")
+        removed = self.factory.remove_adapter("nonexistent")
         assert removed is None
 
     def test_list_adapters(self):
         """Test listing cached adapters."""
-        MCPToolFactory.get_or_create("server1", TransportType.LOCAL, command="cmd1")
-        MCPToolFactory.get_or_create("server2", TransportType.LOCAL, command="cmd2")
+        self.factory.get_or_create("server1", TransportType.LOCAL, command="cmd1")
+        self.factory.get_or_create("server2", TransportType.LOCAL, command="cmd2")
 
-        adapters = MCPToolFactory.list_adapters()
+        adapters = self.factory.list_adapters()
 
         assert "server1" in adapters
         assert "server2" in adapters
 
     def test_clear_all(self):
         """Test clearing all cached adapters."""
-        MCPToolFactory.get_or_create("server1", TransportType.LOCAL, command="cmd1")
-        MCPToolFactory.get_or_create("server2", TransportType.LOCAL, command="cmd2")
+        self.factory.get_or_create("server1", TransportType.LOCAL, command="cmd1")
+        self.factory.get_or_create("server2", TransportType.LOCAL, command="cmd2")
 
-        MCPToolFactory.clear_all()
+        self.factory.clear_all()
 
-        assert MCPToolFactory.list_adapters() == []
+        assert self.factory.list_adapters() == []
 
 
 # ============================================================================

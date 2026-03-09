@@ -18,7 +18,7 @@ import contextlib
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger(__name__)
@@ -137,7 +137,7 @@ class MCPServerHealthMonitor:
         Returns:
             MCPServerHealth with current status.
         """
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
 
         try:
             result = await asyncio.wait_for(

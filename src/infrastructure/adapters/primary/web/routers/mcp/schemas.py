@@ -169,3 +169,56 @@ class MCPHealthSummary(BaseModel):
     error: int
     disabled: int
     servers: list[MCPServerHealthStatus]
+
+
+# === MCP App Schemas (moved from apps.py for D17) ===
+
+
+class MCPAppResponse(BaseModel):
+    """Response schema for MCP App."""
+
+    id: str
+    project_id: str
+    tenant_id: str
+    server_id: str | None = None
+    server_name: str
+    tool_name: str
+    ui_metadata: dict[str, Any]
+    source: str
+    status: str
+    lifecycle_metadata: dict[str, Any] = Field(default_factory=dict)
+    error_message: str | None = None
+    has_resource: bool = False
+    resource_size_bytes: int | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class MCPAppResourceResponse(BaseModel):
+    """Response schema for MCP App HTML resource."""
+
+    app_id: str
+    resource_uri: str
+    html_content: str
+    mime_type: str = "text/html;profile=mcp-app"
+    size_bytes: int = 0
+    ui_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPAppToolCallRequest(BaseModel):
+    """Request schema for proxying a tool call from an MCP App iframe."""
+
+    tool_name: str = Field(..., description="Name of the MCP tool to call")
+    arguments: dict[str, Any] = Field(default_factory=dict, description="Tool call arguments")
+
+
+class MCPAppToolCallResponse(BaseModel):
+    """Response schema for proxied tool call.
+
+    Error responses follow JSON-RPC -32000 convention per SEP-1865.
+    """
+
+    content: list[Any] = Field(default_factory=list)
+    is_error: bool = False
+    error_message: str | None = None
+    error_code: int | None = Field(None, description="JSON-RPC error code (-32000 for proxy)")

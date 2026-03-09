@@ -70,8 +70,6 @@ class SandboxMCPServerToolAdapter(AgentTool):
         self._sandbox_adapter = sandbox_adapter
         self._sandbox_id = sandbox_id
         self._input_schema = tool_info.get("input_schema", tool_info.get("inputSchema", {}))
-        # Override the _description with our own (parent set it, but we keep it consistent)
-        self._description = description
 
         # Preserve _meta.ui for MCP Apps support
         meta = tool_info.get("_meta")
@@ -276,14 +274,14 @@ class SandboxMCPServerToolAdapter(AgentTool):
             _mcp_bg_tasks.add(_prefetch_task)
             _prefetch_task.add_done_callback(_mcp_bg_tasks.discard)
 
-    def get_cache_stats(self) -> dict[str, Any]:
+    async def get_cache_stats(self) -> dict[str, Any]:
         """Get cache statistics.
 
         Returns:
             Dict with hits, misses, and size or last_fetch_at.
         """
         if self._resource_cache is not None:
-            return dict(self._resource_cache.get_stats())
+            return dict(await self._resource_cache.get_stats())
         return dict(self._cache_stats)
 
     @override
@@ -601,6 +599,20 @@ def _build_capture_html(
     return capture_html_from_content
 
 
+def _async_cache_stats_fn(
+    resource_cache: MCPResourceCache | None,
+    fallback_stats: dict[str, Any],
+) -> Callable[[], Awaitable[dict[str, Any]]]:
+    """Create an async callable that returns cache stats."""
+
+    async def _get() -> dict[str, Any]:
+        if resource_cache is not None:
+            return dict(await resource_cache.get_stats())
+        return dict(fallback_stats)
+
+    return _get
+
+
 def _attach_processor_attrs(
     info: Any,
     *,
@@ -612,7 +624,7 @@ def _attach_processor_attrs(
     fetch_resource_html: Callable[[], Awaitable[str]],
     invalidate_fn: Callable[[], None],
     prefetch_fn: Callable[[], None],
-    cache_stats_fn: Callable[[], dict[str, Any]],
+    cache_stats_fn: Callable[[], Awaitable[dict[str, Any]]],
 ) -> None:
     """Set extra attributes on ToolInfo for processor.py compatibility.
 
@@ -794,11 +806,7 @@ def create_sandbox_mcp_server_tool(
         fetch_resource_html=fetch_resource_html,
         invalidate_fn=invalidate_fn,
         prefetch_fn=prefetch_fn,
-        cache_stats_fn=lambda: (
-            dict(resource_cache.get_stats())
-            if resource_cache is not None
-            else dict(state["cache_stats"])
-        ),
+        cache_stats_fn=_async_cache_stats_fn(resource_cache, state["cache_stats"]),
     )
 
     return info

@@ -19,7 +19,7 @@ class TestTransportFactory:
 
     def test_get_supported_types(self):
         """Test getting supported transport types."""
-        types = TransportFactory.get_supported_types()
+        types = TransportFactory().get_supported_types()
         assert "local" in types
         assert "stdio" in types
         assert "http" in types
@@ -27,26 +27,26 @@ class TestTransportFactory:
 
     def test_supports_local(self):
         """Test supports returns True for local."""
-        assert TransportFactory.supports("local") is True
+        assert TransportFactory().supports("local") is True
 
     def test_supports_stdio(self):
         """Test supports returns True for stdio."""
-        assert TransportFactory.supports("stdio") is True
+        assert TransportFactory().supports("stdio") is True
 
     def test_supports_websocket(self):
         """Test supports returns True for websocket."""
-        assert TransportFactory.supports("websocket") is True
+        assert TransportFactory().supports("websocket") is True
 
     def test_supports_unknown(self):
         """Test supports returns False for unknown type."""
-        assert TransportFactory.supports("unknown") is False
+        assert TransportFactory().supports("unknown") is False
 
     def test_create_stdio_transport(self):
         """Test creating stdio transport."""
         from src.infrastructure.mcp.transport.stdio import StdioTransport
 
         config = TransportConfig.local(command=["uvx", "test"])
-        transport = TransportFactory.create(config)
+        transport = TransportFactory().create(config)
 
         assert isinstance(transport, StdioTransport)
 
@@ -55,7 +55,7 @@ class TestTransportFactory:
         from src.infrastructure.mcp.transport.http import HTTPTransport
 
         config = TransportConfig.http(url="http://localhost:8080")
-        transport = TransportFactory.create(config)
+        transport = TransportFactory().create(config)
 
         assert isinstance(transport, HTTPTransport)
 
@@ -64,7 +64,7 @@ class TestTransportFactory:
         from src.infrastructure.mcp.transport.websocket import WebSocketTransport
 
         config = TransportConfig.websocket(url="ws://localhost:8765")
-        transport = TransportFactory.create(config)
+        transport = TransportFactory().create(config)
 
         assert isinstance(transport, WebSocketTransport)
 
@@ -72,7 +72,7 @@ class TestTransportFactory:
         """Test create_from_type with stdio."""
         from src.infrastructure.mcp.transport.stdio import StdioTransport
 
-        transport = TransportFactory.create_from_type(
+        transport = TransportFactory().create_from_type(
             "stdio",
             {"command": ["uvx", "test"]},
         )
@@ -83,7 +83,7 @@ class TestTransportFactory:
         """Test create_from_type with websocket."""
         from src.infrastructure.mcp.transport.websocket import WebSocketTransport
 
-        transport = TransportFactory.create_from_type(
+        transport = TransportFactory().create_from_type(
             "websocket",
             {"url": "ws://localhost:8765"},
         )
@@ -189,7 +189,7 @@ class TestHTTPTransport:
 
         transport = HTTPTransport()
 
-        with pytest.raises(MCPTransportError, match="doesn't support standalone receive"):
+        with pytest.raises(NotImplementedError, match="request-response pattern"):
             await transport.receive()
 
 
@@ -234,7 +234,7 @@ class TestWebSocketTransport:
 
         transport = WebSocketTransport()
 
-        with pytest.raises(MCPTransportClosedError):
+        with pytest.raises(NotImplementedError, match="request-response pattern"):
             await transport.send({"test": "message"})
 
 

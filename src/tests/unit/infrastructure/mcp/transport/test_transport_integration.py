@@ -24,7 +24,7 @@ class TestTransportFactoryIntegration:
             command=["uvx", "mcp-server-fetch"],
         )
 
-        transport = TransportFactory.create(config)
+        transport = TransportFactory().create(config)
 
         assert isinstance(transport, StdioTransport)
 
@@ -35,7 +35,7 @@ class TestTransportFactoryIntegration:
             url="http://localhost:8080/mcp",
         )
 
-        transport = TransportFactory.create(config)
+        transport = TransportFactory().create(config)
 
         assert isinstance(transport, HTTPTransport)
 
@@ -46,7 +46,7 @@ class TestTransportFactoryIntegration:
             url="ws://localhost:8765/mcp",
         )
 
-        transport = TransportFactory.create(config)
+        transport = TransportFactory().create(config)
 
         assert isinstance(transport, WebSocketTransport)
 
@@ -57,7 +57,7 @@ class TestTransportFactoryIntegration:
             command=["python", "-m", "mcp_server"],
         )
 
-        transport = TransportFactory.create(config)
+        transport = TransportFactory().create(config)
 
         assert isinstance(transport, StdioTransport)
 
