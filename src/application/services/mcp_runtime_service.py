@@ -262,7 +262,7 @@ class MCPRuntimeService:
                 project_id=server.project_id,
                 tenant_id=tenant_id,
                 server_name=server.name,
-                server_type=server.config.transport_type.value if server.config else "",
+                server_type=server.server_type,
                 transport_config=self.to_sandbox_config(server.config) if server.config else {},
             )
             await self._server_repo.update_discovered_tools(
@@ -348,7 +348,7 @@ class MCPRuntimeService:
             project_id=server.project_id,
             tenant_id=tenant_id,
             server_name=server.name,
-            server_type=server.config.transport_type.value if server.config else "",
+            server_type=server.server_type,
             transport_config=self.to_sandbox_config(server.config) if server.config else {},
         )
         test_status = "success" if result.status != "failed" else "failed"
@@ -686,7 +686,7 @@ class MCPRuntimeService:
             project_id=server.project_id,
             tenant_id=tenant_id,
             server_name=server.name,
-            server_type=server.config.transport_type.value if server.config else "",
+            server_type=server.server_type,
             transport_config=sandbox_config,
         )
         if start_status.status == "failed":
@@ -709,7 +709,7 @@ class MCPRuntimeService:
             project_id=server.project_id,
             tenant_id=tenant_id,
             server_name=server.name,
-            server_type=server.config.transport_type.value if server.config else "",
+            server_type=server.server_type,
             transport_config=sandbox_config,
             ensure_running=False,
         )

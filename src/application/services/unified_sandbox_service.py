@@ -605,7 +605,9 @@ class UnifiedSandboxService(SandboxResourcePort):
                             # Container was killed externally, clean up and recreate
                             await self._cleanup_failed_sandbox(existing)
 
-                    elif existing.status == ProjectSandboxStatus.ERROR:
+                    else:
+                        # Non-usable sandbox (ERROR, TERMINATED, STOPPED, etc.)
+                        # Clean up before creating a new one
                         await self._cleanup_failed_sandbox(existing)
 
                 # Create new sandbox
