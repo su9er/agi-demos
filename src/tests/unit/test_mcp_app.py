@@ -250,6 +250,7 @@ class TestMCPAppServiceDetection:
         mock_repo = MagicMock()
         mock_repo.save = AsyncMock(side_effect=lambda app: app)
         mock_repo.find_by_server_and_tool = AsyncMock(return_value=None)
+        mock_repo.find_by_project_server_name_and_tool = AsyncMock(return_value=None)
         mock_resolver = MagicMock()
 
         service = MCPAppService(app_repo=mock_repo, resource_resolver=mock_resolver)
@@ -296,6 +297,7 @@ class TestMCPAppServiceDetection:
         mock_repo = MagicMock()
         mock_repo.save = AsyncMock(side_effect=lambda app: app)
         mock_repo.find_by_server_and_tool = AsyncMock(return_value=None)
+        mock_repo.find_by_project_server_name_and_tool = AsyncMock(return_value=None)
         mock_resolver = MagicMock()
 
         service = MCPAppService(app_repo=mock_repo, resource_resolver=mock_resolver)
@@ -334,6 +336,7 @@ class TestMCPAppServiceDetection:
         mock_repo = MagicMock()
         mock_repo.save = AsyncMock(side_effect=lambda app: app)
         mock_repo.find_by_server_and_tool = AsyncMock(return_value=existing_app)
+        mock_repo.find_by_project_server_name_and_tool = AsyncMock(return_value=existing_app)
         mock_resolver = MagicMock()
 
         service = MCPAppService(app_repo=mock_repo, resource_resolver=mock_resolver)
