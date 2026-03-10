@@ -274,7 +274,8 @@ class TestMCPRuntimeService:
         app_service.delete_apps_by_server.assert_awaited_once_with("srv-1")
         server_repo.delete.assert_awaited_once_with("srv-1")
 
-    async def test_delete_server_fails_when_runtime_stop_fails(self):
+    async def test_delete_server_proceeds_when_runtime_stop_fails(self):
+        """Delete should proceed with cleanup even when runtime stop fails."""
         server = _make_server(enabled=True)
         server_repo = SimpleNamespace(
             get_by_id=AsyncMock(return_value=server),
@@ -302,12 +303,12 @@ class TestMCPRuntimeService:
             project_repo=SimpleNamespace(),  # type: ignore[arg-type]
         )
 
-        with pytest.raises(RuntimeError, match="Failed to stop MCP runtime"):
-            await service.delete_server("srv-1", "tenant-1")
+        # Should NOT raise -- delete proceeds despite stop failure
+        await service.delete_server("srv-1", "tenant-1")
 
-        app_service.disable_apps_by_server.assert_not_awaited()
-        app_service.delete_apps_by_server.assert_not_awaited()
-        server_repo.delete.assert_not_awaited()
+        # Apps and server record should still be cleaned up
+        app_service.delete_apps_by_server.assert_awaited_once_with("srv-1")
+        server_repo.delete.assert_awaited_once_with("srv-1")
 
     async def test_reconcile_project_restores_missing_runtime_servers(self):
         project_repo = SimpleNamespace(

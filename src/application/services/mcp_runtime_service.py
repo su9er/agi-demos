@@ -387,7 +387,14 @@ class MCPRuntimeService:
         """Delete server and associated apps with lifecycle auditing."""
         server = await self.get_server_for_tenant(server_id, tenant_id)
         if server.enabled and server.project_id:
-            await self._stop_server_runtime(server, reason="delete")
+            try:
+                await self._stop_server_runtime(server, reason="delete")
+            except Exception as e:
+                logger.warning(
+                    "Failed to stop runtime for server '%s' during delete, proceeding: %s",
+                    server.name,
+                    e,
+                )
 
         deleted_apps = await self._app_service.delete_apps_by_server(server.id)
         await self._record_event(
