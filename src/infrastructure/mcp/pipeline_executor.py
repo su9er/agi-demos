@@ -107,7 +107,11 @@ class PipelineMCPExecutor:
         except (ConnectionError, TimeoutError, Exception) as exc:
             from src.infrastructure.agent.tools.context import ToolAbortedError
 
-            if isinstance(exc, (ConnectionError, TimeoutError, ToolAbortedError)):
+            # ToolAbortedError must propagate -- abort means stop everything,
+            # not produce an error result for the agent to process.
+            if isinstance(exc, ToolAbortedError):
+                raise
+            if isinstance(exc, (ConnectionError, TimeoutError)):
                 error_result = MCPErrorHandler.handle_error(server_id, tool_name, exc)
                 return MCPCallResult(
                     content=error_result.output,
