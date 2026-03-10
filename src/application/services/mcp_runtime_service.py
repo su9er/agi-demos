@@ -263,7 +263,7 @@ class MCPRuntimeService:
                 tenant_id=tenant_id,
                 server_name=server.name,
                 server_type=server.config.transport_type.value if server.config else "",
-                transport_config=self._to_sandbox_config(server.config) if server.config else {},
+                transport_config=self.to_sandbox_config(server.config) if server.config else {},
             )
             await self._server_repo.update_discovered_tools(
                 server_id=server.id,
@@ -349,7 +349,7 @@ class MCPRuntimeService:
             tenant_id=tenant_id,
             server_name=server.name,
             server_type=server.config.transport_type.value if server.config else "",
-            transport_config=self._to_sandbox_config(server.config) if server.config else {},
+            transport_config=self.to_sandbox_config(server.config) if server.config else {},
         )
         test_status = "success" if result.status != "failed" else "failed"
         existing_runtime_metadata = server.runtime_metadata if server.runtime_metadata else {}
@@ -607,7 +607,7 @@ class MCPRuntimeService:
         }
 
     @staticmethod
-    def _to_sandbox_config(config: MCPServerConfig) -> dict[str, Any]:
+    def to_sandbox_config(config: MCPServerConfig) -> dict[str, Any]:
         """Transform MCPServerConfig into the format the sandbox manager expects.
 
         The sandbox-side ``manager.install_server`` / ``manager.start_server``
@@ -670,7 +670,7 @@ class MCPRuntimeService:
         )
 
         sandbox_config = (
-            self._to_sandbox_config(server.config) if server.config else {}
+            self.to_sandbox_config(server.config) if server.config else {}
         )
 
         start_status = await self._sandbox_manager.install_and_start(

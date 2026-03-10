@@ -508,7 +508,7 @@ async def _retry_resource_after_reinstall(
                 "resources/read failed -- reinstalling server '%s' and retrying",
                 server_name,
             )
-            transport_config = mcp_server.config.to_dict() if mcp_server.config else {}
+            transport_config = MCPRuntimeService.to_sandbox_config(mcp_server.config)
             await mcp_manager.install_and_start(
                 project_id=body.project_id,
                 tenant_id=tenant_id,

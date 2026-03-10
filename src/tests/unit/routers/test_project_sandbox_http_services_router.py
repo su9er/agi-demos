@@ -83,6 +83,57 @@ def test_register_list_stop_external_http_service(sandbox_http_client: TestClien
 
 
 @pytest.mark.unit
+def test_http_services_list_and_proxy_load_from_redis_when_memory_empty(
+    sandbox_http_client: TestClient,
+) -> None:
+    """List/proxy routes should recover service records from Redis when memory cache is empty."""
+
+    class _FakeRedisClient:
+        def __init__(self) -> None:
+            self._hashes: dict[str, dict[str, str]] = {}
+
+        async def hget(self, key: str, field: str) -> str | None:
+            return self._hashes.get(key, {}).get(field)
+
+        async def hset(self, key: str, field: str, value: str) -> None:
+            self._hashes.setdefault(key, {})[field] = value
+
+        async def hgetall(self, key: str) -> dict[str, str]:
+            return self._hashes.get(key, {}).copy()
+
+    fake_redis = _FakeRedisClient()
+    sandbox_http_client.app.dependency_overrides[router_mod.get_http_service_redis_client] = (
+        lambda: fake_redis
+    )
+
+    register_response = sandbox_http_client.post(
+        "/api/v1/projects/proj-1/sandbox/http-services",
+        json={
+            "service_id": "svc-redis",
+            "name": "docs",
+            "source_type": "external_url",
+            "external_url": "https://example.com/docs",
+        },
+    )
+    assert register_response.status_code == status.HTTP_200_OK
+
+    router_mod._http_service_registry.clear()
+
+    list_response = sandbox_http_client.get("/api/v1/projects/proj-1/sandbox/http-services")
+    assert list_response.status_code == status.HTTP_200_OK
+    assert list_response.json()["total"] == 1
+    assert list_response.json()["services"][0]["service_id"] == "svc-redis"
+
+    router_mod._http_service_registry.clear()
+
+    proxy_response = sandbox_http_client.get(
+        "/api/v1/projects/proj-1/sandbox/http-services/svc-redis/proxy/"
+    )
+    assert proxy_response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "only available for sandbox_internal services" in proxy_response.json()["detail"]
+
+
+@pytest.mark.unit
 def test_register_internal_requires_internal_port(sandbox_http_client: TestClient) -> None:
     """sandbox_internal source_type must provide internal_port."""
     response = sandbox_http_client.post(
@@ -94,6 +145,43 @@ def test_register_internal_requires_internal_port(sandbox_http_client: TestClien
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "internal_port is required" in response.json()["detail"]
+
+
+@pytest.mark.unit
+def test_register_http_service_emits_error_event_on_registration_failure(
+    sandbox_http_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Registration failures should emit http_service_error once service_id is known."""
+    event_publisher = AsyncMock()
+    event_publisher.publish_http_service_error = AsyncMock()
+    sandbox_http_client.app.dependency_overrides[router_mod.get_event_publisher] = (
+        lambda: event_publisher
+    )
+
+    async def _raise_on_upsert(*args, **kwargs) -> tuple[bool, router_mod.HttpServiceProxyInfo]:
+        raise RuntimeError("persist failed")
+
+    monkeypatch.setattr(router_mod, "_upsert_http_service", _raise_on_upsert)
+
+    # Assert API contract (500 response) instead of framework exception bubbling.
+    with TestClient(sandbox_http_client.app, raise_server_exceptions=False) as api_client:
+        response = api_client.post(
+            "/api/v1/projects/proj-1/sandbox/http-services",
+            json={
+                "service_id": "svc-fail",
+                "name": "docs",
+                "source_type": "external_url",
+                "external_url": "https://example.com/docs",
+            },
+        )
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+
+    event_publisher.publish_http_service_error.assert_awaited_once()
+    error_kwargs = event_publisher.publish_http_service_error.await_args.kwargs
+    assert error_kwargs["project_id"] == "proj-1"
+    assert error_kwargs["service_id"] == "svc-fail"
+    assert error_kwargs["service_name"] == "docs"
+    assert error_kwargs["error_message"] == "persist failed"
 
 
 @pytest.mark.unit
@@ -138,6 +226,12 @@ def test_http_proxy_returns_502_when_upstream_fails(
     sandbox_http_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """HTTP reverse proxy should map upstream connection errors to 502."""
+    event_publisher = AsyncMock()
+    event_publisher.publish_http_service_error = AsyncMock()
+    sandbox_http_client.app.dependency_overrides[router_mod.get_event_publisher] = (
+        lambda: event_publisher
+    )
+
     router_mod._http_service_registry.setdefault("proj-1", {})["svc-int"] = router_mod.HttpServiceProxyInfo(
         service_id="svc-int",
         name="internal",
@@ -172,6 +266,12 @@ def test_http_proxy_returns_502_when_upstream_fails(
         "/api/v1/projects/proj-1/sandbox/http-services/svc-int/proxy/"
     )
     assert response.status_code == status.HTTP_502_BAD_GATEWAY
+    event_publisher.publish_http_service_error.assert_awaited_once()
+    error_kwargs = event_publisher.publish_http_service_error.await_args.kwargs
+    assert error_kwargs["project_id"] == "proj-1"
+    assert error_kwargs["service_id"] == "svc-int"
+    assert error_kwargs["service_name"] == "internal"
+    assert "connection refused" in error_kwargs["error_message"]
 
 
 @pytest.mark.unit
