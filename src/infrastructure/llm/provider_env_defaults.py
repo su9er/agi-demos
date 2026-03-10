@@ -97,6 +97,12 @@ PROVIDER_TYPE_MAP: dict[str, ProviderType] = {
     "volcano": ProviderType.VOLCENGINE,
     "ark": ProviderType.VOLCENGINE,
     "doubao": ProviderType.VOLCENGINE,
+    "volcengine_coding": ProviderType.VOLCENGINE_CODING,
+    "volcengine-coding": ProviderType.VOLCENGINE_CODING,
+    "volcengine_embedding": ProviderType.VOLCENGINE_EMBEDDING,
+    "volcengine-embedding": ProviderType.VOLCENGINE_EMBEDDING,
+    "volcengine_reranker": ProviderType.VOLCENGINE_RERANKER,
+    "volcengine-reranker": ProviderType.VOLCENGINE_RERANKER,
 }
 
 PROVIDER_AUTO_DETECT: list[tuple[str, str]] = [
@@ -356,6 +362,39 @@ _ENV_PROFILES: dict[ProviderType, _ProviderEnvProfile] = {
         base_url=_EnvField(("LMSTUDIO_BASE_URL",), "http://localhost:1234/v1"),
     ),
     ProviderType.VOLCENGINE: _ProviderEnvProfile(
+        api_key=_EnvField(("VOLCENGINE_API_KEY", "ARK_API_KEY")),
+        llm_model=_EnvField(("VOLCENGINE_MODEL",), "doubao-1.5-pro-32k"),
+        llm_small_model=_EnvField(("VOLCENGINE_SMALL_MODEL",), "doubao-1.5-lite-32k"),
+        embedding_model=_EnvField(("VOLCENGINE_EMBEDDING_MODEL",), "doubao-embedding"),
+        reranker_model=_EnvField(("VOLCENGINE_RERANK_MODEL",), "doubao-1.5-pro-32k"),
+        base_url=_EnvField(
+            ("VOLCENGINE_BASE_URL",),
+            "https://ark.cn-beijing.volces.com/api/v3",
+        ),
+    ),
+    ProviderType.VOLCENGINE_CODING: _ProviderEnvProfile(
+        api_key=_EnvField(("VOLCENGINE_API_KEY", "ARK_API_KEY")),
+        llm_model=_EnvField(("VOLCENGINE_MODEL",), "doubao-1.5-pro-32k"),
+        llm_small_model=_EnvField(("VOLCENGINE_SMALL_MODEL",), "doubao-1.5-lite-32k"),
+        embedding_model=_EnvField(("VOLCENGINE_EMBEDDING_MODEL",), "doubao-embedding"),
+        reranker_model=_EnvField(("VOLCENGINE_RERANK_MODEL",), "doubao-1.5-pro-32k"),
+        base_url=_EnvField(
+            ("VOLCENGINE_BASE_URL",),
+            "https://ark.cn-beijing.volces.com/api/v3",
+        ),
+    ),
+    ProviderType.VOLCENGINE_EMBEDDING: _ProviderEnvProfile(
+        api_key=_EnvField(("VOLCENGINE_API_KEY", "ARK_API_KEY")),
+        llm_model=_EnvField(("VOLCENGINE_MODEL",), "doubao-1.5-pro-32k"),
+        llm_small_model=_EnvField(("VOLCENGINE_SMALL_MODEL",), "doubao-1.5-lite-32k"),
+        embedding_model=_EnvField(("VOLCENGINE_EMBEDDING_MODEL",), "doubao-embedding"),
+        reranker_model=_EnvField(("VOLCENGINE_RERANK_MODEL",), "doubao-1.5-pro-32k"),
+        base_url=_EnvField(
+            ("VOLCENGINE_BASE_URL",),
+            "https://ark.cn-beijing.volces.com/api/v3",
+        ),
+    ),
+    ProviderType.VOLCENGINE_RERANKER: _ProviderEnvProfile(
         api_key=_EnvField(("VOLCENGINE_API_KEY", "ARK_API_KEY")),
         llm_model=_EnvField(("VOLCENGINE_MODEL",), "doubao-1.5-pro-32k"),
         llm_small_model=_EnvField(("VOLCENGINE_SMALL_MODEL",), "doubao-1.5-lite-32k"),

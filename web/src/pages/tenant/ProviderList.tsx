@@ -51,6 +51,10 @@ const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
   zai_reranker: 'Z.AI Reranker',
   ollama: 'Ollama',
   lmstudio: 'LM Studio',
+  volcengine: 'Volcengine \u706B\u5C71\u5F15\u64CE',
+  volcengine_coding: 'Volcengine Coding',
+  volcengine_embedding: 'Volcengine Embedding',
+  volcengine_reranker: 'Volcengine Reranker',
 };
 
 type ViewMode = 'cards' | 'table';

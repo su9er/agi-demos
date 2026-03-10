@@ -47,6 +47,9 @@ const PROVIDER_MODEL_PARENT: Partial<Record<ProviderType, ProviderType>> = {
   zai_coding: 'zai',
   zai_embedding: 'zai',
   zai_reranker: 'zai',
+  volcengine_coding: 'volcengine',
+  volcengine_embedding: 'volcengine',
+  volcengine_reranker: 'volcengine',
 };
 
 const resolveCatalogProviderType = (providerType: ProviderType): ProviderType =>

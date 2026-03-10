@@ -197,6 +197,24 @@ const PROVIDER_CONFIG: Record<
     label: 'Volcengine \u706B\u5C71\u5F15\u64CE',
     description: 'Doubao (\u8C46\u5305) models',
   },
+  volcengine_coding: {
+    icon: '\uD83D\uDCBB',
+    gradient: 'from-orange-600 to-red-700',
+    label: 'Volcengine Coding',
+    description: 'Coding-optimized Doubao models',
+  },
+  volcengine_embedding: {
+    icon: '\uD83E\uDDEC',
+    gradient: 'from-orange-400 to-red-500',
+    label: 'Volcengine Embedding',
+    description: 'Doubao embedding models',
+  },
+  volcengine_reranker: {
+    icon: '\uD83D\uDCDA',
+    gradient: 'from-red-500 to-orange-600',
+    label: 'Volcengine Reranker',
+    description: 'Doubao reranking models',
+  },
 };
 
 const SIZE_MAP: Record<string, string> = {

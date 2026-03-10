@@ -61,6 +61,8 @@ EMBEDDING_DIMENSIONS = {
     # Local providers
     "nomic-embed-text": 768,
     "text-embedding-nomic-embed-text-v1.5": 768,
+    # Volcengine
+    "doubao-embedding": 2560,
 }
 
 # Default models by provider
@@ -82,6 +84,7 @@ DEFAULT_EMBEDDING_MODELS = {
     ProviderType.GROQ: "text-embedding-3-small",  # Uses OpenAI
     ProviderType.OLLAMA: "nomic-embed-text",
     ProviderType.LMSTUDIO: "text-embedding-nomic-embed-text-v1.5",
+    ProviderType.VOLCENGINE: "doubao-embedding",
 }
 
 RESERVED_EMBEDDING_KWARGS = {
@@ -332,6 +335,7 @@ class LiteLLMEmbedder(BaseEmbedder):
         "zai": "openai/",
         "ollama": "ollama/",
         "lmstudio": "openai/",
+        "volcengine": "volcengine/",
     }
 
     def _get_litellm_model_name(self) -> str:

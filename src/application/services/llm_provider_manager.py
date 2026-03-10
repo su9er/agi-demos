@@ -115,6 +115,7 @@ class LLMProviderManager:
                 ProviderType.DEEPSEEK,
                 ProviderType.OLLAMA,
                 ProviderType.LMSTUDIO,
+                ProviderType.VOLCENGINE,
             ],
             OperationType.EMBEDDING: [
                 ProviderType.OPENAI,
@@ -124,6 +125,7 @@ class LLMProviderManager:
                 ProviderType.GEMINI,
                 ProviderType.OLLAMA,
                 ProviderType.LMSTUDIO,
+                ProviderType.VOLCENGINE,
             ],
             OperationType.STRUCTURED_OUTPUT: [
                 ProviderType.DASHSCOPE,  # Best structured output support

@@ -300,6 +300,9 @@ class ProviderType(StrEnum):
     OLLAMA = "ollama"  # Local Ollama server
     LMSTUDIO = "lmstudio"  # LM Studio OpenAI-compatible server
     VOLCENGINE = "volcengine"  # Volcengine (Doubao/豆包)
+    VOLCENGINE_CODING = "volcengine_coding"
+    VOLCENGINE_EMBEDDING = "volcengine_embedding"
+    VOLCENGINE_RERANKER = "volcengine_reranker"
     # Specialized sub-providers (coding, embedding, reranker variants)
     MINIMAX_CODING = "minimax_coding"
     MINIMAX_EMBEDDING = "minimax_embedding"
