@@ -28,6 +28,8 @@ import {
   BookOpen,
   Mic,
   MicOff,
+  Phone,
+  PhoneOff,
   MessageSquare,
   Terminal,
   ListChecks,
@@ -47,10 +49,12 @@ import { LlmOverridePopover } from './chat/LlmOverridePopover';
 import { MentionPopover } from './chat/MentionPopover';
 import { PromptTemplateLibrary } from './chat/PromptTemplateLibrary';
 import { VoiceWaveform } from './chat/VoiceWaveform';
+import { VoiceCallPanel } from './chat/VoiceCallPanel';
 import { useFileUpload, type PendingAttachment } from './FileUploader';
-import { SlashCommandDropdown } from './SlashCommandDropdown';
+import { SlashCommandDropdown } from "./SlashCommandDropdown";
 
 import type { SkillResponse, SlashItem } from '@/types/agent';
+import { useVoiceCallStore } from '@/stores/voiceCallStore';
 
 import type { MentionPopoverHandle } from './chat/MentionPopover';
 import type { SlashCommandDropdownHandle } from './SlashCommandDropdown';
@@ -144,7 +148,19 @@ export const InputBar = memo<InputBarProps>(
     const dragCounter = useRef(0);
     const recognitionRef = useRef<SpeechRecognition | null>(null);
 
+
     const activeConversationId = useAgentV3Store((state) => state.activeConversationId);
+    const voiceCallStatus = useVoiceCallStore((state) => state.status);
+
+    const handleVoiceCall = useCallback(() => {
+      if (voiceCallStatus !== 'idle') {
+        useVoiceCallStore.getState().endCall();
+      } else {
+        const convId = activeConversationId || `temp_${Date.now()}`;
+        const uid = `user_${Date.now()}`;
+        useVoiceCallStore.getState().startCall(convId, uid);
+      }
+    }, [voiceCallStatus, activeConversationId]);
 
     const capabilities = useActiveModelCapabilities();
 
@@ -839,6 +855,24 @@ export const InputBar = memo<InputBarProps>(
                 </>
               )}
 
+              <LazyTooltip title={voiceCallStatus !== 'idle' ? 'End voice call' : 'Start voice call'}>
+                <LazyButton
+                  type="text"
+                  size="small"
+                  icon={voiceCallStatus !== 'idle' ? <PhoneOff size={18} /> : <Phone size={18} />}
+                  onClick={handleVoiceCall}
+                  disabled={!!(isStreaming || disabled)}
+                  className={`
+                    rounded-lg h-8 w-8 flex items-center justify-center transition-all
+                    ${
+                      voiceCallStatus !== 'idle'
+                        ? 'text-green-500 bg-green-50 dark:bg-green-900/20 animate-pulse'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                    }
+                  `}
+                />
+              </LazyTooltip>
+
               <LlmOverridePopover
                 conversationId={activeConversationId}
                 disabled={!!(isStreaming || disabled)}
@@ -954,6 +988,7 @@ export const InputBar = memo<InputBarProps>(
               setTemplateLibraryVisible(false);
             }}
           />
+          {voiceCallStatus !== 'idle' && <VoiceCallPanel onClose={handleVoiceCall} />}
         </div>
       </div>
     );

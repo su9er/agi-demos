@@ -190,10 +190,10 @@ DEFAULT_MODELS: dict[ProviderType, dict[str, str]] = {
         "rerank": "gpt-4o-mini",
     },
     ProviderType.VOLCENGINE: {
-        "completion": "doubao-1.5-pro-32k",
-        "completion_medium": "doubao-1.5-pro-256k",
-        "embedding": "doubao-embedding",
-        "rerank": "doubao-1.5-pro-32k",
+        "completion": "doubao-seed-2.0-lite",
+        "completion_medium": "doubao-seed-2.0-pro",
+        "embedding": "doubao-embedding-large",
+        "rerank": "doubao-reranker-large",
     },
 }
 

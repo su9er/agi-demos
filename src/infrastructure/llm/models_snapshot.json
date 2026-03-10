@@ -4,7 +4,7 @@
     "source": "models.dev",
     "generated_at": "2026-03-07T04:31:48Z",
     "description": "Model catalog snapshot generated from models.dev API",
-    "model_count": 219
+    "model_count": 244
   },
   "models": {
     "claude-3-5-haiku-20241022": {
@@ -7564,6 +7564,669 @@
       "family": "doubao",
       "release_date": "2024-08-01",
       "description": "Doubao Embedding - Text embedding model"
+    },
+    "doubao-1.5-pro-128k": {
+      "name": "doubao-1.5-pro-128k",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.8,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao",
+      "release_date": "2025-01-15",
+      "description": "Doubao 1.5 Pro 128K - Mid-range context flagship",
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ]
+    },
+    "doubao-1.5-lite-128k": {
+      "name": "doubao-1.5-lite-128k",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 0.6,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao",
+      "release_date": "2025-01-15",
+      "description": "Doubao 1.5 Lite 128K - Mid-range context cost-effective",
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ]
+    },
+    "doubao-vision-pro-32k": {
+      "name": "doubao-vision-pro-32k",
+      "context_length": 32768,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.8,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "vision",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "doubao",
+      "release_date": "2025-01-15",
+      "description": "Doubao Vision Pro 32K - Flagship multimodal model",
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ]
+    },
+    "doubao-vision-lite-32k": {
+      "name": "doubao-vision-lite-32k",
+      "context_length": 32768,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.3,
+      "output_cost_per_1m": 0.6,
+      "capabilities": [
+        "chat",
+        "vision",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "doubao",
+      "release_date": "2025-01-15",
+      "description": "Doubao Vision Lite 32K - Cost-effective multimodal model",
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ]
+    },
+    "doubao-embedding-large": {
+      "name": "doubao-embedding-large",
+      "context_length": 4096,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.05,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "embedding"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao",
+      "release_date": "2024-12-01",
+      "description": "Doubao Embedding Large - High performance embedding model",
+      "embedding_dimensions": 2560
+    },
+    "doubao-reranker-large": {
+      "name": "doubao-reranker-large",
+      "context_length": 4096,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.05,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "rerank"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao",
+      "release_date": "2024-12-01",
+      "description": "Doubao Reranker Large - High precision reranking model"
+    },
+    "doubao-seed-2.0-pro": {
+      "name": "doubao-seed-2.0-pro",
+      "context_length": 262144,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 4.0,
+      "output_cost_per_1m": 16.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao-seed",
+      "release_date": "2025-05-15",
+      "description": "Doubao Seed 2.0 Pro - Flagship reasoning model with 256K context",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ],
+      "thinking": {
+        "type": "enabled",
+        "budget_tokens": 65536,
+        "field": "reasoning_content"
+      }
+    },
+    "doubao-seed-2.0-lite": {
+      "name": "doubao-seed-2.0-lite",
+      "context_length": 262144,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 0.8,
+      "output_cost_per_1m": 4.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao-seed",
+      "release_date": "2025-05-15",
+      "description": "Doubao Seed 2.0 Lite - Cost-effective reasoning model with 256K context",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ],
+      "thinking": {
+        "type": "enabled",
+        "budget_tokens": 32768,
+        "field": "reasoning_content"
+      }
+    },
+    "doubao-seed-2.0-mini": {
+      "name": "doubao-seed-2.0-mini",
+      "context_length": 262144,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 0.4,
+      "output_cost_per_1m": 1.5,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao-seed",
+      "release_date": "2025-05-15",
+      "description": "Doubao Seed 2.0 Mini - Lightweight reasoning model with 256K context",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ],
+      "thinking": {
+        "type": "enabled",
+        "budget_tokens": 16384,
+        "field": "reasoning_content"
+      }
+    },
+    "doubao-seed-2.0-code": {
+      "name": "doubao-seed-2.0-code",
+      "context_length": 262144,
+      "max_output_tokens": 131072,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 8.0,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao-seed",
+      "release_date": "2025-05-15",
+      "description": "Doubao Seed 2.0 Code - Specialized coding model with reasoning",
+      "reasoning": true,
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ],
+      "thinking": {
+        "type": "enabled",
+        "budget_tokens": 65536,
+        "field": "reasoning_content"
+      }
+    },
+    "doubao-1.5-vision-pro-32k": {
+      "name": "doubao-1.5-vision-pro-32k",
+      "context_length": 32768,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 0.8,
+      "output_cost_per_1m": 2.0,
+      "capabilities": [
+        "chat",
+        "vision",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "doubao",
+      "release_date": "2025-01-15",
+      "description": "Doubao 1.5 Vision Pro 32K - Enhanced multimodal understanding",
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ]
+    },
+    "doubao-1.5-vision-pro-128k": {
+      "name": "doubao-1.5-vision-pro-128k",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 4.0,
+      "capabilities": [
+        "chat",
+        "vision",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "doubao",
+      "release_date": "2025-01-15",
+      "description": "Doubao 1.5 Vision Pro 128K - Long context multimodal",
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ]
+    },
+    "doubao-pro-128k": {
+      "name": "doubao-pro-128k",
+      "context_length": 131072,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 0.6,
+      "output_cost_per_1m": 1.2,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao",
+      "release_date": "2024-08-01",
+      "description": "Doubao Pro 128K - Mid-range context legacy model",
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ]
+    },
+    "doubao-lite-128k": {
+      "name": "doubao-lite-128k",
+      "context_length": 131072,
+      "max_output_tokens": 4096,
+      "input_cost_per_1m": 0.2,
+      "output_cost_per_1m": 0.4,
+      "capabilities": [
+        "chat",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao",
+      "release_date": "2024-08-01",
+      "description": "Doubao Lite 128K - Cost-effective long context model",
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ]
+    },
+    "doubao-vision-pro-128k": {
+      "name": "doubao-vision-pro-128k",
+      "context_length": 131072,
+      "max_output_tokens": 16384,
+      "input_cost_per_1m": 2.0,
+      "output_cost_per_1m": 4.0,
+      "capabilities": [
+        "chat",
+        "vision",
+        "function_calling"
+      ],
+      "supports_streaming": true,
+      "supports_json_mode": true,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "doubao",
+      "release_date": "2025-01-15",
+      "description": "Doubao Vision Pro 128K - Long context multimodal",
+      "supports_tool_call": true,
+      "supports_response_format": true,
+      "temperature_range": [
+        0.0,
+        2.0
+      ],
+      "top_p_range": [
+        0.0,
+        1.0
+      ]
+    },
+    "doubao-embedding-large-text-240915": {
+      "name": "doubao-embedding-large-text-240915",
+      "context_length": 4096,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.05,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "embedding"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao",
+      "release_date": "2024-09-15",
+      "description": "Doubao Embedding Large Text (2024-09-15) - Optimized text embedding",
+      "embedding_dimensions": 2560
+    },
+    "doubao-embedding-large-text-250515": {
+      "name": "doubao-embedding-large-text-250515",
+      "context_length": 4096,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.05,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "embedding"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao",
+      "release_date": "2025-05-15",
+      "description": "Doubao Embedding Large Text (2025-05-15) - Latest text embedding",
+      "embedding_dimensions": 2560
+    },
+    "doubao-embedding-text-240715": {
+      "name": "doubao-embedding-text-240715",
+      "context_length": 4096,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "embedding"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text"
+      ],
+      "family": "doubao",
+      "release_date": "2024-07-15",
+      "description": "Doubao Embedding Text (2024-07-15) - Standard text embedding",
+      "embedding_dimensions": 1024
+    },
+    "seedream-3.0": {
+      "name": "seedream-3.0",
+      "context_length": 0,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.0,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "image_generation"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "seedream",
+      "release_date": "2025-01-01",
+      "description": "Seedream 3.0 - Text-to-image generation (requires native SDK)"
+    },
+    "seedream-4.0": {
+      "name": "seedream-4.0",
+      "context_length": 0,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.0,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "image_generation"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "seedream",
+      "release_date": "2025-03-01",
+      "description": "Seedream 4.0 - Advanced text-to-image generation (requires native SDK)"
+    },
+    "seedream-5.0-lite": {
+      "name": "seedream-5.0-lite",
+      "context_length": 0,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.0,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "image_generation"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "seedream",
+      "release_date": "2025-05-01",
+      "description": "Seedream 5.0 Lite - Fast text-to-image generation (requires native SDK)"
+    },
+    "seedance-1.0-lite": {
+      "name": "seedance-1.0-lite",
+      "context_length": 0,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.0,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "video_generation"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "video"
+      ],
+      "family": "seedance",
+      "release_date": "2025-02-01",
+      "description": "Seedance 1.0 Lite - Fast video generation (requires native SDK)"
+    },
+    "seedance-1.0-pro": {
+      "name": "seedance-1.0-pro",
+      "context_length": 0,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.0,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "video_generation"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "video"
+      ],
+      "family": "seedance",
+      "release_date": "2025-02-01",
+      "description": "Seedance 1.0 Pro - High quality video generation (requires native SDK)"
+    },
+    "seedance-1.5-pro": {
+      "name": "seedance-1.5-pro",
+      "context_length": 0,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.0,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "video_generation"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "video"
+      ],
+      "family": "seedance",
+      "release_date": "2025-05-01",
+      "description": "Seedance 1.5 Pro - Latest video generation (requires native SDK)"
+    },
+    "seededit-3.0": {
+      "name": "seededit-3.0",
+      "context_length": 0,
+      "max_output_tokens": 0,
+      "input_cost_per_1m": 0.0,
+      "output_cost_per_1m": 0.0,
+      "capabilities": [
+        "image_editing"
+      ],
+      "supports_streaming": false,
+      "supports_json_mode": false,
+      "provider": "volcengine",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "family": "seededit",
+      "release_date": "2025-03-01",
+      "description": "Seededit 3.0 - AI image editing (requires native SDK)"
     }
   }
 }

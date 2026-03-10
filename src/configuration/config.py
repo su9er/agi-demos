@@ -326,18 +326,10 @@ class Settings(BaseSettings):
     workspace_sync_interval_seconds: int = Field(
         default=300, alias="WORKSPACE_SYNC_INTERVAL_SECONDS"
     )  # Periodic sync interval (0 to disable)
-    workspace_s3_backup_enabled: bool = Field(
-        default=False, alias="WORKSPACE_S3_BACKUP_ENABLED"
-    )
-    workspace_s3_bucket: str = Field(
-        default="memstack-workspaces", alias="WORKSPACE_S3_BUCKET"
-    )
-    sandbox_pip_cache_enabled: bool = Field(
-        default=True, alias="SANDBOX_PIP_CACHE_ENABLED"
-    )
-    sandbox_pip_cache_path: str = Field(
-        default="", alias="SANDBOX_PIP_CACHE_PATH"
-    )
+    workspace_s3_backup_enabled: bool = Field(default=False, alias="WORKSPACE_S3_BACKUP_ENABLED")
+    workspace_s3_bucket: str = Field(default="memstack-workspaces", alias="WORKSPACE_S3_BUCKET")
+    sandbox_pip_cache_enabled: bool = Field(default=True, alias="SANDBOX_PIP_CACHE_ENABLED")
+    sandbox_pip_cache_path: str = Field(default="", alias="SANDBOX_PIP_CACHE_PATH")
     sandbox_idle_timeout_seconds: int = Field(
         default=1800, alias="SANDBOX_IDLE_TIMEOUT_SECONDS"
     )  # Auto-destroy idle sandboxes after this many seconds (0 to disable)
@@ -357,27 +349,15 @@ class Settings(BaseSettings):
 
     # Workspace Persona System Settings (.memstack/workspace/)
     workspace_enabled: bool = Field(default=True, alias="WORKSPACE_ENABLED")
-    workspace_dir: str = Field(
-        default="/workspace/.memstack/workspace", alias="WORKSPACE_DIR"
-    )
-    tenant_workspace_dir: str = Field(
-        default="", alias="TENANT_WORKSPACE_DIR"
-    )
-    workspace_max_chars_per_file: int = Field(
-        default=20000, alias="WORKSPACE_MAX_CHARS_PER_FILE"
-    )
-    workspace_max_chars_total: int = Field(
-        default=150000, alias="WORKSPACE_MAX_CHARS_TOTAL"
-    )
+    workspace_dir: str = Field(default="/workspace/.memstack/workspace", alias="WORKSPACE_DIR")
+    tenant_workspace_dir: str = Field(default="", alias="TENANT_WORKSPACE_DIR")
+    workspace_max_chars_per_file: int = Field(default=20000, alias="WORKSPACE_MAX_CHARS_PER_FILE")
+    workspace_max_chars_total: int = Field(default=150000, alias="WORKSPACE_MAX_CHARS_TOTAL")
 
     # Heartbeat System Settings
     heartbeat_enabled: bool = Field(default=False, alias="HEARTBEAT_ENABLED")
-    heartbeat_interval_minutes: int = Field(
-        default=30, alias="HEARTBEAT_INTERVAL_MINUTES"
-    )
-    heartbeat_ack_max_chars: int = Field(
-        default=300, alias="HEARTBEAT_ACK_MAX_CHARS"
-    )
+    heartbeat_interval_minutes: int = Field(default=30, alias="HEARTBEAT_INTERVAL_MINUTES")
+    heartbeat_ack_max_chars: int = Field(default=300, alias="HEARTBEAT_ACK_MAX_CHARS")
 
     # Context Compression Settings
     # Adaptive compression trigger thresholds (0.0 - 1.0)
@@ -424,12 +404,8 @@ class Settings(BaseSettings):
     mcp_websocket_heartbeat: int | None = Field(
         default=None, alias="MCP_WEBSOCKET_HEARTBEAT"
     )  # seconds; None disables heartbeat (prevents PONG timeout killing long tool calls)
-    mcp_max_global_connections: int = Field(
-        default=100, alias="MCP_MAX_GLOBAL_CONNECTIONS"
-    )
-    mcp_connection_ttl: int = Field(
-        default=300, alias="MCP_CONNECTION_TTL"
-    )  # seconds
+    mcp_max_global_connections: int = Field(default=100, alias="MCP_MAX_GLOBAL_CONNECTIONS")
+    mcp_connection_ttl: int = Field(default=300, alias="MCP_CONNECTION_TTL")  # seconds
 
     # Plan Mode Detection Settings (Hybrid Detection Strategy)
     plan_mode_enabled: bool = Field(default=False, alias="PLAN_MODE_ENABLED")
@@ -472,6 +448,17 @@ class Settings(BaseSettings):
     langfuse_sample_rate: float = Field(
         default=1.0, alias="LANGFUSE_SAMPLE_RATE"
     )  # 1.0 = trace all requests, 0.1 = 10% sampling
+
+    # Volcengine Settings
+    volc_ak: str | None = Field(default=None, alias="VOLC_AK")
+    volc_sk: str | None = Field(default=None, alias="VOLC_SK")
+    volc_app_id: str | None = Field(default=None, alias="VOLC_APP_ID")
+    volc_asr_cluster: str = Field(default="volcano_asr", alias="VOLC_ASR_CLUSTER")
+    volc_tts_cluster: str = Field(default="volcano_tts", alias="VOLC_TTS_CLUSTER")
+    volc_tts_resource_id: str = Field(default="volc.speech.dialog", alias="VOLC_TTS_RESOURCE_ID")
+    volc_rtc_app_id: str | None = Field(default=None, alias="RTC_APP_ID")
+    volc_rtc_app_key: str | None = Field(default=None, alias="RTC_APP_KEY")
+    volc_doubao_endpoint_id: str | None = Field(default=None, alias="DOUBAO_ENDPOINT_ID")
 
     model_config = SettingsConfigDict(
         env_file=".env",

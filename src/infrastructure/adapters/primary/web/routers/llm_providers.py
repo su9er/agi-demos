@@ -320,15 +320,36 @@ async def list_models_for_provider_type(
         },
         "volcengine": {
             "chat": [
+                "doubao-seed-2.0-pro",
+                "doubao-seed-2.0-lite",
+                "doubao-seed-2.0-mini",
+                "doubao-seed-2.0-code",
                 "doubao-1.5-pro-32k",
+                "doubao-1.5-pro-128k",
                 "doubao-1.5-pro-256k",
                 "doubao-1.5-lite-32k",
+                "doubao-1.5-lite-128k",
                 "doubao-pro-32k",
+                "doubao-pro-128k",
                 "doubao-pro-256k",
                 "doubao-lite-32k",
+                "doubao-lite-128k",
             ],
-            "embedding": ["doubao-embedding"],
-            "rerank": ["doubao-1.5-pro-32k"],
+            "vision": [
+                "doubao-1.5-vision-pro-32k",
+                "doubao-1.5-vision-pro-128k",
+                "doubao-vision-pro-32k",
+                "doubao-vision-pro-128k",
+                "doubao-vision-lite-32k",
+            ],
+            "embedding": [
+                "doubao-embedding",
+                "doubao-embedding-large",
+                "doubao-embedding-large-text-240915",
+                "doubao-embedding-large-text-250515",
+                "doubao-embedding-text-240715",
+            ],
+            "rerank": ["doubao-reranker-large"],
         },
     }
 
