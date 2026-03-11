@@ -31,7 +31,7 @@ export interface UseVolcRTCOptions {
 
 export interface UseVolcRTCReturn {
   isJoined: boolean;
-  joinRoom: () => Promise<void>;
+  joinRoom: (options?: { requestVideo?: boolean }) => Promise<void>;
   leaveRoom: () => void;
   toggleMute: (muted: boolean) => void;
   startCamera: (containerId?: string) => Promise<void>;
@@ -166,7 +166,7 @@ export const useVolcRTC = ({
   }, [appId]);
 
   // ---- Room Operations ------------------------------------------------------
-  const joinRoom = useCallback(async () => {
+  const joinRoom = useCallback(async (options?: { requestVideo?: boolean }) => {
     if (!appId || !roomId || !userId || !token) {
       onErrorRef.current?.('Missing required connection parameters');
       return;
@@ -177,7 +177,9 @@ export const useVolcRTC = ({
 
     try {
       // Step 1: Request device permissions (reference: useCommon.ts)
-      await VERTC.enableDevices({ video: false, audio: true });
+      // When video is requested, also ask for camera permission
+      const requestVideo = options?.requestVideo ?? false;
+      await VERTC.enableDevices({ video: requestVideo, audio: true });
 
       // Step 2: Join room with extraInfo (reference: RtcClient.ts)
       await engine.joinRoom(
@@ -259,7 +261,10 @@ export const useVolcRTC = ({
 
   const startCamera = useCallback(
     async (containerId?: string) => {
-      if (!engineRef.current || !isJoinedRef.current) return;
+      if (!engineRef.current || !isJoinedRef.current) {
+        console.warn('[RTC] startCamera skipped: engine=', !!engineRef.current, 'isJoined=', isJoinedRef.current);
+        return;
+      }
       try {
         await engineRef.current.startVideoCapture(
           selectedCameraId ?? undefined,

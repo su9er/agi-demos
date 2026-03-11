@@ -10,6 +10,7 @@
  */
 
 import type React from 'react';
+import { createPortal } from 'react-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   PhoneOff,
@@ -42,11 +43,13 @@ function useDrag(ref: React.RefObject<HTMLElement | null>) {
     const el = ref.current;
     if (!el) return;
 
-    // Position bottom-right by default
-    const initX = window.innerWidth - 420;
-    const initY = window.innerHeight - 520;
-    posRef.current = { x: Math.max(16, initX), y: Math.max(16, initY) };
-    el.style.transform = `translate(${posRef.current.x}px, ${posRef.current.y}px)`;
+    // Defer initial positioning to ensure portal DOM is attached
+    const raf = requestAnimationFrame(() => {
+      const initX = window.innerWidth - 420;
+      const initY = window.innerHeight - 520;
+      posRef.current = { x: Math.max(16, initX), y: Math.max(16, initY) };
+      el.style.transform = `translate(${posRef.current.x}px, ${posRef.current.y}px)`;
+    });
 
     const onMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -73,6 +76,7 @@ function useDrag(ref: React.RefObject<HTMLElement | null>) {
     document.addEventListener('mouseup', onMouseUp);
 
     return () => {
+      cancelAnimationFrame(raf);
       el.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
@@ -271,12 +275,18 @@ export const VoiceCallPanel: React.FC<VoiceCallPanelProps> = ({ onClose }) => {
     onError: (err) => useVoiceCallStore.setState({ status: 'error', error: err }),
   });
 
-  // Join room when connected
+  // Join room when connected — then start camera if video mode
   useEffect(() => {
     if (status === 'connected' && appId && token && roomId && userId) {
-      joinRoom();
+      const isVideoMode = callMode === 'video';
+      joinRoom({ requestVideo: isVideoMode }).then(() => {
+        // After joinRoom completes, start camera if video mode is active
+        if (isVideoMode && isCameraOn) {
+          startCamera('rtc-local-video');
+        }
+      });
     }
-  }, [status, appId, token, roomId, userId, joinRoom]);
+  }, [status, appId, token, roomId, userId, joinRoom, callMode, isCameraOn, startCamera]);
 
   // Enumerate devices after joining
   useEffect(() => {
@@ -346,7 +356,7 @@ export const VoiceCallPanel: React.FC<VoiceCallPanelProps> = ({ onClose }) => {
   // ---- Minimized view -------------------------------------------------------
 
   if (isMinimized) {
-    return (
+    return createPortal(
       <div
         ref={panelRef}
         className="fixed z-50 top-0 left-0"
@@ -376,13 +386,14 @@ export const VoiceCallPanel: React.FC<VoiceCallPanelProps> = ({ onClose }) => {
             <PhoneOff size={14} />
           </button>
         </div>
-      </div>
+      </div>,
+      document.body,
     );
   }
 
   // ---- Expanded view --------------------------------------------------------
 
-  return (
+  return createPortal(
     <div
       ref={panelRef}
       className="fixed z-50 top-0 left-0"
@@ -551,6 +562,7 @@ export const VoiceCallPanel: React.FC<VoiceCallPanelProps> = ({ onClose }) => {
           <DeviceSettingsPanel onClose={() => setShowDeviceSettings(false)} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
