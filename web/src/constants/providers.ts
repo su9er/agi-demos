@@ -11,6 +11,7 @@ export interface ProviderMeta {
   hasNativeRerank: boolean;
   baseUrlRequired: boolean;
   documentationUrl: string;
+  hasRTC?: boolean;
 }
 
 export const PROVIDERS: ProviderMeta[] = [
@@ -374,6 +375,7 @@ export const PROVIDERS: ProviderMeta[] = [
     hasNativeRerank: true,
     baseUrlRequired: false,
     documentationUrl: 'https://www.volcengine.com/docs/82379',
+    hasRTC: true,
   },
   {
     value: 'volcengine_coding',
@@ -386,6 +388,7 @@ export const PROVIDERS: ProviderMeta[] = [
     hasNativeRerank: false,
     baseUrlRequired: false,
     documentationUrl: 'https://www.volcengine.com/docs/82379',
+    hasRTC: true,
   },
   {
     value: 'volcengine_embedding',
@@ -398,6 +401,7 @@ export const PROVIDERS: ProviderMeta[] = [
     hasNativeRerank: false,
     baseUrlRequired: false,
     documentationUrl: 'https://www.volcengine.com/docs/82379',
+    hasRTC: true,
   },
   {
     value: 'volcengine_reranker',
@@ -410,5 +414,6 @@ export const PROVIDERS: ProviderMeta[] = [
     hasNativeRerank: true,
     baseUrlRequired: false,
     documentationUrl: 'https://www.volcengine.com/docs/82379',
+    hasRTC: true,
   },
 ];

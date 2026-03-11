@@ -857,6 +857,122 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                     />
                   </div>
 
+                  {/* Volcengine RTC Configuration */}
+                  {(formData.provider_type === 'volcengine' ||
+                    formData.provider_type.startsWith('volcengine_')) && (
+                    <div className="border border-slate-200 dark:border-slate-600 rounded-lg overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = document.getElementById('rtc-config-section');
+                          if (el) el.classList.toggle('hidden');
+                        }}
+                        className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/50 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <MaterialIcon name="call" size={18} className="text-primary" />
+                          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Voice & Video Call Settings (RTC)
+                          </span>
+                        </div>
+                        <MaterialIcon
+                          name="expand_more"
+                          size={18}
+                          className="text-slate-400"
+                        />
+                      </button>
+                      <div id="rtc-config-section" className="hidden p-4 space-y-3 border-t border-slate-200 dark:border-slate-600">
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                          Configure Volcengine RTC for real-time voice and video AI conversations.
+                          Leave blank to use environment variables as fallback.
+                        </p>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                            RTC App ID
+                          </label>
+                          <input
+                            type="text"
+                            value={(formData.config?.rtc_app_id as string) || ''}
+                            onChange={(e) => {
+                              const newConfig = { ...formData.config, rtc_app_id: e.target.value };
+                              setFormData({ ...formData, config: newConfig });
+                              setConfigJsonStr(JSON.stringify(newConfig, null, 2));
+                            }}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="Your RTC App ID"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                            RTC App Key
+                          </label>
+                          <input
+                            type="password"
+                            value={(formData.config?.rtc_app_key as string) || ''}
+                            onChange={(e) => {
+                              const newConfig = { ...formData.config, rtc_app_key: e.target.value };
+                              setFormData({ ...formData, config: newConfig });
+                              setConfigJsonStr(JSON.stringify(newConfig, null, 2));
+                            }}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="Your RTC App Key"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                            Volcengine Access Key (AK)
+                          </label>
+                          <input
+                            type="password"
+                            value={(formData.config?.volc_ak as string) || ''}
+                            onChange={(e) => {
+                              const newConfig = { ...formData.config, volc_ak: e.target.value };
+                              setFormData({ ...formData, config: newConfig });
+                              setConfigJsonStr(JSON.stringify(newConfig, null, 2));
+                            }}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="Your Volcengine Access Key"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                            Volcengine Secret Key (SK)
+                          </label>
+                          <input
+                            type="password"
+                            value={(formData.config?.volc_sk as string) || ''}
+                            onChange={(e) => {
+                              const newConfig = { ...formData.config, volc_sk: e.target.value };
+                              setFormData({ ...formData, config: newConfig });
+                              setConfigJsonStr(JSON.stringify(newConfig, null, 2));
+                            }}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="Your Volcengine Secret Key"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                            Doubao Endpoint ID
+                          </label>
+                          <input
+                            type="text"
+                            value={(formData.config?.doubao_endpoint_id as string) || ''}
+                            onChange={(e) => {
+                              const newConfig = {
+                                ...formData.config,
+                                doubao_endpoint_id: e.target.value,
+                              };
+                              setFormData({ ...formData, config: newConfig });
+                              setConfigJsonStr(JSON.stringify(newConfig, null, 2));
+                            }}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="Doubao model endpoint ID for voice chat"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-6 pt-2">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -1729,6 +1845,61 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                         {formData.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </div>
+                    {/* RTC Configuration Summary */}
+                    {(formData.provider_type === 'volcengine' ||
+                      formData.provider_type.startsWith('volcengine_')) &&
+                      (formData.config?.rtc_app_id ||
+                        formData.config?.volc_ak ||
+                        formData.config?.doubao_endpoint_id) && (
+                      <div className="border-t border-slate-200 dark:border-slate-600 pt-2 mt-2">
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <MaterialIcon name="call" size={14} className="text-primary" />
+                          <span className="text-xs font-medium text-slate-500">
+                            Voice & Video Call (RTC)
+                          </span>
+                        </div>
+                        {formData.config?.rtc_app_id && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">RTC App ID:</span>
+                            <span className="font-medium text-slate-900 dark:text-white">
+                              {String(formData.config.rtc_app_id)}
+                            </span>
+                          </div>
+                        )}
+                        {formData.config?.rtc_app_key && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">RTC App Key:</span>
+                            <span className="font-medium text-slate-900 dark:text-white">
+                              ********
+                            </span>
+                          </div>
+                        )}
+                        {formData.config?.volc_ak && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">Access Key:</span>
+                            <span className="font-medium text-slate-900 dark:text-white">
+                              ********
+                            </span>
+                          </div>
+                        )}
+                        {formData.config?.volc_sk && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">Secret Key:</span>
+                            <span className="font-medium text-slate-900 dark:text-white">
+                              ********
+                            </span>
+                          </div>
+                        )}
+                        {formData.config?.doubao_endpoint_id && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">Endpoint ID:</span>
+                            <span className="font-medium text-slate-900 dark:text-white">
+                              {String(formData.config.doubao_endpoint_id)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
