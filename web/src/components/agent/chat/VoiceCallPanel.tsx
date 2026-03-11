@@ -303,14 +303,18 @@ export const VoiceCallPanel: React.FC<VoiceCallPanelProps> = ({ onClose }) => {
     rtcToggleMute(isMuted);
   }, [isMuted, rtcToggleMute]);
 
-  // Sync camera to RTC
+  // Sync camera to RTC — use a small delay to ensure DOM is rendered
   useEffect(() => {
-    if (isCameraOn) {
-      startCamera('rtc-local-video');
+    if (isCameraOn && callMode === 'video') {
+      // Wait a frame so the (now always-present) container has dimensions
+      const raf = requestAnimationFrame(() => {
+        startCamera('rtc-local-video');
+      });
+      return () => cancelAnimationFrame(raf);
     } else {
       stopCamera();
     }
-  }, [isCameraOn, startCamera, stopCamera]);
+  }, [isCameraOn, callMode, startCamera, stopCamera]);
 
   // Sync device selection to RTC
   useEffect(() => {
@@ -430,19 +434,17 @@ export const VoiceCallPanel: React.FC<VoiceCallPanelProps> = ({ onClose }) => {
           <div className="px-4 py-2 bg-red-500/10 text-red-400 text-xs">{error}</div>
         )}
 
-        {/* Video Area */}
+        {/* Video Area — containers always in DOM for RTC SDK attachment */}
         {callMode === 'video' && (
           <div className="relative w-full h-[240px] bg-black">
             {/* Remote video (AI bot) - full area */}
             <div id="rtc-remote-video" className="absolute inset-0" />
 
-            {/* Local video - picture-in-picture */}
-            {isCameraOn && (
-              <div
-                id="rtc-local-video"
-                className="absolute bottom-2 right-2 w-[100px] h-[75px] bg-slate-800 rounded-lg overflow-hidden border border-slate-600 z-10"
-              />
-            )}
+            {/* Local video - picture-in-picture (hidden via CSS when camera off) */}
+            <div
+              id="rtc-local-video"
+              className={`absolute bottom-2 right-2 w-[100px] h-[75px] bg-slate-800 rounded-lg overflow-hidden border border-slate-600 z-10 ${isCameraOn ? '' : 'hidden'}`}
+            />
           </div>
         )}
 

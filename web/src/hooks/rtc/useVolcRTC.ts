@@ -266,16 +266,22 @@ export const useVolcRTC = ({
         );
         await engineRef.current.publishStream(MediaType.VIDEO);
 
-        // Attach local video to DOM element
+        // Attach local video to DOM element with retry for React render timing
         if (containerId) {
-          const container = document.getElementById(containerId);
-          if (container) {
-            engineRef.current.setLocalVideoPlayer(StreamIndex.STREAM_INDEX_MAIN, {
-              renderDom: container,
-              userId: userId ?? '',
-              renderMode: 1, // FIT
-            });
-          }
+          const tryAttach = (retries: number) => {
+            const container = document.getElementById(containerId);
+            if (container && engineRef.current) {
+              engineRef.current.setLocalVideoPlayer(StreamIndex.STREAM_INDEX_MAIN, {
+                renderDom: container,
+                userId: userId ?? '',
+                renderMode: 1, // FIT
+              });
+            } else if (retries > 0) {
+              // Container not yet in DOM; wait one animation frame and retry
+              requestAnimationFrame(() => tryAttach(retries - 1));
+            }
+          };
+          tryAttach(5);
         }
       } catch (err: unknown) {
         const errorMessage =
