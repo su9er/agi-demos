@@ -160,11 +160,17 @@ export const InputBar = memo<InputBarProps>(
       if (voiceCallStatus !== 'idle') {
         useVoiceCallStore.getState().endCall();
       } else {
-        const convId = activeConversationId || `temp_${Date.now()}`;
-        const uid = `user_${Date.now()}`;
-        useVoiceCallStore.getState().startCall(convId, uid);
+        if (!activeConversationId) {
+          console.warn('[InputBar] Cannot start voice call without an active conversation');
+          return;
+        }
+        if (!projectId) {
+          console.warn('[InputBar] Cannot start voice call without a projectId');
+          return;
+        }
+        useVoiceCallStore.getState().startCall(activeConversationId, projectId);
       }
-    }, [voiceCallStatus, activeConversationId]);
+    }, [voiceCallStatus, activeConversationId, projectId]);
 
     const capabilities = useActiveModelCapabilities();
 

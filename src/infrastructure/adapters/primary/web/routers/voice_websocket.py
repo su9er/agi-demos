@@ -13,6 +13,7 @@ import re
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.configuration.config import get_settings
@@ -76,13 +77,51 @@ async def voice_chat_endpoint(
         await websocket.close(code=4000)
         return
 
-    sample_rate: int = config_msg.get("sample_rate", 16000)
+    _sample_rate: int = config_msg.get("sample_rate", 16000)
     speaker: str = config_msg.get("speaker", "zh_female_tianmeixiaoyuan_moon_bigtts")
 
-    # 4. Create ASR and TTS clients
+    # 4. Resolve Volcengine ASR/TTS credentials (DB first, env fallback)
     settings = get_settings()
-    if not settings.volc_ak or not settings.volc_app_id:
-        await _send_error(websocket, "Volcengine credentials not configured")
+    volc_ak: str | None = settings.volc_ak
+    volc_app_id: str | None = settings.volc_app_id
+
+    try:
+        from src.infrastructure.persistence.llm_providers_models import (
+            LLMProvider as LLMProviderORM,
+        )
+
+        result = await db.execute(
+            select(LLMProviderORM)
+            .where(LLMProviderORM.provider_type.like("volcengine%"))
+            .where(LLMProviderORM.is_active.is_(True))
+            .limit(1)
+        )
+        provider = result.scalar_one_or_none()
+        if provider and provider.config:
+            db_cfg: dict[str, Any] = provider.config
+            volc_ak = db_cfg.get("volc_ak") or volc_ak
+            # Try volc_app_id first, then fall back to rtc_app_key
+            volc_app_id = (
+                db_cfg.get("volc_app_id")
+                or db_cfg.get("rtc_app_key")
+                or volc_app_id
+            )
+            logger.info(
+                "[Voice WS] Resolved credentials from DB: ak=%s app_id=%s",
+                bool(volc_ak),
+                bool(volc_app_id),
+            )
+    except Exception:
+        logger.warning(
+            "[Voice WS] Failed to read provider config from DB, using env vars",
+            exc_info=True,
+        )
+    if not volc_ak or not volc_app_id:
+        await _send_error(
+            websocket,
+            "Volcengine ASR/TTS credentials not configured "
+            "(set volc_ak + volc_app_id in provider config or VOLC_AK + VOLC_APP_ID env vars)",
+        )
         await websocket.close(code=4000)
         return
 
@@ -94,8 +133,8 @@ async def voice_chat_endpoint(
     )
 
     asr_client = AsyncASRStreamingClient(
-        settings.volc_ak,
-        settings.volc_app_id,
+        volc_ak,
+        volc_app_id,
     )
     tts_client: AsyncTTSStreamingClient | None = None
 
@@ -146,8 +185,8 @@ async def voice_chat_endpoint(
                 _tts_sender(
                     websocket,
                     tts_text_queue,
-                    settings.volc_ak,
-                    settings.volc_app_id,
+                    volc_ak,
+                    volc_app_id,
                     speaker,
                     shutdown_event,
                 ),
@@ -287,6 +326,12 @@ async def _agent_bridge(
 ) -> None:
     """Process ASR final transcripts through the agent pipeline."""
     try:
+        logger.info(
+            "[Voice WS] Agent bridge started (conv=%s, project=%s, user=%s)",
+            conversation_id,
+            project_id,
+            user_id,
+        )
         while not shutdown.is_set():
             # Wait for a final transcript from ASR
             try:
@@ -294,6 +339,10 @@ async def _agent_bridge(
             except asyncio.TimeoutError:
                 continue
 
+            logger.info(
+                "[Voice WS] ASR final text received, sending to agent: %.80s...",
+                asr_text,
+            )
             # Stream agent response
             full_response = ""
             tts_buffer = ""
@@ -307,6 +356,13 @@ async def _agent_bridge(
                 image_attachments=None,
             ):
                 event_type = event.get("type")
+
+                if event_type == "error":
+                    error_msg = event.get("data", {}).get("message", "Unknown agent error")
+                    logger.error("[Voice WS] Agent error: %s", error_msg)
+                    await _send_json(websocket, {"type": "error", "message": error_msg})
+                    break
+
 
                 if event_type == "token":
                     token_text = event.get("data", {}).get("content", "")

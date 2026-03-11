@@ -286,6 +286,11 @@ export const VoiceCallPanel: React.FC<VoiceCallPanelProps> = ({ onClose }) => {
 	// Voice chat hook (WebSocket-based pipeline)
 	const { enqueueChunk, stop: stopAudio, clear: clearAudio } = useAudioQueue();
 
+	// Keep a ref to disconnect for the unmount cleanup.
+	// This ensures the WebSocket is torn down if the panel is unmounted
+	// without an explicit handleEndCall (e.g., parent navigates away).
+	const disconnectRef = useRef<() => void>(() => {});
+
 	const {
 		isConnected,
 		isRecording,
@@ -309,6 +314,16 @@ export const VoiceCallPanel: React.FC<VoiceCallPanelProps> = ({ onClose }) => {
 		onError: (err) =>
 			useVoiceCallStore.setState({ status: "error", error: err }),
 	});
+
+	// Keep disconnectRef in sync so the cleanup effect always calls the latest version.
+	disconnectRef.current = disconnect;
+
+	// Cleanup: when VoiceCallPanel is truly unmounted (not StrictMode), tear down WS.
+	useEffect(() => {
+		return () => {
+			disconnectRef.current();
+		};
+	}, []);
 
 	// Connect when status becomes 'connecting'
 	useEffect(() => {

@@ -952,6 +952,22 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                            ASR/TTS App ID
+                          </label>
+                          <input
+                            type="text"
+                            value={(formData.config?.volc_app_id as string) || ''}
+                            onChange={(e) => {
+                              const newConfig = { ...formData.config, volc_app_id: e.target.value };
+                              setFormData({ ...formData, config: newConfig });
+                              setConfigJsonStr(JSON.stringify(newConfig, null, 2));
+                            }}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="App ID for ASR/TTS service (leave blank to use VOLC_APP_ID env)"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                             Doubao Endpoint ID
                           </label>
                           <input
@@ -1887,6 +1903,14 @@ export const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                             <span className="text-slate-500">Secret Key:</span>
                             <span className="font-medium text-slate-900 dark:text-white">
                               ********
+                            </span>
+                          </div>
+                        )}
+                        {formData.config?.volc_app_id && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">ASR/TTS App ID:</span>
+                            <span className="font-medium text-slate-900 dark:text-white">
+                              {String(formData.config.volc_app_id)}
                             </span>
                           </div>
                         )}

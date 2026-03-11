@@ -58,11 +58,15 @@ export const useVoiceChat = (options: UseVoiceChatOptions): UseVoiceChatReturn =
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const isMountedRef = useRef(true);
 
+  // Connection ID counter: each connect() call increments this.
+  // WebSocket event handlers only act if their captured ID matches the current one.
+  // This prevents stale events from a React StrictMode double-mount or rapid reconnect.
+  const connectionIdRef = useRef(0);
+
   // Store the latest options in a ref so callbacks always read current values
   // without causing re-creation of the memoized functions.
   const optionsRef = useRef(options);
   optionsRef.current = options;
-
   /**
    * Handle an incoming text (JSON) message from the WebSocket.
    */
@@ -148,6 +152,9 @@ export const useVoiceChat = (options: UseVoiceChatOptions): UseVoiceChatReturn =
    * Disconnect the WebSocket and clean up all resources.
    */
   const disconnect = useCallback(() => {
+    // Invalidate the current connection ID so any in-flight WS events are ignored.
+    connectionIdRef.current++;
+
     setIsRecording(false);
     teardownAudio();
 
@@ -186,6 +193,10 @@ export const useVoiceChat = (options: UseVoiceChatOptions): UseVoiceChatReturn =
       return;
     }
 
+    // Bump connection ID — all event handlers capture this value.
+    // If a stale WebSocket fires events, the ID won't match and we ignore them.
+    const connId = ++connectionIdRef.current;
+
     const wsUrl = createWebSocketUrl('/voice/chat', {
       token,
       project_id: optionsRef.current.projectId,
@@ -197,6 +208,11 @@ export const useVoiceChat = (options: UseVoiceChatOptions): UseVoiceChatReturn =
     wsRef.current = ws;
 
     ws.onopen = () => {
+      // Stale connection: something else already replaced wsRef
+      if (connId !== connectionIdRef.current) {
+        ws.close();
+        return;
+      }
       if (!isMountedRef.current) return;
       setIsConnected(true);
 
@@ -210,6 +226,7 @@ export const useVoiceChat = (options: UseVoiceChatOptions): UseVoiceChatReturn =
     };
 
     ws.onmessage = (event: MessageEvent) => {
+      if (connId !== connectionIdRef.current) return;
       if (!isMountedRef.current) return;
 
       if (typeof event.data === 'string') {
@@ -221,11 +238,13 @@ export const useVoiceChat = (options: UseVoiceChatOptions): UseVoiceChatReturn =
     };
 
     ws.onerror = () => {
+      if (connId !== connectionIdRef.current) return;
       if (!isMountedRef.current) return;
       optionsRef.current.onError?.('WebSocket connection error');
     };
 
     ws.onclose = () => {
+      if (connId !== connectionIdRef.current) return;
       if (!isMountedRef.current) return;
       wsRef.current = null;
       setIsConnected(false);
@@ -299,15 +318,20 @@ export const useVoiceChat = (options: UseVoiceChatOptions): UseVoiceChatReturn =
     }
   }, [teardownAudio]);
 
-  // Cleanup on unmount
+  // Mark mount/unmount state.
+  // IMPORTANT: We do NOT call disconnect() on unmount because React StrictMode
+  // double-mounts in dev, which would tear down the WebSocket mid-connection.
+  // The caller (VoiceCallPanel.handleEndCall) is responsible for calling disconnect().
   useEffect(() => {
     isMountedRef.current = true;
 
     return () => {
       isMountedRef.current = false;
-      disconnect();
+      // Invalidate any in-flight connection so stale events are ignored,
+      // but do NOT close the WebSocket here -- the parent manages lifecycle.
+      connectionIdRef.current++;
     };
-  }, [disconnect]);
+  }, []);
 
   return {
     isConnected,
