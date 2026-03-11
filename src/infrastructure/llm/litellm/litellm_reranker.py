@@ -46,6 +46,7 @@ _RERANKER_PROVIDER_PREFIXES: dict[str, str] = {
     "zai": "zai",
     "ollama": "ollama",
     "lmstudio": "openai",
+    "volcengine": "volcengine",
 }
 
 # Default rerank models by provider
@@ -63,6 +64,7 @@ DEFAULT_RERANK_MODELS = {
     ProviderType.MISTRAL: "mistral-small-latest",
     ProviderType.OLLAMA: "llama3.1:8b",
     ProviderType.LMSTUDIO: "local-model",
+    ProviderType.VOLCENGINE: "doubao-reranker-large",
 }
 
 
@@ -364,7 +366,7 @@ class LiteLLMReranker(BaseReranker):
     def _get_litellm_model_name(self) -> str:
         """Get model name in LiteLLM format."""
         model = self._model
-        provider_type = self._provider_type.value if self._provider_type else None
+        provider_type = self._provider_config.provider_type.value if not isinstance(self._provider_config, LiteLLMRerankerConfig) else self._provider_type.value
         prefix = _RERANKER_PROVIDER_PREFIXES.get(provider_type)
         if prefix and not model.startswith(f"{prefix}/"):
             return f"{prefix}/{model}"

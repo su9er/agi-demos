@@ -171,6 +171,8 @@ export interface ChatRequest {
   forced_skill_name?: string | undefined;
   /** Context injected by MCP Apps via ui/update-model-context (SEP-1865) */
   app_model_context?: Record<string, unknown> | undefined;
+  /** Base64 image data URLs captured from video frames for vision LLM */
+  image_attachments?: string[] | undefined;
 }
 
 /**

@@ -404,6 +404,12 @@ Check the `/api/v1/tenant/config` endpoint for your current limits.
     logger.info("Volcengine RTC API registered at /api/v1/volcengine")
     logger.info("Agent Pool Admin API registered at /api/v1/admin/pool")
 
+    # Voice WebSocket (ASR/TTS streaming pipeline)
+    from src.infrastructure.adapters.primary.web.routers import voice_websocket
+
+    app.include_router(voice_websocket.router)
+    logger.info("Voice WebSocket registered at /api/v1/voice/chat")
+
     return app
 
 

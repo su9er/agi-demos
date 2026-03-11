@@ -51,6 +51,7 @@ import { PromptTemplateLibrary } from './chat/PromptTemplateLibrary';
 import { VoiceWaveform } from './chat/VoiceWaveform';
 import { VoiceCallPanel } from './chat/VoiceCallPanel';
 import { useFileUpload, type PendingAttachment } from './FileUploader';
+import { useFrameCapture } from '@/hooks/rtc/useFrameCapture';
 import { SlashCommandDropdown } from "./SlashCommandDropdown";
 
 import type { SkillResponse, SlashItem } from '@/types/agent';
@@ -101,7 +102,8 @@ interface InputBarProps {
     content: string,
     fileMetadata?: FileMetadata[],
     forcedSkillName?: string,
-    forcedSubAgentName?: string
+    forcedSubAgentName?: string,
+    imageAttachments?: string[]
   ) => void;
   onAbort: () => void;
   isStreaming: boolean;
@@ -152,6 +154,8 @@ export const InputBar = memo<InputBarProps>(
     const activeConversationId = useAgentV3Store((state) => state.activeConversationId);
     const voiceCallStatus = useVoiceCallStore((state) => state.status);
 
+    const isCameraOn = useVoiceCallStore((state) => state.isCameraOn);
+    const { captureFrame } = useFrameCapture();
     const handleVoiceCall = useCallback(() => {
       if (voiceCallStatus !== 'idle') {
         useVoiceCallStore.getState().endCall();
@@ -202,11 +206,20 @@ export const InputBar = memo<InputBarProps>(
       );
       const messageContent =
         inputMode === 'command' ? `[command] ${content.trim()}` : content.trim();
+      // Auto-capture video frame when camera is active
+      let imageAttachments: string[] | undefined;
+      if (isCameraOn) {
+        const frame = captureFrame('local-video-container');
+        if (frame) {
+          imageAttachments = [frame.dataUrl];
+        }
+      }
       onSend(
         messageContent,
         fileMetadataList.length > 0 ? fileMetadataList : undefined,
         selectedSkill?.name,
-        selectedSubAgent || undefined
+        selectedSubAgent || undefined,
+        imageAttachments
       );
       setContent('');
       setSelectedSkill(null);
@@ -229,6 +242,8 @@ export const InputBar = memo<InputBarProps>(
       selectedSkill,
       selectedSubAgent,
       inputMode,
+      isCameraOn,
+      captureFrame,
     ]);
 
     const handleTemplateSelect = useCallback((prompt: string) => {

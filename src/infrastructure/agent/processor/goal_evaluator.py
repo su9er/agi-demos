@@ -7,11 +7,16 @@ heuristics.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from src.infrastructure.agent.tools.context import ToolContext
+from src.infrastructure.agent.tools.define import ToolInfo
+from src.infrastructure.agent.tools.result import ToolResult
 
 if TYPE_CHECKING:
     from ..core.message import Message
@@ -139,24 +144,13 @@ class GoalEvaluator:
             return []
 
         try:
-            raw_result = await todoread_tool.execute(session_id=session_id)
+            raw_result = await self._execute_todoread(todoread_tool, session_id)
         except Exception as exc:
             logger.warning(f"[GoalEvaluator] Failed to load tasks via todoread: {exc}")
             return []
 
-        payload: dict[str, Any]
-        if isinstance(raw_result, str):
-            try:
-                payload = json.loads(raw_result)
-            except json.JSONDecodeError as exc:
-                logger.warning(f"[GoalEvaluator] Invalid todoread JSON result: {exc}")
-                return []
-        elif isinstance(raw_result, dict):
-            payload = raw_result
-        else:
-            logger.warning(
-                f"[GoalEvaluator] Unsupported todoread result type: {type(raw_result).__name__}"
-            )
+        payload = self._coerce_todoread_payload(raw_result)
+        if payload is None:
             return []
 
         tasks = payload.get("todos", [])
@@ -165,6 +159,68 @@ class GoalEvaluator:
             return []
 
         return [t for t in tasks if isinstance(t, dict)]
+
+    async def _execute_todoread(self, todoread_tool: Any, session_id: str) -> Any:  # noqa: ANN401
+        """Execute todoread with compatibility for ToolInfo-based tools."""
+        tool_instance = getattr(todoread_tool, "_tool_instance", None)
+        if isinstance(tool_instance, ToolInfo):
+            ctx = ToolContext(
+                session_id=session_id,
+                message_id="",
+                call_id=f"goal-evaluator-todoread:{session_id}",
+                agent_name="goal_evaluator",
+                conversation_id=session_id,
+                abort_signal=asyncio.Event(),
+            )
+            return await tool_instance.execute(ctx)
+        return await todoread_tool.execute(session_id=session_id)
+
+    def _coerce_todoread_payload(self, raw_result: Any) -> dict[str, Any] | None:  # noqa: ANN401
+        """Normalize todoread output into a JSON object payload."""
+        payload: dict[str, Any] | None = None
+
+        if isinstance(raw_result, ToolResult):
+            payload = self._parse_todoread_payload_str(raw_result.output)
+        elif isinstance(raw_result, dict):
+            output = raw_result.get("output")
+            if output is None:
+                payload = raw_result
+            elif isinstance(output, str):
+                payload = self._parse_todoread_payload_str(output)
+            else:
+                logger.warning(
+                    "[GoalEvaluator] Unsupported todoread dict.output type: %s",
+                    type(output).__name__,
+                )
+        elif isinstance(raw_result, str):
+            stripped = raw_result.strip()
+            if stripped.startswith("Error executing tool"):
+                logger.warning("[GoalEvaluator] todoread execution failed: %s", stripped)
+            else:
+                payload = self._parse_todoread_payload_str(stripped)
+        else:
+            logger.warning(
+                "[GoalEvaluator] Unsupported todoread result type: %s",
+                type(raw_result).__name__,
+            )
+
+        return payload
+
+    @staticmethod
+    def _parse_todoread_payload_str(raw_result: str) -> dict[str, Any] | None:
+        """Parse a todoread JSON payload from string output."""
+        if not raw_result:
+            logger.warning("[GoalEvaluator] Empty todoread payload")
+            return None
+        try:
+            payload = json.loads(raw_result)
+        except json.JSONDecodeError as exc:
+            logger.warning(f"[GoalEvaluator] Invalid todoread JSON result: {exc}")
+            return None
+        if not isinstance(payload, dict):
+            logger.warning("[GoalEvaluator] todoread JSON payload is not an object")
+            return None
+        return payload
 
     @staticmethod
     def _evaluate_task_goal(tasks: list[dict[str, Any]]) -> GoalCheckResult:

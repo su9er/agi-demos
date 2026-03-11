@@ -424,7 +424,8 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
         content: string,
         fileMetadata?: FileMetadata[],
         forcedSkillName?: string,
-        forcedSubAgentName?: string
+        forcedSubAgentName?: string,
+        imageAttachments?: string[]
       ) => {
         if (!projectId) return;
 
@@ -438,6 +439,7 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
           onObserve,
           fileMetadata,
           forcedSkillName,
+          imageAttachments,
         });
         if (!conversationId && newId) {
           if (customBasePath) {

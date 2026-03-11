@@ -1,18 +1,22 @@
 """Unit tests for GoalEvaluator goal-completion evaluation."""
 
 import json
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 
 from src.infrastructure.agent.processor import ToolDefinition
 from src.infrastructure.agent.processor.goal_evaluator import GoalEvaluator
+from src.infrastructure.agent.tools.context import ToolContext
+from src.infrastructure.agent.tools.define import ToolInfo
+from src.infrastructure.agent.tools.result import ToolResult
 
 
-def create_todoread_tool(tasks):
+def create_todoread_tool(tasks: list[dict[str, Any]]) -> ToolDefinition:
     """Create a todoread ToolDefinition returning fixed tasks."""
 
-    async def execute(**kwargs):
+    async def execute(**kwargs: Any) -> str:
         return json.dumps(
             {
                 "session_id": kwargs.get("session_id", "session-test"),
@@ -29,6 +33,40 @@ def create_todoread_tool(tasks):
     )
 
 
+def create_todoread_toolinfo_tool(tasks: list[dict[str, Any]]) -> ToolDefinition:
+    """Create ToolInfo-backed todoread ToolDefinition for compatibility tests."""
+
+    async def toolinfo_execute(ctx: ToolContext, *, status: str | None = None) -> ToolResult:
+        assert status is None
+        assert ctx.session_id == "session-1"
+        assert ctx.conversation_id == "session-1"
+        return ToolResult(
+            output=json.dumps(
+                {
+                    "session_id": ctx.session_id,
+                    "conversation_id": ctx.conversation_id,
+                    "total_count": len(tasks),
+                    "todos": tasks,
+                }
+            )
+        )
+
+    tool_info = ToolInfo(
+        name="todoread",
+        description="Read todos",
+        parameters={"type": "object", "properties": {}},
+        execute=toolinfo_execute,
+    )
+
+    return ToolDefinition(
+        name="todoread",
+        description="Read todos",
+        parameters={"type": "object", "properties": {}},
+        execute=AsyncMock(return_value="wrapper_should_not_be_called"),
+        _tool_instance=tool_info,
+    )
+
+
 @pytest.mark.unit
 class TestProcessorGoalCompletion:
     """Goal-completion behavior for GoalEvaluator."""
@@ -37,7 +75,7 @@ class TestProcessorGoalCompletion:
     def evaluator_with_tasks(self):
         """Factory: build a GoalEvaluator with a todoread tool returning *tasks*."""
 
-        def _factory(tasks):
+        def _factory(tasks: list[dict[str, Any]]) -> GoalEvaluator:
             tool = create_todoread_tool(tasks)
             tools = {"todoread": tool}
             return GoalEvaluator(llm_client=None, tools=tools)
@@ -96,6 +134,55 @@ class TestProcessorGoalCompletion:
 
         assert result.achieved is False
         assert result.should_stop is True
+        assert result.source == "tasks"
+
+    @pytest.mark.asyncio
+    async def test_task_goal_reads_toolinfo_todoread_with_tool_context(self) -> None:
+        tool = create_todoread_toolinfo_tool(
+            [
+                {"id": "t1", "status": "completed"},
+                {"id": "t2", "status": "in_progress"},
+            ]
+        )
+        evaluator = GoalEvaluator(llm_client=None, tools={"todoread": tool})
+
+        result = await evaluator.evaluate_goal_completion(
+            session_id="session-1",
+            messages=[{"role": "user", "content": "finish task"}],
+        )
+
+        assert result.achieved is False
+        assert result.source == "tasks"
+        assert result.pending_tasks == 1
+        cast(AsyncMock, tool.execute).assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_task_goal_supports_toolresult_payload(self) -> None:
+        async def execute(**kwargs: Any) -> ToolResult:
+            return ToolResult(
+                output=json.dumps(
+                    {
+                        "session_id": kwargs.get("session_id", "session-test"),
+                        "total_count": 1,
+                        "todos": [{"id": "t1", "status": "completed"}],
+                    }
+                )
+            )
+
+        tool = ToolDefinition(
+            name="todoread",
+            description="Read todos",
+            parameters={"type": "object", "properties": {}},
+            execute=execute,
+        )
+        evaluator = GoalEvaluator(llm_client=None, tools={"todoread": tool})
+
+        result = await evaluator.evaluate_goal_completion(
+            session_id="session-1",
+            messages=[{"role": "user", "content": "finish task"}],
+        )
+
+        assert result.achieved is True
         assert result.source == "tasks"
 
     @pytest.mark.asyncio

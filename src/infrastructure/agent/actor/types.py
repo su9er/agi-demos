@@ -45,6 +45,8 @@ class ProjectChatRequest:
     plan_mode: bool = False
     # Context injected by MCP Apps via ui/update-model-context (SEP-1865)
     app_model_context: dict[str, Any] | None = None
+    # Image attachments (base64 data URLs from video frame capture)
+    image_attachments: list[str] | None = None
 
 
 @dataclass(frozen=True)

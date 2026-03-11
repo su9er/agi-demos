@@ -433,6 +433,7 @@ async def execute_project_chat(
             context_summary_data=request.context_summary_data,
             plan_mode=request.plan_mode,
             llm_overrides=llm_overrides,
+            image_attachments=request.image_attachments,
         ):
             evt_time_us, evt_counter = time_gen.next()
             event["event_time_us"] = evt_time_us

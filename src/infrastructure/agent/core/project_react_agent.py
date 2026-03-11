@@ -889,6 +889,7 @@ class ProjectReActAgent:
         context_summary_data: dict[str, Any] | None = None,
         plan_mode: bool = False,
         llm_overrides: dict[str, Any] | None = None,
+        image_attachments: list[str] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Execute a chat request using the project agent.
@@ -962,6 +963,17 @@ class ProjectReActAgent:
                 context_summary_data=context_summary_data,
                 plan_mode=plan_mode,
                 llm_overrides=llm_overrides,
+                attachment_content=(
+                    [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": url, "detail": "auto"},
+                        }
+                        for url in image_attachments
+                    ]
+                    if image_attachments
+                    else None
+                ),
             ):
                 event_count += 1
                 event_type = event.get("type")

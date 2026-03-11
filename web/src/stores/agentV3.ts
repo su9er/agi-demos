@@ -1177,6 +1177,7 @@ export const useAgentV3Store = create<AgentV3State>()(
                   file_metadata: additionalHandlers?.fileMetadata,
                   forced_skill_name: additionalHandlers?.forcedSkillName,
                   app_model_context: appCtx ?? undefined,
+                  image_attachments: additionalHandlers?.imageAttachments,
                 },
                 handler
               )
@@ -1210,6 +1211,7 @@ export const useAgentV3Store = create<AgentV3State>()(
                 file_metadata: additionalHandlers?.fileMetadata,
                 forced_skill_name: additionalHandlers?.forcedSkillName,
                 app_model_context: appCtx2 ?? undefined,
+                image_attachments: additionalHandlers?.imageAttachments,
               },
               handler
             );

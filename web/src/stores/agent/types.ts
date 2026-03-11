@@ -34,6 +34,8 @@ export interface AdditionalAgentHandlers {
   fileMetadata?: FileMetadata[] | undefined;
   /** Force execution of a specific skill by name */
   forcedSkillName?: string | undefined;
+  /** Base64 data URL image attachments from video frame capture */
+  imageAttachments?: string[] | undefined;
 }
 
 export interface AgentV3State {

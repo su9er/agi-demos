@@ -38,6 +38,7 @@ class SendMessageHandler(WebSocketMessageHandler):
         file_metadata = message.get("file_metadata")
         forced_skill_name = message.get("forced_skill_name")
         app_model_context = message.get("app_model_context")
+        image_attachments = message.get("image_attachments")
 
         if not all([conversation_id, user_message, project_id]):
             await context.send_error(
@@ -125,6 +126,7 @@ class SendMessageHandler(WebSocketMessageHandler):
                     file_metadata=file_metadata,
                     forced_skill_name=forced_skill_name,
                     app_model_context=app_model_context,
+                    image_attachments=image_attachments,
                 )
             )
             context.connection_manager.add_bridge_task(context.session_id, conversation_id, task)
@@ -251,6 +253,7 @@ async def stream_agent_to_websocket(
     file_metadata: list[dict[str, Any]] | None = None,
     forced_skill_name: str | None = None,
     app_model_context: dict[str, Any] | None = None,
+    image_attachments: list[str] | None = None,
 ) -> None:
     """
     Stream agent events to WebSocket.
@@ -272,6 +275,7 @@ async def stream_agent_to_websocket(
             file_metadata=file_metadata,
             forced_skill_name=forced_skill_name,
             app_model_context=app_model_context,
+            image_attachments=image_attachments,
         ):
             event_count += 1
             event_type = event.get("type", "unknown")

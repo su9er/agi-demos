@@ -520,6 +520,7 @@ class AgentServiceImpl implements AgentService {
       file_metadata,
       forced_skill_name,
       app_model_context,
+      image_attachments,
     } = request;
 
     if (!this.isConnected()) {
@@ -537,6 +538,7 @@ class AgentServiceImpl implements AgentService {
       file_metadata,
       forced_skill_name,
       app_model_context,
+      image_attachments,
     });
 
     if (!sent) {
