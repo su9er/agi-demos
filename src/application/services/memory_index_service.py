@@ -185,7 +185,9 @@ class MemoryIndexService:
         texts = [c.text for c in chunks]
         embeddings: list[list[float] | None] = [None] * len(texts)
         try:
-            if hasattr(self._embedding, "embed_batch"):
+            if hasattr(self._embedding, "embed_batch_safe"):
+                embeddings = await self._embedding.embed_batch_safe(texts)
+            elif hasattr(self._embedding, "embed_batch"):
                 embeddings = cast(list[list[float] | None], await self._embedding.embed_batch(texts))
             elif hasattr(self._embedding, "embed_text_safe"):
                 for i, text in enumerate(texts):

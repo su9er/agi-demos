@@ -131,9 +131,9 @@ class ChunkHybridSearch:
 
         # 1. Vector search (with graceful fallback)
         vector_results: list[dict[str, Any]] = []
-        query_embedding: list[float] | None = await self._embedding.embed_text(query)
+        query_embedding: list[float] | None = await self._embedding.embed_text_safe(query)
 
-        if query_embedding is not None:  # pyright: ignore[reportUnnecessaryComparison]
+        if query_embedding is not None:
             vector_results = await chunk_repo.vector_search(
                 query_embedding, project_id, fetch_limit, category=category
             )
