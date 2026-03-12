@@ -144,7 +144,7 @@ class AsyncTTSStreamingClient:
                 additional_headers=headers,
                 max_size=None,
                 open_timeout=10,
-            )
+                proxy=None,
         except Exception as exc:
             raise TTSConnectionError(f"Failed to connect to TTS endpoint: {exc}") from exc
 
