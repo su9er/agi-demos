@@ -332,6 +332,14 @@ class AsyncTTSStreamingClient:
         )
         await self._send_frame(frame)
 
+        # Signal end of text so server will send EventSessionFinished
+        # Reference: after sending all text, _send_finish_session() is called
+        finish_frame = _build_header() + _write_message(
+            event=EventFinishSession,
+            session_id=self._session_id,
+            payload=json.dumps({}),
+        )
+        await self._send_frame(finish_frame)
         # Read response frames until the task or session finishes
         while True:
             raw = await self._recv_raw()
