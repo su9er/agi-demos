@@ -499,9 +499,9 @@ async def _agent_bridge(
                                 list(event.get("data", {}).keys()) if isinstance(event.get("data"), dict) else "N/A",
                             )
                         if event_type == "error":
-                    error_msg = event.get("data", {}).get("message", "Unknown agent error")
+                            error_msg = event.get("data", {}).get("message", "Unknown agent error")
                             logger.error("[Voice WS] Agent error: %s", error_msg)
-                    await _send_json(websocket, {"type": "error", "message": error_msg})
+                            await _send_json(websocket, {"type": "error", "message": error_msg})
                             break
 
                         if event_type == "token":
@@ -522,7 +522,7 @@ async def _agent_bridge(
                                 )
 
                         elif event_type == "complete":
-                    complete_content = event.get("data", {}).get("content", "")
+                            complete_content = event.get("data", {}).get("content", "")
                             if complete_content:
                                 full_response = complete_content
 
