@@ -242,7 +242,19 @@ class ModelCatalogService(ModelCatalogPort):
                 raw = json.loads(self._snapshot_path.read_text("utf-8"))
                 models_raw: dict[str, Any] = raw.get("models", {})
                 for name, data in models_raw.items():
-                    self._models[name] = ModelMetadata(**data)
+                    try:
+                        # Coerce zero values to defaults for fields requiring ge=1
+                        if data.get("max_output_tokens", 1) < 1:
+                            data["max_output_tokens"] = 4096
+                        if data.get("context_length", 1024) < 1024:
+                            data["context_length"] = 128000
+                        self._models[name] = ModelMetadata(**data)
+                    except Exception:
+                        logger.warning(
+                            "Skipping model %s: invalid metadata",
+                            name,
+                            exc_info=True,
+                        )
                 logger.info(
                     "Loaded %d models from snapshot %s",
                     len(models_raw),

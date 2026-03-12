@@ -27,6 +27,9 @@ class ModelCapability(StrEnum):
     CODE = "code"
     EMBEDDING = "embedding"
     RERANK = "rerank"
+    IMAGE_GENERATION = "image_generation"
+    IMAGE_EDITING = "image_editing"
+    VIDEO_GENERATION = "video_generation"
 
 
 class ModelMetadata(BaseModel):

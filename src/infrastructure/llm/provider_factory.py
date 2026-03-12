@@ -121,10 +121,6 @@ class AIServiceFactory:
     ) -> LiteLLMEmbedder:
         """Create a ``LiteLLMEmbedder`` from a resolved provider config.
 
-        The embedder uses ``ProviderConfig.embedding_model`` (falls back to
-        the provider's default if not set) and passes the decrypted API key
-        per-request — no global ``os.environ`` mutation.
-
         Returns:
             Configured ``LiteLLMEmbedder`` instance.
         """
@@ -139,14 +135,31 @@ class AIServiceFactory:
     ) -> EmbeddingService:
         """Create an ``EmbeddingService`` wrapping a LiteLLM embedder.
 
-        Returns:
-            ``EmbeddingService`` with the unified graph embedding interface.
-        """
-        from src.infrastructure.graph.embedding.embedding_service import EmbeddingService
-        from src.infrastructure.llm.litellm.litellm_embedder import LiteLLMEmbedder
+        If the embedder cannot be created (missing API key, invalid
+        model, etc.) a ``NullEmbeddingService`` is returned so that
+        search and indexing degrade to FTS-only mode instead of
+        crashing.
 
-        embedder = LiteLLMEmbedder(config=provider_config, embedding_dim=embedding_dim)
-        return EmbeddingService(embedder=embedder)  # type: ignore[arg-type]
+        Returns:
+            ``EmbeddingService`` (or ``NullEmbeddingService`` on failure).
+        """
+        from src.infrastructure.graph.embedding.embedding_service import (
+            EmbeddingService,
+            NullEmbeddingService,
+        )
+
+        try:
+            from src.infrastructure.llm.litellm.litellm_embedder import LiteLLMEmbedder
+
+            embedder = LiteLLMEmbedder(config=provider_config, embedding_dim=embedding_dim)
+            return EmbeddingService(embedder=embedder)  # type: ignore[arg-type]
+        except Exception as e:
+            logger.warning(
+                "Failed to create embedding service, "
+                "falling back to NullEmbeddingService: %s",
+                e,
+            )
+            return NullEmbeddingService()  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # Reranker
