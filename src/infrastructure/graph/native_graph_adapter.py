@@ -20,7 +20,7 @@ from src.domain.ports.services.queue_port import QueuePort
 
 from .community.community_updater import CommunityUpdater
 from .community.louvain_detector import LouvainDetector
-from .embedding.embedding_service import EmbeddingService
+from .embedding.embedding_service import EmbeddingService, NullEmbeddingService
 from .extraction.entity_extractor import EntityExtractor
 from .extraction.reflexion import ReflexionChecker
 from .extraction.relationship_extractor import RelationshipExtractor
@@ -246,6 +246,9 @@ class NativeGraphAdapter(GraphServicePort):
             force: Bypass cache and force check
         """
         try:
+            # Skip dimension check entirely for NullEmbeddingService
+            if isinstance(self._embedding_service, NullEmbeddingService):
+                return
             current_dim = self._embedding_service.embedding_dim
 
             # Check cache first (unless forced)

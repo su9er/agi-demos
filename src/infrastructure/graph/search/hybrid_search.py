@@ -365,10 +365,9 @@ class HybridSearch:
             List of SearchResultItem
         """
         # Generate query embedding
-        try:
-            query_embedding = await self._embedding_service.embed_text(query)
-        except Exception as e:
-            logger.error(f"Failed to generate query embedding: {e}")
+        query_embedding = await self._embedding_service.embed_text_safe(query)
+        if query_embedding is None:
+            logger.info("Embedding unavailable, skipping vector search (FTS-only mode)")
             return []
 
         # Validate embedding dimension
