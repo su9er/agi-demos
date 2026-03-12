@@ -114,6 +114,7 @@ class AsyncASRStreamingClient:
                 max_size=None,
                 open_timeout=10,
                 proxy=None,
+            )
         except Exception as exc:
             raise ASRConnectionError(f"Failed to connect to ASR endpoint: {exc}") from exc
 

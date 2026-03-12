@@ -3,9 +3,9 @@
 Connects to the Volcengine TTS V3 bidirectional WebSocket endpoint, sends
 text, and yields synthesized audio chunks as they arrive.
 
-The TTS protocol uses an *event-based* binary framing scheme that differs
-from the ASR binary protocol: each frame carries an event code and optional
-connection/session IDs alongside the JSON or audio payload.
+The TTS protocol uses an *event-based* binary framing scheme where each
+frame carries a 4-byte header followed by event-specific fields.  The frame
+layout varies per event type -- see ``_write_message`` for details.
 
 Usage::
 
@@ -18,6 +18,7 @@ Usage::
     await client.close()
 
 Reference: https://www.volcengine.com/docs/6561/1354869
+Reference impl: ai-app-lab/arkitect/core/component/tts/
 """
 
 from __future__ import annotations
@@ -36,38 +37,48 @@ from websockets.exceptions import ConnectionClosed
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Protocol constants (TTS-specific)
+# Protocol constants (TTS-specific, matching reference constants.py)
 # ---------------------------------------------------------------------------
 
 PROTOCOL_VERSION: int = 0b0001
-HEADER_SIZE: int = 0b0001
+HEADER_SIZE: int = 0b0001  # header_size in units of 4 bytes -> 4 bytes total
 
-# Message types
+# Message types (upper nibble of byte 1)
 FULL_CLIENT: int = 0b0001
 AUDIO_ONLY_SERVER: int = 0b0100
+ERROR_SERVER: int = 0b0110
 
-# Message-type-specific flags
+# Message-type-specific flags (lower nibble of byte 1)
 WITH_EVENT: int = 0b0100
 
-# Serialization / compression (shared with ASR but redeclared for isolation)
+# Serialization (upper nibble of byte 2)
 JSON_SERIALIZATION: int = 0b0001
 NO_SERIALIZATION: int = 0b0000
+
+# Compression (lower nibble of byte 2)
 GZIP_COMPRESSION: int = 0b0001
 NO_COMPRESSION: int = 0b0000
 
 # ---------------------------------------------------------------------------
-# Event codes
+# Event codes (matching reference constants.py)
 # ---------------------------------------------------------------------------
 
 EventStartConnection: int = 1
 EventFinishConnection: int = 2
+
 EventConnectionStarted: int = 50
 EventConnectionFailed: int = 51
+EventConnectionFinished: int = 52
+
 EventStartSession: int = 100
 EventFinishSession: int = 102
+
 EventSessionStarted: int = 150
 EventSessionFinished: int = 152
+EventSessionFailed: int = 153
+
 EventTaskRequest: int = 200
+
 EventTTSSentenceStart: int = 350
 EventTTSSentenceEnd: int = 351
 
@@ -77,17 +88,76 @@ DEFAULT_SPEAKER: str = "zh_female_tianmeixiaoyuan_moon_bigtts"
 _DEFAULT_WS_URL = "wss://openspeech.bytedance.com/api/v3/tts/bidirection"
 _RESOURCE_ID = "volc.service_type.10029"
 
+# Events whose server responses carry a connection_id (NOT session_id)
+_CONNECTION_EVENTS = frozenset(
+    {
+        EventStartConnection,
+        EventFinishConnection,
+        EventConnectionStarted,
+        EventConnectionFailed,
+        EventConnectionFinished,
+    }
+)
+
 
 class TTSConnectionError(Exception):
     """Raised when the TTS WebSocket connection or session setup fails."""
+
+
+# ---------------------------------------------------------------------------
+# Low-level frame construction (matches reference model.py _write_message)
+# ---------------------------------------------------------------------------
+
+
+def _build_header() -> bytes:
+    """Build the 4-byte TTS protocol header.
+
+    Always uses JSON serialization with NO compression, matching the
+    reference implementation.
+    """
+    byte0 = (PROTOCOL_VERSION << 4) | HEADER_SIZE
+    byte1 = (FULL_CLIENT << 4) | WITH_EVENT
+    byte2 = (JSON_SERIALIZATION << 4) | NO_COMPRESSION
+    byte3 = 0x00
+    return bytes([byte0, byte1, byte2, byte3])
+
+
+def _write_message(
+    event: int,
+    payload: str,
+    connection_id: str | None = None,
+    session_id: str | None = None,
+) -> bytes:
+    """Encode event-specific body (everything after the 4-byte header).
+
+    Matches the reference ``_write_message`` in model.py exactly::
+
+        event_code (4B)
+        [connection_id_len (4B) + connection_id]   -- only if connection_id is not None
+        [session_id_len (4B) + session_id]         -- only if session_id is not None
+        payload_len (4B) + payload (raw UTF-8)
+
+    Which fields are included depends on the event type -- the caller is
+    responsible for passing the correct combination.
+    """
+    frame = struct.pack(">I", event)
+    if connection_id is not None:
+        cid_bytes = connection_id.encode("utf-8")
+        frame += struct.pack(">I", len(cid_bytes)) + cid_bytes
+    if session_id is not None:
+        sid_bytes = session_id.encode("utf-8")
+        frame += struct.pack(">I", len(sid_bytes)) + sid_bytes
+    payload_bytes = payload.encode("utf-8")
+    frame += struct.pack(">I", len(payload_bytes)) + payload_bytes
+    return frame
 
 
 class AsyncTTSStreamingClient:
     """Bidirectional streaming TTS client for Volcengine V3.
 
     Args:
-        access_key: Volcengine API access key.
-        app_key: Application key for the TTS resource.
+        access_key: Volcengine API access key (speech_access_token).
+        app_key: Application key for the TTS resource (speech_app_id).
         speaker: Voice speaker identifier.
         ws_url: WebSocket endpoint URL.
     """
@@ -145,11 +215,15 @@ class AsyncTTSStreamingClient:
                 max_size=None,
                 open_timeout=10,
                 proxy=None,
+            )
         except Exception as exc:
             raise TTSConnectionError(f"Failed to connect to TTS endpoint: {exc}") from exc
 
-        # Step 1 -- start connection
-        await self._write_event(EventStartConnection, payload_dict=None)
+        # Step 1 -- EventStartConnection
+        # Reference: msg.write_start_connection() -> _write_message(event=1, payload="{}")
+        # NO connection_id, NO session_id
+        frame = _build_header() + _write_message(event=EventStartConnection, payload="{}")
+        await self._send_frame(frame)
         resp = await self._read_event()
         event_code = resp.get("event", -1)
         if event_code == EventConnectionFailed:
@@ -158,21 +232,33 @@ class AsyncTTSStreamingClient:
             raise TTSConnectionError(f"Expected EventConnectionStarted(50), got event={event_code}")
         logger.debug("TTS connection started")
 
-        # Step 2 -- start session
-        session_payload: dict[str, Any] = {
-            "user": {"uid": "memstack"},
-            "audio_params": {
-                "format": "mp3",
-                "sample_rate": 24000,
-                "channel": 1,
+        # Step 2 -- EventStartSession
+        # Reference: msg.write_start_tts_session() -> _write_message(
+        #     event=100, connection_id=conn_id, payload=json.dumps(session_config))
+        # WITH connection_id, NO session_id
+        session_config: dict[str, Any] = {
+            "event": EventStartSession,
+            "namespace": NAMESPACE,
+            "req_params": {
+                "audio_params": {
+                    "format": "mp3",
+                    "sample_rate": 24000,
+                },
+                "speaker": self._speaker,
             },
-            "speaker": self._speaker,
         }
-        await self._write_event(EventStartSession, payload_dict=session_payload)
+        frame = _build_header() + _write_message(
+            event=EventStartSession,
+            connection_id=self._connect_id,
+            payload=json.dumps(session_config, ensure_ascii=False),
+        )
+        await self._send_frame(frame)
         resp = await self._read_event()
         event_code = resp.get("event", -1)
         if event_code != EventSessionStarted:
-            raise TTSConnectionError(f"Expected EventSessionStarted(150), got event={event_code}")
+            raise TTSConnectionError(
+                f"Expected EventSessionStarted(150), got event={event_code}, resp={resp}"
+            )
         self._session_id = resp.get("session_id", "")
         logger.info("TTS session started (session_id=%s)", self._session_id)
 
@@ -180,7 +266,13 @@ class AsyncTTSStreamingClient:
         """Send ``EventFinishSession`` and close the WebSocket."""
         if self._ws is not None:
             try:
-                await self._write_event(EventFinishSession, payload_dict=None)
+                # FinishSession: WITH session_id, NO connection_id
+                frame = _build_header() + _write_message(
+                    event=EventFinishSession,
+                    session_id=self._session_id,
+                    payload=json.dumps({}),
+                )
+                await self._send_frame(frame)
             except (ConnectionClosed, TTSConnectionError):
                 pass
             try:
@@ -218,38 +310,52 @@ class AsyncTTSStreamingClient:
         if self._ws is None:
             raise TTSConnectionError("Not connected -- call connect() first")
 
-        task_payload: dict[str, Any] = {
+        # TaskRequest: WITH session_id, NO connection_id
+        # Reference: msg.write_text_request() with TTSRequest payload
+        req_params: dict[str, Any] = {
+            "audio_params": {
+                "format": "mp3",
+                "sample_rate": 24000,
+            },
+            "speaker": self._speaker,
             "text": text,
-            "text_type": "plain",
-            "operation": "submit",
-            "with_frontend": True,
         }
-        await self._write_event(EventTaskRequest, payload_dict=task_payload)
+        task_payload: dict[str, Any] = {
+            "event": EventTaskRequest,
+            "namespace": NAMESPACE,
+            "req_params": req_params,
+        }
+        frame = _build_header() + _write_message(
+            event=EventTaskRequest,
+            session_id=self._session_id,
+            payload=json.dumps(task_payload, ensure_ascii=False),
+        )
+        await self._send_frame(frame)
 
         # Read response frames until the task or session finishes
         while True:
             raw = await self._recv_raw()
             if raw is None:
-                # Connection closed
                 return
 
-            frame = self._parse_frame(raw)
-            if frame is None:
+            frame_result = self._parse_frame(raw)
+            if frame_result is None:
                 continue
 
-            kind = frame["kind"]
+            kind = frame_result["kind"]
             if kind == "audio":
-                audio: bytes = frame["data"]
+                audio: bytes = frame_result["data"]
                 yield audio
             elif kind == "event":
-                event_data: dict[str, Any] = frame["data"]
+                event_data: dict[str, Any] = frame_result["data"]
                 evt = event_data.get("event", -1)
-                if evt in (EventSessionFinished, EventFinishConnection):
+                if evt in (
+                    EventSessionFinished,
+                    EventFinishConnection,
+                    EventConnectionFinished,
+                ):
                     logger.debug("TTS synthesis finished (event=%s)", evt)
                     return
-                # TaskFinished is signalled by event 0 or absence of further
-                # audio -- we detect end-of-task when the server stops
-                # sending audio-only frames.
                 if evt == EventTTSSentenceStart:
                     logger.debug(
                         "TTS sentence start: %s",
@@ -267,58 +373,11 @@ class AsyncTTSStreamingClient:
     # Low-level I/O
     # ------------------------------------------------------------------
 
-    async def _write_event(
-        self,
-        event_code: int,
-        *,
-        payload_dict: dict[str, Any] | None,
-    ) -> None:
-        """Pack and send an event message.
-
-        Frame layout::
-
-            header (4B)
-            + event_code (4B, big-endian)
-            + connect_id_len (4B) + connect_id (UTF-8 bytes)
-            + session_id_len (4B) + session_id (UTF-8 bytes)
-            + payload_len (4B) + payload (GZIP JSON bytes)
-        """
+    async def _send_frame(self, frame: bytes) -> None:
+        """Send a binary frame over the WebSocket."""
         if self._ws is None:
             raise TTSConnectionError("WebSocket not open")
-
-        # Wrap payload_dict inside canonical envelope expected by server
-        envelope: dict[str, Any] = {
-            "event": event_code,
-            "namespace": NAMESPACE,
-        }
-        if payload_dict is not None:
-            envelope["payload"] = json.dumps(payload_dict, ensure_ascii=False)
-
-        payload_json = json.dumps(envelope, ensure_ascii=False).encode("utf-8")
-        compressed_payload = gzip.compress(payload_json)
-
-        header = self._build_header(
-            message_type=FULL_CLIENT,
-            flags=WITH_EVENT,
-            serialization=JSON_SERIALIZATION,
-            compression=GZIP_COMPRESSION,
-        )
-
-        connect_id_bytes = self._connect_id.encode("utf-8")
-        session_id_bytes = self._session_id.encode("utf-8")
-
-        frame = bytearray()
-        frame.extend(header)
-        frame.extend(struct.pack(">I", event_code))
-        frame.extend(struct.pack(">I", len(connect_id_bytes)))
-        frame.extend(connect_id_bytes)
-        frame.extend(struct.pack(">I", len(session_id_bytes)))
-        frame.extend(session_id_bytes)
-        frame.extend(struct.pack(">I", len(compressed_payload)))
-        frame.extend(compressed_payload)
-
-        await self._ws.send(bytes(frame))
-        logger.debug("TTS sent event=%d", event_code)
+        await self._ws.send(frame)
 
     async def _recv_raw(self) -> bytes | None:
         """Receive the next binary WebSocket message.
@@ -352,7 +411,7 @@ class AsyncTTSStreamingClient:
         return result
 
     # ------------------------------------------------------------------
-    # Frame parsing
+    # Frame parsing (matches reference utils.py parse_response)
     # ------------------------------------------------------------------
 
     def _parse_frame(self, data: bytes) -> dict[str, Any] | None:
@@ -367,22 +426,24 @@ class AsyncTTSStreamingClient:
             logger.warning("TTS frame too short (%d bytes)", len(data))
             return None
 
-        byte1 = data[1]
-        byte2 = data[2]
-
-        msg_type = (byte1 >> 4) & 0x0F
-        serialization = (byte2 >> 4) & 0x0F
-        compression = byte2 & 0x0F
-
         header_size_field = data[0] & 0x0F
+        msg_type = (data[1] >> 4) & 0x0F
+        msg_flags = data[1] & 0x0F
+        serialization = (data[2] >> 4) & 0x0F
+        compression = data[2] & 0x0F
+
         offset = header_size_field * 4
 
-        # Audio-only server response (no JSON, raw audio payload)
+        # Audio-only server response
         if msg_type == AUDIO_ONLY_SERVER or serialization == NO_SERIALIZATION:
             return self._parse_audio_frame(data, offset, compression)
 
-        # JSON event frame
-        return self._parse_json_event_frame(data, offset, serialization, compression)
+        # Error response (msg_type=0b0110 = 6)
+        if msg_type == ERROR_SERVER:
+            return self._parse_error_frame(data, offset, serialization, compression)
+
+        # JSON event frame (FULL_SERVER or similar)
+        return self._parse_json_event_frame(data, offset, msg_flags, serialization, compression)
 
     def _parse_audio_frame(
         self,
@@ -394,7 +455,7 @@ class AsyncTTSStreamingClient:
         if len(data) <= offset:
             return None
 
-        # Some server frames include a 4-byte size prefix before audio
+        # Audio frames have: payload_size(4B) + payload
         if len(data) >= offset + 4:
             (declared_size,) = struct.unpack(">I", data[offset : offset + 4])
             remaining = len(data) - offset - 4
@@ -402,7 +463,6 @@ class AsyncTTSStreamingClient:
                 offset += 4
                 audio_bytes = data[offset : offset + declared_size]
             else:
-                # No size prefix -- treat everything after header as audio
                 audio_bytes = data[offset:]
         else:
             audio_bytes = data[offset:]
@@ -415,60 +475,128 @@ class AsyncTTSStreamingClient:
 
         return {"kind": "audio", "data": audio_bytes}
 
-    def _parse_json_event_frame(
+    def _parse_error_frame(
         self,
         data: bytes,
         offset: int,
         serialization: int,
         compression: int,
-    ) -> dict[str, Any] | None:
-        """Decode a JSON event frame, skipping event/id length-prefixed
-        fields."""
-        # Event frames may contain:
-        #   event_code(4B) + connect_id_len(4B) + connect_id
-        #   + session_id_len(4B) + session_id + payload_len(4B) + payload
+    ) -> dict[str, Any]:
+        """Parse an error frame (msg_type=0b0110).
 
-        result: dict[str, Any] = {}
+        Error frames contain: event_code(4B) + payload_len(4B) + payload
+        No connection_id or session_id fields.
+        """
+        result: dict[str, Any] = {"error": True}
 
         # event_code
         if len(data) >= offset + 4:
             (event_code,) = struct.unpack(">I", data[offset : offset + 4])
             offset += 4
             result["event"] = event_code
-        else:
-            return self._fallback_json_parse(data, 4, compression)
 
-        # connect_id
-        if len(data) >= offset + 4:
-            (cid_len,) = struct.unpack(">I", data[offset : offset + 4])
-            offset += 4
-            if cid_len > 0 and len(data) >= offset + cid_len:
-                result["connect_id"] = data[offset : offset + cid_len].decode(
-                    "utf-8", errors="replace"
-                )
-                offset += cid_len
-
-        # session_id
-        if len(data) >= offset + 4:
-            (sid_len,) = struct.unpack(">I", data[offset : offset + 4])
-            offset += 4
-            if sid_len > 0 and len(data) >= offset + sid_len:
-                result["session_id"] = data[offset : offset + sid_len].decode(
-                    "utf-8", errors="replace"
-                )
-                offset += sid_len
-
-        # payload
+        # payload_len + payload
         if len(data) >= offset + 4:
             (payload_len,) = struct.unpack(">I", data[offset : offset + 4])
             offset += 4
             if payload_len > 0 and len(data) >= offset + payload_len:
                 payload_bytes = data[offset : offset + payload_len]
-                if compression == GZIP_COMPRESSION:
+                payload_bytes = self._decompress(payload_bytes, compression)
+                if serialization == JSON_SERIALIZATION:
                     try:
-                        payload_bytes = gzip.decompress(payload_bytes)
-                    except gzip.BadGzipFile:
-                        pass
+                        parsed: dict[str, Any] = json.loads(payload_bytes)
+                        result["payload"] = parsed
+                        logger.error(
+                            "TTS server error event=%s: %s",
+                            result.get("event"),
+                            parsed,
+                        )
+                    except json.JSONDecodeError:
+                        result["payload_raw"] = payload_bytes.decode("utf-8", errors="replace")
+
+        return {"kind": "event", "data": result}
+
+    def _parse_json_event_frame(
+        self,
+        data: bytes,
+        offset: int,
+        msg_flags: int,
+        serialization: int,
+        compression: int,
+    ) -> dict[str, Any] | None:
+        """Decode a JSON event frame following reference parse_response.
+
+        The layout after the header depends on the event type:
+
+        - Connection events (1, 2, 50, 51, 52): have connection_id
+        - Session/task events (others): have session_id
+        - EventSessionFinished (152) sets session_finished flag
+
+        Layout::
+            event_code (4B)
+            [session_id_len (4B) + session_id]  -- for non-connection events
+            [connection_id_len (4B) + connection_id]  -- for connection events
+            payload_len (4B) + payload
+        """
+        result: dict[str, Any] = {}
+
+        has_event = (msg_flags & 0x04) != 0  # WITH_EVENT flag
+
+        if not has_event:
+            # No event field, just payload
+            return self._parse_bare_payload(data, offset, serialization, compression)
+
+        # event_code (4B)
+        if len(data) < offset + 4:
+            return self._fallback_json_parse(data, offset, compression)
+
+        (event_code,) = struct.unpack(">I", data[offset : offset + 4])
+        offset += 4
+        result["event"] = event_code
+
+        if event_code == EventSessionFinished:
+            result["session_finished"] = True
+
+        # Determine which ID field follows based on event type
+        # Reference utils.py: connection events have connection_id,
+        # others (except StartConnection/FinishConnection) have session_id
+        if event_code in _CONNECTION_EVENTS:
+            # Connection-level events
+            # StartConnection(1)/FinishConnection(2) in client->server
+            # don't carry IDs but server responses (50/51/52) carry
+            # connection_id
+            if event_code in (
+                EventConnectionStarted,
+                EventConnectionFailed,
+                EventConnectionFinished,
+            ):
+                # connection_id_len + connection_id
+                if len(data) >= offset + 4:
+                    (cid_len,) = struct.unpack(">I", data[offset : offset + 4])
+                    offset += 4
+                    if cid_len > 0 and len(data) >= offset + cid_len:
+                        result["connection_id"] = data[offset : offset + cid_len].decode(
+                            "utf-8", errors="replace"
+                        )
+                        offset += cid_len
+        else:
+            # Session/task events have session_id
+            if len(data) >= offset + 4:
+                (sid_len,) = struct.unpack(">I", data[offset : offset + 4])
+                offset += 4
+                if sid_len > 0 and len(data) >= offset + sid_len:
+                    result["session_id"] = data[offset : offset + sid_len].decode(
+                        "utf-8", errors="replace"
+                    )
+                    offset += sid_len
+
+        # payload_len (4B) + payload
+        if len(data) >= offset + 4:
+            (payload_len,) = struct.unpack(">I", data[offset : offset + 4])
+            offset += 4
+            if payload_len > 0 and len(data) >= offset + payload_len:
+                payload_bytes = data[offset : offset + payload_len]
+                payload_bytes = self._decompress(payload_bytes, compression)
                 if serialization == JSON_SERIALIZATION:
                     try:
                         parsed: dict[str, Any] = json.loads(payload_bytes)
@@ -477,6 +605,40 @@ class AsyncTTSStreamingClient:
                         result["payload_raw"] = payload_bytes.decode("utf-8", errors="replace")
 
         return {"kind": "event", "data": result}
+
+    def _parse_bare_payload(
+        self,
+        data: bytes,
+        offset: int,
+        serialization: int,
+        compression: int,
+    ) -> dict[str, Any] | None:
+        """Parse a frame with no event field (just payload)."""
+        if len(data) < offset + 4:
+            return None
+        (payload_len,) = struct.unpack(">I", data[offset : offset + 4])
+        offset += 4
+        result: dict[str, Any] = {}
+        if payload_len > 0 and len(data) >= offset + payload_len:
+            payload_bytes = data[offset : offset + payload_len]
+            payload_bytes = self._decompress(payload_bytes, compression)
+            if serialization == JSON_SERIALIZATION:
+                try:
+                    parsed: dict[str, Any] = json.loads(payload_bytes)
+                    result["payload"] = parsed
+                except json.JSONDecodeError:
+                    result["payload_raw"] = payload_bytes.decode("utf-8", errors="replace")
+        return {"kind": "event", "data": result}
+
+    @staticmethod
+    def _decompress(data: bytes, compression: int) -> bytes:
+        """Decompress payload if GZIP, otherwise return as-is."""
+        if compression == GZIP_COMPRESSION:
+            try:
+                return gzip.decompress(data)
+            except gzip.BadGzipFile:
+                return data
+        return data
 
     def _fallback_json_parse(
         self,
@@ -497,21 +659,3 @@ class AsyncTTSStreamingClient:
         except (json.JSONDecodeError, UnicodeDecodeError):
             logger.warning("TTS could not parse frame (%d bytes)", len(data))
             return None
-
-    # ------------------------------------------------------------------
-    # Header builder
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_header(
-        message_type: int,
-        flags: int,
-        serialization: int,
-        compression: int,
-    ) -> bytes:
-        """Construct the 4-byte TTS protocol header."""
-        byte0 = (PROTOCOL_VERSION << 4) | HEADER_SIZE
-        byte1 = (message_type << 4) | flags
-        byte2 = (serialization << 4) | compression
-        byte3 = 0x00
-        return bytes([byte0, byte1, byte2, byte3])
