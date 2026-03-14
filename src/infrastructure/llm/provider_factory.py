@@ -52,9 +52,14 @@ class AIServiceFactory:
         self,
         tenant_id: str | None = None,
         operation_type: OperationType = OperationType.LLM,
+        model_id: str | None = None,
     ) -> ProviderConfig:
         """Resolve the active provider config from the database."""
-        return await self._resolution.resolve_provider(tenant_id, operation_type)
+        return await self._resolution.resolve_provider(
+            tenant_id,
+            operation_type,
+            model_id=model_id,
+        )
 
     async def resolve_embedding_provider(
         self,
@@ -207,27 +212,30 @@ class AIServiceFactory:
         from src.infrastructure.llm.litellm.litellm_client import create_litellm_client
         from src.infrastructure.llm.model_catalog import get_model_catalog_service
 
-        router = CategoryRouter()
-        routed = router.route(task_description=task_description)
+        provider_configs = {
+            provider_config.provider_type.value: [
+                model
+                for model in (
+                    provider_config.llm_model,
+                    provider_config.llm_small_model,
+                )
+                if model
+            ]
+        }
+        router = CategoryRouter(provider_configs=provider_configs)
+        detected_category = router.detect_category(task_description)
+        routed = router.route(category=detected_category)
         if routed.preferred_models:
             # Override the model in provider config with the top pick
             preferred = routed.preferred_models[0]
             logger.info(
                 "Category router selected model=%s for category=%s "
-                "(confidence=%.2f, original=%s)",
+                "(original=%s)",
                 preferred,
                 routed.category.value,
-                routed.confidence,
-                provider_config.model,
+                provider_config.llm_model,
             )
-            provider_config = ProviderConfig(
-                provider=provider_config.provider,
-                model=preferred,
-                api_key=provider_config.api_key,
-                base_url=provider_config.base_url,
-                embedding_model=provider_config.embedding_model,
-                rerank_model=provider_config.rerank_model,
-            )
+            provider_config = provider_config.model_copy(update={"llm_model": preferred})
         return create_litellm_client(
             provider_config, cache=cache, catalog=get_model_catalog_service()
         )

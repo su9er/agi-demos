@@ -14,7 +14,7 @@ interface StreamingThoughtBubbleProps {
 export const StreamingThoughtBubble = memo<StreamingThoughtBubbleProps>(
   ({ content, isStreaming }) => {
     return (
-      <div className="flex items-start gap-3 mb-4 animate-fade-in-up">
+      <div className="flex items-start gap-3 pb-4 animate-fade-in-up">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/40 dark:to-orange-900/30 flex items-center justify-center flex-shrink-0">
           <span className="material-symbols-outlined text-base text-amber-600 dark:text-amber-400">
             psychology

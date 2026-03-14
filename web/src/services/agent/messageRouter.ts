@@ -75,6 +75,8 @@ import type {
   TaskUpdatedEventData,
   TaskStartEventData,
   TaskCompleteEventData,
+  ModelSwitchRequestedEventData,
+  ModelOverrideRejectedEventData,
   CanvasUpdatedEventData,
   A2UIActionAskedEventData,
   MemoryRecalledEventData,
@@ -581,6 +583,12 @@ export function routeToHandler(
       break;
     case 'task_complete':
       handler.onTaskComplete?.(event as AgentEvent<TaskCompleteEventData>);
+      break;
+    case 'model_switch_requested':
+      handler.onModelSwitchRequested?.(event as AgentEvent<ModelSwitchRequestedEventData>);
+      break;
+    case 'model_override_rejected':
+      handler.onModelOverrideRejected?.(event as AgentEvent<ModelOverrideRejectedEventData>);
       break;
     // MCP App events
     case 'mcp_app_result':

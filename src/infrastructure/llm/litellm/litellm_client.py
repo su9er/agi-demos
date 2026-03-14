@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_API_BASES: dict[str, str] = {
     "zai": "https://open.bigmodel.cn/api/paas/v4",
     "kimi": "https://api.moonshot.cn/v1",
-    "minimax": "https://api.minimax.chat/v1",
+    "minimax": "https://api.minimax.io/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "ollama": "http://localhost:11434",
     "lmstudio": "http://localhost:1234/v1",
@@ -176,7 +176,27 @@ class LiteLLMClient(LLMClient):
 
         logger.debug(f"Configured LiteLLM for provider: {provider_type}")
 
-    def _build_completion_kwargs(
+    def _qualify_model_for_provider(self, model: str) -> str:
+        """Qualify model with provider prefix when LiteLLM requires it."""
+        normalized_model = model.strip()
+        if not normalized_model or "/" in normalized_model:
+            return normalized_model
+
+        provider_type_raw = str(self.provider_config.provider_type.value or "").strip().lower()
+        normalized_provider_type = provider_type_raw
+        for suffix in ("_coding", "_embedding", "_reranker"):
+            if normalized_provider_type.endswith(suffix):
+                normalized_provider_type = normalized_provider_type.removesuffix(suffix)
+                break
+
+        prefix = _PROVIDER_PREFIXES.get(normalized_provider_type) or _PROVIDER_PREFIXES.get(
+            provider_type_raw
+        )
+        if prefix:
+            return f"{prefix}/{normalized_model}"
+        return normalized_model
+
+    def _build_completion_kwargs(  # noqa: C901, PLR0912
         self,
         model: str,
         messages: list[dict[str, Any]],
@@ -210,31 +230,41 @@ class LiteLLMClient(LLMClient):
         # ``_is_client_error()`` classifies it as a client error and
         # the circuit breaker is NOT tripped.
         if self._has_image_content(normalized_messages):
-            if (
-                self._catalog is not None
-                and not self._catalog.supports_vision(model)
-            ):
+            if self._catalog is not None and not self._catalog.supports_vision(model):
                 raise ValueError(
                     f"Invalid parameter: Model '{model}' does not "
                     f"support vision/image inputs. Remove image "
                     f"attachments or select a vision-capable model."
                 )
 
-
         # Build user-level overrides from explicit params + extra kwargs.
         # ``temperature`` is an explicit arg; anything else (top_p, seed,
         # response_format, ...) arrives via ``**extra``.
+        #
+        # ``_omit_temperature``: when True, the caller (agent layer) has
+        # determined that this model should NOT receive a temperature
+        # parameter at all (e.g. certain reasoning models). Without this
+        # flag, ``self.temperature`` (typically 0.0) would be injected as
+        # a fallback, potentially causing provider-side errors.
+        omit_temperature = bool(extra.pop("_omit_temperature", False))
         user_overrides: dict[str, Any] = {}
-        if temperature is not None:
-            user_overrides["temperature"] = temperature
-        elif self.temperature is not None:
-            user_overrides["temperature"] = self.temperature
+        if not omit_temperature:
+            config_temperature = cast("float | None", self.config.temperature)
+            if temperature is not None:
+                user_overrides["temperature"] = temperature
+            elif config_temperature is not None:
+                user_overrides["temperature"] = config_temperature
 
         # Separate resolver-managed keys from passthrough extras.
         _RESOLVER_KEYS = {
-            "temperature", "top_p", "frequency_penalty",
-            "presence_penalty", "seed", "stop",
-            "response_format", "max_tokens",
+            "temperature",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "response_format",
+            "max_tokens",
         }
         for key, value in extra.items():
             if key in _RESOLVER_KEYS:
@@ -251,18 +281,22 @@ class LiteLLMClient(LLMClient):
         # do not let the resolver override it.
         resolved.pop("max_tokens", None)
 
-        # Start with model + messages + clamped max_tokens, then layer
-        # resolved params and passthrough extras (e.g. ``stream``).
-        passthrough = {
-            k: v for k, v in extra.items() if k not in _RESOLVER_KEYS
-        }
+        # Start with model + messages, then layer resolved params and passthrough
+        # extras (e.g. ``stream``). If caller requests ``max_completion_tokens``,
+        # omit ``max_tokens`` to avoid sending conflicting limits.
+        passthrough = {k: v for k, v in extra.items() if k not in _RESOLVER_KEYS}
+        max_completion_tokens = passthrough.pop("max_completion_tokens", None)
+
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": normalized_messages,
-            "max_tokens": clamped_max_tokens,
             **resolved,
             **passthrough,
         }
+        if isinstance(max_completion_tokens, int) and max_completion_tokens > 0:
+            kwargs["max_completion_tokens"] = _clamp_max_tokens(model, max_completion_tokens)
+        else:
+            kwargs["max_tokens"] = clamped_max_tokens
         if self._api_key:
             kwargs["api_key"] = self._api_key
         if self._api_base:
@@ -343,10 +377,7 @@ class LiteLLMClient(LLMClient):
             content = msg.get("content")
             if isinstance(content, list):
                 for part in content:
-                    if (
-                        isinstance(part, dict)
-                        and part.get("type") == "image_url"
-                    ):
+                    if isinstance(part, dict) and part.get("type") == "image_url":
                         return True
         return False
 
@@ -644,6 +675,9 @@ class LiteLLMClient(LLMClient):
 
         litellm_messages = [self._convert_message(m) for m in messages]
         model = self._get_model_for_size(model_size)
+        model_override = kwargs.pop("model", None)
+        if isinstance(model_override, str) and model_override.strip():
+            model = self._qualify_model_for_provider(model_override)
         effective_temp = self.temperature if temperature is None else temperature
 
         # Check response cache (only for non-tool, deterministic calls)
@@ -733,6 +767,9 @@ class LiteLLMClient(LLMClient):
         import litellm
 
         model = self._get_model_for_size(model_size)
+        model_override = kwargs.pop("model", None)
+        if isinstance(model_override, str) and model_override.strip():
+            model = self._qualify_model_for_provider(model_override)
         litellm_messages = [self._convert_message(m) for m in messages]
 
         completion_kwargs = self._build_completion_kwargs(
@@ -878,16 +915,10 @@ class LiteLLMClient(LLMClient):
         if model_size == ModelSize.small:
             model = self.provider_config.llm_small_model or self.provider_config.llm_model
 
-        # If the model name already contains the prefix (e.g. "anthropic/claude-3"), don't add it.
-        if "/" in model:
-            return model
+        if model is None:
+            raise ValueError("LLM model is not configured for provider")
 
-        # Look up provider prefix and apply it if found
-        provider_type = self.provider_config.provider_type.value
-        prefix = _PROVIDER_PREFIXES.get(provider_type)
-        if prefix:
-            return f"{prefix}/{model}"
-        return model
+        return self._qualify_model_for_provider(model)
 
     def _get_provider_type(self) -> str:
         """
@@ -920,6 +951,9 @@ def create_litellm_client(
     api_key = encryption_service.decrypt(provider_config.api_key_encrypted)
 
     # Create LLM config
+    if provider_config.llm_model is None:
+        raise ValueError("LLM model is not configured for provider")
+
     config = LLMConfig(
         api_key=api_key,
         model=provider_config.llm_model,

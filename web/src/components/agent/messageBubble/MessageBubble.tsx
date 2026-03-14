@@ -294,7 +294,7 @@ const UserMessage: React.FC<UserMessageProps> = memo(
     }
 
     return (
-      <div className="group flex flex-col items-end gap-1 mb-2 animate-fade-in-up">
+      <div className="group flex flex-col items-end gap-1 pb-2">
         {/* Main row: bubble + avatar */}
         <div className="flex items-end justify-end gap-3 w-full">
           <div className="max-w-[85%] md:max-w-[75%] lg:max-w-[70%]">
@@ -408,7 +408,7 @@ const AssistantMessage: React.FC<AssistantMessageProps> = memo(
     const { remarkPlugins, rehypePlugins } = useMarkdownPlugins(content);
     if (!content && !isStreaming) return null;
     return (
-      <div className="group flex items-start gap-3 mb-2 animate-fade-in-up">
+      <div className="group flex items-start gap-3 pb-2">
         <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-primary-600 flex items-center justify-center flex-shrink-0 shadow-sm shadow-primary/20">
           <Bot size={18} className="text-white" />
         </div>
@@ -467,7 +467,7 @@ const TextDelta: React.FC<TextDeltaProps> = memo(({ content }) => {
   const { remarkPlugins, rehypePlugins } = useMarkdownPlugins(content);
   if (!content) return null;
   return (
-    <div className="flex items-start gap-3 mb-2 animate-fade-in-up">
+    <div className="flex items-start gap-3 pb-2">
       <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-primary-600 flex items-center justify-center flex-shrink-0 shadow-sm shadow-primary/20">
         <Bot size={18} className="text-white" />
       </div>
@@ -497,7 +497,7 @@ const Thought: React.FC<ThoughtProps> = memo(({ content }) => {
   if (!content) return null;
 
   return (
-    <div className="flex items-start gap-3 mb-2 animate-fade-in-up">
+    <div className="flex items-start gap-3 pb-2">
       <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
         <Lightbulb size={16} className="text-slate-500 dark:text-slate-400" />
       </div>
@@ -564,7 +564,7 @@ const ToolExecution: React.FC<ToolExecutionProps> = memo(({ event, observeEvent 
     : 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800/50';
 
   return (
-    <div className="flex items-start gap-3 mb-2 animate-fade-in-up">
+    <div className="flex items-start gap-3 pb-2">
       <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
         <Wrench size={16} className="text-slate-500 dark:text-slate-400" />
       </div>
@@ -686,7 +686,7 @@ const WorkPlan: React.FC<WorkPlanProps> = memo(({ event }) => {
   if (!steps.length) return null;
 
   return (
-    <div className="flex items-start gap-3 mb-4 animate-fade-in-up">
+    <div className="flex items-start gap-3 pb-4">
       <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
         <Sparkles size={16} className="text-primary" />
       </div>
@@ -749,7 +749,7 @@ const TextEnd: React.FC<TextEndProps> = memo(({ event, isPinned, onPin, onReply 
   if (!fullText || !fullText.trim()) return null;
 
   return (
-    <div className="group flex items-start gap-3 mb-6 animate-fade-in-up">
+    <div className="group flex items-start gap-3 pb-6">
       <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-primary-600 flex items-center justify-center flex-shrink-0 shadow-sm shadow-primary/20">
         <Bot size={18} className="text-white" />
       </div>
@@ -963,7 +963,7 @@ const ArtifactCreated: React.FC<ArtifactCreatedProps> = memo(({ event }) => {
   const url = artifactUrl || artifactPreviewUrl;
 
   return (
-    <div className="flex items-start gap-3 mb-4 animate-fade-in-up">
+    <div className="flex items-start gap-3 pb-4">
       <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/40 dark:to-teal-900/30 flex items-center justify-center shrink-0">
         <FileOutput size={16} className="text-emerald-600 dark:text-emerald-400" />
       </div>

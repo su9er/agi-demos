@@ -46,13 +46,14 @@ import { useActiveModelCapabilities } from '@/hooks/useActiveModelCapabilities';
 import { LazyButton, LazyTooltip } from '@/components/ui/lazyAntd';
 
 import { LlmOverridePopover } from './chat/LlmOverridePopover';
+import { ModelSwitchPopover } from './chat/ModelSwitchPopover';
 import { MentionPopover } from './chat/MentionPopover';
 import { PromptTemplateLibrary } from './chat/PromptTemplateLibrary';
 import { VoiceWaveform } from './chat/VoiceWaveform';
 import { VoiceCallPanel } from './chat/VoiceCallPanel';
 import { useFileUpload, type PendingAttachment } from './FileUploader';
 import { useFrameCapture } from '@/hooks/rtc/useFrameCapture';
-import { SlashCommandDropdown } from "./SlashCommandDropdown";
+import { SlashCommandDropdown } from './SlashCommandDropdown';
 
 import type { SkillResponse, SlashItem } from '@/types/agent';
 import { useVoiceCallStore } from '@/stores/voiceCallStore';
@@ -152,6 +153,16 @@ export const InputBar = memo<InputBarProps>(
 
 
     const activeConversationId = useAgentV3Store((state) => state.activeConversationId);
+    const activeModelOverride = useAgentV3Store((state) => {
+      const convId = state.activeConversationId;
+      if (!convId) return null;
+      const convState = state.conversationStates.get(convId);
+      const ctx = convState?.appModelContext as Record<string, unknown> | null;
+      const raw = ctx?.llm_model_override;
+      if (typeof raw !== 'string') return null;
+      const trimmed = raw.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    });
     const voiceCallStatus = useVoiceCallStore((state) => state.status);
 
     const isCameraOn = useVoiceCallStore((state) => state.isCameraOn);
@@ -172,7 +183,7 @@ export const InputBar = memo<InputBarProps>(
       }
     }, [voiceCallStatus, activeConversationId, projectId]);
 
-    const capabilities = useActiveModelCapabilities();
+    const capabilities = useActiveModelCapabilities(activeModelOverride);
 
     const { attachments, addFiles, removeAttachment, retryAttachment, clearAll } = useFileUpload({
       projectId,
@@ -898,6 +909,12 @@ export const InputBar = memo<InputBarProps>(
                 conversationId={activeConversationId}
                 disabled={!!(isStreaming || disabled)}
                 capabilities={capabilities}
+              />
+
+              <ModelSwitchPopover
+                conversationId={activeConversationId}
+                projectId={projectId}
+                disabled={!!(isStreaming || disabled)}
               />
 
               <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1.5" />

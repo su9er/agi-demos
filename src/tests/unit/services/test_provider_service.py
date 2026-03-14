@@ -4,6 +4,7 @@ Unit tests for Provider Service.
 Tests the ProviderService business logic.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -25,7 +26,9 @@ class TestProviderService:
     @pytest.fixture
     def mock_repository(self):
         """Create a mock repository."""
-        return AsyncMock()
+        repository = AsyncMock()
+        repository.list_active.return_value = []
+        return repository
 
     @pytest.fixture
     def service(self, mock_repository):
@@ -233,6 +236,58 @@ class TestProviderService:
 
         # Should invalidate cache
         service.resolution_service.invalidate_cache.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_check_provider_endpoint_supports_volcengine_variants(self, service):
+        """Volcengine variant provider types should use the standard Ark models endpoint."""
+        provider = MagicMock()
+        provider.provider_type = ProviderType.VOLCENGINE_CODING
+        provider.base_url = None
+
+        with patch.object(
+            service,
+            "_http_health_check",
+            new=AsyncMock(return_value=("healthy", None)),
+        ) as mock_health_check:
+            status, error_message = await service._check_provider_endpoint(provider, "test-api-key")
+
+        assert status == "healthy"
+        assert error_message is None
+        mock_health_check.assert_awaited_once()
+        assert mock_health_check.await_args.kwargs["url"] == (
+            "https://ark.cn-beijing.volces.com/api/v3/models"
+        )
+        assert mock_health_check.await_args.kwargs["headers"] == {
+            "Authorization": "Bearer test-api-key"
+        }
+
+    @pytest.mark.asyncio
+    async def test_delete_provider_keeps_health_registration_for_same_type(self, service):
+        """Deleting one provider should keep health check registration if same-type provider remains."""
+        provider_id = uuid4()
+        remaining_provider = MagicMock()
+        remaining_provider.id = uuid4()
+        remaining_provider.provider_type = ProviderType.OPENAI
+        remaining_provider.is_active = True
+        remaining_provider.is_enabled = True
+        remaining_provider.is_default = False
+        remaining_provider.created_at = datetime.now(UTC)
+
+        deleted_provider = MagicMock()
+        deleted_provider.id = provider_id
+        deleted_provider.provider_type = ProviderType.OPENAI
+
+        service.repository.get_by_id.return_value = deleted_provider
+        service.repository.delete.return_value = True
+        service.repository.list_active.return_value = [remaining_provider]
+
+        with patch("src.application.services.provider_service.get_health_checker") as mock_get_checker:
+            checker = MagicMock()
+            mock_get_checker.return_value = checker
+            await service.delete_provider(provider_id)
+
+        checker.unregister_provider.assert_not_called()
+        checker.register_provider.assert_called_once_with(ProviderType.OPENAI, remaining_provider)
 
     def test_provider_config_create_allows_empty_api_key_for_ollama(self):
         """Local Ollama provider should allow missing API key."""

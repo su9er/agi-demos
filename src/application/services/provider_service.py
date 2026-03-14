@@ -37,12 +37,14 @@ from src.domain.llm_providers.repositories import ProviderRepository
 from src.infrastructure.llm.provider_credentials import from_decrypted_api_key
 from src.infrastructure.llm.resilience import (
     get_circuit_breaker_registry,
+    get_health_checker,
     get_provider_rate_limiter,
 )
 from src.infrastructure.persistence.llm_providers_repository import SQLAlchemyProviderRepository
 from src.infrastructure.security.encryption_service import get_encryption_service
 
 logger = logging.getLogger(__name__)
+_PROVIDER_VARIANT_SUFFIXES: tuple[str, ...] = ("_coding", "_embedding", "_reranker")
 
 
 class ProviderService:
@@ -99,6 +101,7 @@ class ProviderService:
 
         # Invalidate cache (affects default provider resolution)
         self.resolution_service.invalidate_cache()
+        await self._sync_health_checker_provider_type(provider.provider_type)
 
         logger.info(f"Created provider: {provider.id}")
         return provider
@@ -171,6 +174,7 @@ class ProviderService:
         existing = await self.repository.get_by_id(provider_id)
         if not existing:
             return None
+        original_provider_type = existing.provider_type
 
         # If setting as default, unset other defaults
         if config.is_default and not existing.is_default:
@@ -179,9 +183,11 @@ class ProviderService:
         # Update provider
         updated = await self.repository.update(provider_id, config)
 
-        # Invalidate cache if active/default changed
-        if config.is_active is not None or config.is_default is not None:
-            self.resolution_service.invalidate_cache()
+        self.resolution_service.invalidate_cache()
+        if updated is not None:
+            await self._sync_health_checker_provider_type(original_provider_type)
+            if updated.provider_type != original_provider_type:
+                await self._sync_health_checker_provider_type(updated.provider_type)
 
         logger.info(f"Updated provider: {provider_id}")
         return updated
@@ -189,12 +195,15 @@ class ProviderService:
     async def delete_provider(self, provider_id: UUID) -> bool:
         """Delete provider (hard delete)."""
         logger.info(f"Deleting provider: {provider_id}")
+        existing = await self.repository.get_by_id(provider_id)
 
         success = await self.repository.delete(provider_id, hard_delete=True)
 
         if success:
             # Invalidate cache
             self.resolution_service.invalidate_cache()
+            if existing is not None:
+                await self._sync_health_checker_provider_type(existing.provider_type)
 
         return success
 
@@ -246,6 +255,7 @@ class ProviderService:
         import httpx
 
         provider_type = provider.provider_type
+        normalized_provider_type = self._normalize_provider_type(provider_type)
         base_url = provider.base_url
 
         # Providers that cannot be health-checked via HTTP
@@ -253,8 +263,8 @@ class ProviderService:
             "bedrock": "Bedrock health check not implemented, will be validated during usage",
             "vertex": "Vertex AI health check not implemented, will be validated during usage",
         }
-        if provider_type in degraded_providers:
-            return "degraded", degraded_providers[provider_type]
+        if normalized_provider_type in degraded_providers:
+            return "degraded", degraded_providers[normalized_provider_type]
 
         # Providers with standard GET /models + Bearer auth
         bearer_providers: dict[str, str] = {
@@ -262,24 +272,35 @@ class ProviderService:
             "openrouter": "https://openrouter.ai/api/v1",
             "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "deepseek": "https://api.deepseek.com/v1",
-            "minimax": "https://api.minimax.chat/v1",
+            "minimax": "https://api.minimax.io/v1",
             "zai": "https://open.bigmodel.cn/api/paas/v4",
             "kimi": "https://api.moonshot.cn/v1",
             "groq": "https://api.groq.com/openai/v1",
             "mistral": "https://api.mistral.ai/v1",
+            "volcengine": "https://ark.cn-beijing.volces.com/api/v3",
         }
 
         async with httpx.AsyncClient(timeout=5.0) as client:
-            if provider_type in bearer_providers:
+            if normalized_provider_type in bearer_providers:
                 return await self._http_health_check(
                     client,
-                    url=f"{base_url or bearer_providers[provider_type]}/models",
+                    url=f"{base_url or bearer_providers[normalized_provider_type]}/models",
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
 
             return await self._check_special_provider(
-                client, provider_type, base_url, api_key, provider
+                client, normalized_provider_type, base_url, api_key, provider
             )
+
+    @staticmethod
+    def _normalize_provider_type(provider_type: ProviderType | str) -> str:
+        """Normalize specialized provider variants to their base provider type."""
+        normalized = str(getattr(provider_type, "value", provider_type)).strip().lower()
+        for suffix in _PROVIDER_VARIANT_SUFFIXES:
+            if normalized.endswith(suffix):
+                normalized = normalized.removesuffix(suffix)
+                break
+        return normalized
 
     async def _check_special_provider(
         self,
@@ -351,6 +372,45 @@ class ProviderService:
         if response.status_code == 200:
             return "healthy", None
         return "unhealthy", f"HTTP {response.status_code}"
+
+    async def _sync_health_checker_provider_type(self, provider_type: ProviderType) -> None:
+        """Synchronize health checker registration for one provider type."""
+        active_providers = await self.repository.list_active()
+        candidates = [
+            provider
+            for provider in active_providers
+            if provider.is_active
+            and provider.is_enabled
+            and provider.provider_type == provider_type
+        ]
+        checker = get_health_checker()
+        if not candidates:
+            checker.unregister_provider(provider_type)
+            return
+
+        representative = self._select_health_check_provider(candidates)
+        checker.register_provider(provider_type, representative)
+
+    @staticmethod
+    def _select_health_check_provider(providers: list[ProviderConfig]) -> ProviderConfig:
+        """Pick deterministic provider config when multiple entries share one type."""
+        return min(
+            providers,
+            key=lambda provider: (
+                0 if provider.is_default else 1,
+                provider.created_at,
+                str(provider.id),
+            ),
+        )
+
+    @staticmethod
+    def _sync_health_checker_registration(provider: ProviderConfig) -> None:
+        """Deprecated shim kept for backward compatibility in tests/extensions."""
+        checker = get_health_checker()
+        if provider.is_active and provider.is_enabled:
+            checker.register_provider(provider.provider_type, provider)
+        else:
+            checker.unregister_provider(provider.provider_type)
 
     async def assign_provider_to_tenant(
         self,
@@ -472,9 +532,8 @@ class ProviderService:
                 except Exception as e:
                     logger.warning(f"Invalid model config for {model_type}: {e}")
 
-        # Fallback to default registry by model name
         model_name = self._get_model_name_by_type(provider, model_type)
-        return get_default_model_metadata(model_name)
+        return get_default_model_metadata(model_name if model_name is not None else "unknown")
 
     async def get_model_context_length(
         self,
@@ -512,8 +571,7 @@ class ProviderService:
         metadata = await self.get_model_metadata(provider_id, model_type)
         return metadata.max_output_tokens
 
-    def _get_model_name_by_type(self, provider: ProviderConfig, model_type: str) -> str:
-        """Get model name from provider config by type."""
+    def _get_model_name_by_type(self, provider: ProviderConfig, model_type: str) -> str | None:
         if model_type == "llm":
             return provider.llm_model
         elif model_type == "llm_small":

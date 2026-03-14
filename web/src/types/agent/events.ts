@@ -34,6 +34,24 @@ export interface TaskCompleteEventData {
   total_tasks: number;
 }
 
+export interface ModelSwitchRequestedEventData {
+  conversation_id: string;
+  tenant_id?: string | undefined;
+  project_id?: string | null | undefined;
+  model: string;
+  provider_type?: string | undefined;
+  provider_name?: string | undefined;
+  scope?: string | undefined;
+  reason?: string | null | undefined;
+}
+
+export interface ModelOverrideRejectedEventData {
+  model: string;
+  reason: string;
+  current_model?: string | undefined;
+  current_provider?: string | undefined;
+}
+
 export interface ExecutionPathDecidedEventData {
   route_id?: string | undefined;
   trace_id?: string | undefined;
@@ -248,6 +266,8 @@ export type AgentEventType =
   // Task timeline events (plan execution tracking)
   | 'task_start' // Agent started working on a task
   | 'task_complete' // Agent finished a task
+  | 'model_switch_requested' // Agent scheduled model switch for next turn
+  | 'model_override_rejected' // Backend rejected user model override
   // MCP App events
   | 'mcp_app_result' // MCP tool with UI returned result + HTML
   | 'mcp_app_registered' // New MCP App auto-detected

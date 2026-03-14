@@ -75,6 +75,10 @@ class SkillMCPManager:
         """Return the set of currently running server names."""
         return frozenset(self._active_clients.keys())
 
+    def get_active_client(self, server_name: str) -> MCPClient | None:
+        """Return the active MCP client for a server, if available."""
+        return self._active_clients.get(server_name)
+
     def register_skill_mcps(
         self,
         skill_id: str,

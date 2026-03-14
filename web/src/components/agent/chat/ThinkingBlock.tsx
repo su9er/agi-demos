@@ -89,7 +89,7 @@ export const ThinkingBlock = memo<ThinkingBlockProps>(
       steps && steps.length > 0 ? ((currentStep + 1) / steps.length) * 100 : 0;
 
     return (
-      <div className="flex items-start gap-3 mb-2 animate-fade-in-up">
+      <div className="flex items-start gap-3 pb-2 animate-fade-in-up">
         {/* Icon */}
         <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
           <Brain

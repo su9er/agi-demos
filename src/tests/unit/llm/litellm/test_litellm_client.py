@@ -205,6 +205,248 @@ class TestLiteLLMClient:
         assert kwargs["messages"][0]["role"] == "system"
         assert kwargs["messages"][1]["role"] == "user"
 
+    def test_build_completion_kwargs_prefers_max_completion_tokens(self, client):
+        """Should avoid sending max_tokens when max_completion_tokens is requested."""
+        kwargs = client._build_completion_kwargs(
+            model="openai/o3",
+            messages=[{"role": "user", "content": "hello"}],
+            max_tokens=2048,
+            max_completion_tokens=1024,
+        )
+
+        assert kwargs["max_completion_tokens"] == 1024
+        assert "max_tokens" not in kwargs
+
+    @pytest.mark.asyncio
+    async def test_generate_stream_accepts_model_override_kwarg(self, client):
+        """Should allow per-call model override without duplicate kwargs errors."""
+
+        class _NoopLimiter:
+            class _Ctx:
+                async def __aenter__(self):
+                    return None
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+            async def acquire(self, _provider_type):
+                return self._Ctx()
+
+        class _NoopCircuitBreaker:
+            @staticmethod
+            def can_execute() -> bool:
+                return True
+
+            @staticmethod
+            def record_success() -> None:
+                return None
+
+            @staticmethod
+            def record_failure() -> None:
+                return None
+
+        class _NoopRegistry:
+            @staticmethod
+            def get(_provider_type):
+                return _NoopCircuitBreaker()
+
+        async def _empty_stream():
+            if False:
+                yield None
+
+        with (
+            patch(
+                "src.infrastructure.llm.litellm.litellm_client.get_provider_rate_limiter",
+                return_value=_NoopLimiter(),
+            ),
+            patch(
+                "src.infrastructure.llm.litellm.litellm_client.get_circuit_breaker_registry",
+                return_value=_NoopRegistry(),
+            ),
+            patch("litellm.acompletion", new_callable=AsyncMock) as mock_acompletion,
+        ):
+            mock_acompletion.return_value = _empty_stream()
+
+            chunks = [
+                chunk
+                async for chunk in client.generate_stream(
+                    messages=[Message(role="user", content="hello")],
+                    model="volcengine/doubao-1.5-pro-32k-250115",
+                )
+            ]
+
+        assert chunks == []
+        assert mock_acompletion.call_count == 1
+        called_kwargs = mock_acompletion.call_args.kwargs
+        assert called_kwargs["model"] == "volcengine/doubao-1.5-pro-32k-250115"
+
+    @pytest.mark.asyncio
+    async def test_generate_stream_qualifies_unqualified_minimax_override(self):
+        """Should qualify unqualified MiniMax override model before LiteLLM call."""
+
+        class _NoopLimiter:
+            class _Ctx:
+                async def __aenter__(self):
+                    return None
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+            async def acquire(self, _provider_type):
+                return self._Ctx()
+
+        class _NoopCircuitBreaker:
+            @staticmethod
+            def can_execute() -> bool:
+                return True
+
+            @staticmethod
+            def record_success() -> None:
+                return None
+
+            @staticmethod
+            def record_failure() -> None:
+                return None
+
+        class _NoopRegistry:
+            @staticmethod
+            def get(_provider_type):
+                return _NoopCircuitBreaker()
+
+        async def _empty_stream():
+            if False:
+                yield None
+
+        provider_config = ProviderConfig(
+            id=uuid4(),
+            name="minimax-provider",
+            provider_type=ProviderType.MINIMAX,
+            api_key_encrypted="encrypted_key",
+            llm_model="MiniMax-M2.5",
+            llm_small_model="MiniMax-M2.5-highspeed",
+            embedding_model="text-embedding-3-small",
+            config={},
+            is_active=True,
+            is_default=False,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+        )
+        llm_config = LLMConfig(
+            api_key="test_key",
+            model="MiniMax-M2.5",
+            small_model="MiniMax-M2.5-highspeed",
+            temperature=0,
+        )
+
+        with patch("src.infrastructure.llm.litellm.litellm_client.get_encryption_service"):
+            minimax_client = LiteLLMClient(
+                config=llm_config,
+                provider_config=provider_config,
+                cache=False,
+            )
+
+        with (
+            patch(
+                "src.infrastructure.llm.litellm.litellm_client.get_provider_rate_limiter",
+                return_value=_NoopLimiter(),
+            ),
+            patch(
+                "src.infrastructure.llm.litellm.litellm_client.get_circuit_breaker_registry",
+                return_value=_NoopRegistry(),
+            ),
+            patch("litellm.acompletion", new_callable=AsyncMock) as mock_acompletion,
+        ):
+            mock_acompletion.return_value = _empty_stream()
+
+            chunks = [
+                chunk
+                async for chunk in minimax_client.generate_stream(
+                    messages=[Message(role="user", content="hello")],
+                    model="MiniMax-M2.5-highspeed",
+                )
+            ]
+
+        assert chunks == []
+        assert mock_acompletion.call_count == 1
+        called_kwargs = mock_acompletion.call_args.kwargs
+        assert called_kwargs["model"] == "minimax/MiniMax-M2.5-highspeed"
+
+    @pytest.mark.asyncio
+    async def test_generate_accepts_model_override_kwarg(self, client):
+        """Should use per-call model override in non-streaming generate path."""
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message = {"content": "Test response"}
+        mock_choice.finish_reason = "stop"
+        mock_response.choices = [mock_choice]
+
+        with (
+            patch.object(client, "_build_completion_kwargs", wraps=client._build_completion_kwargs) as mock_build,
+            patch.object(client, "_execute_with_resilience", new_callable=AsyncMock) as mock_execute,
+        ):
+            mock_execute.return_value = mock_response
+            await client.generate(
+                messages=[Message(role="user", content="hello")],
+                model="volcengine/doubao-1.5-pro-32k-250115",
+            )
+
+        called_model = mock_build.call_args.kwargs["model"]
+        assert called_model == "volcengine/doubao-1.5-pro-32k-250115"
+
+    @pytest.mark.asyncio
+    async def test_generate_qualifies_unqualified_minimax_override(self):
+        """Should qualify unqualified MiniMax override in non-streaming generate path."""
+        provider_config = ProviderConfig(
+            id=uuid4(),
+            name="minimax-provider",
+            provider_type=ProviderType.MINIMAX,
+            api_key_encrypted="encrypted_key",
+            llm_model="MiniMax-M2.5",
+            llm_small_model="MiniMax-M2.5-highspeed",
+            embedding_model="text-embedding-3-small",
+            config={},
+            is_active=True,
+            is_default=False,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+        )
+        llm_config = LLMConfig(
+            api_key="test_key",
+            model="MiniMax-M2.5",
+            small_model="MiniMax-M2.5-highspeed",
+            temperature=0,
+        )
+
+        with patch("src.infrastructure.llm.litellm.litellm_client.get_encryption_service"):
+            minimax_client = LiteLLMClient(
+                config=llm_config,
+                provider_config=provider_config,
+                cache=False,
+            )
+
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message = {"content": "Test response"}
+        mock_choice.finish_reason = "stop"
+        mock_response.choices = [mock_choice]
+
+        with (
+            patch.object(
+                minimax_client,
+                "_build_completion_kwargs",
+                wraps=minimax_client._build_completion_kwargs,
+            ) as mock_build,
+            patch.object(minimax_client, "_execute_with_resilience", new_callable=AsyncMock) as mock_execute,
+        ):
+            mock_execute.return_value = mock_response
+            await minimax_client.generate(
+                messages=[Message(role="user", content="hello")],
+                model="MiniMax-M2.5-highspeed",
+            )
+
+        called_model = mock_build.call_args.kwargs["model"]
+        assert called_model == "minimax/MiniMax-M2.5-highspeed"
+
     def test_trim_messages_truncates_when_tokenizer_underestimates(self, client):
         """Should truncate oversized prompts even when token counter underestimates."""
         messages = [

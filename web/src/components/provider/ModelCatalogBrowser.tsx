@@ -231,7 +231,7 @@ export const ModelCatalogBrowser: React.FC<ModelCatalogBrowserProps> = ({
 				{filterTags.map((tag) => (
 					<Tag.CheckableTag
 						key={tag.key}
-						checked={activeFilters[tag.key]}
+						checked={activeFilters[tag.key] ?? false}
 						onChange={(checked) => { toggleFilter(tag.key, checked); }}
 					>
 						{tag.label}

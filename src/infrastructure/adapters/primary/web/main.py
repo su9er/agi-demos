@@ -78,12 +78,17 @@ from src.infrastructure.adapters.primary.web.startup import (
     shutdown_docker_services,
     shutdown_sandbox_idle_reaper,
     shutdown_telemetry_services,
+    sync_health_checker_providers,
 )
 from src.infrastructure.adapters.primary.web.startup.graph import (
     shutdown_graph_service,
 )
 from src.infrastructure.adapters.primary.web.websocket import (
     router as websocket_router,
+)
+from src.infrastructure.llm.resilience.health_checker import (
+    start_health_checker,
+    stop_health_checker,
 )
 from src.infrastructure.middleware.rate_limit import limiter
 
@@ -118,6 +123,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
 
     # Initialize Default LLM Provider from environment
     await initialize_llm_providers()
+    health_provider_count = await sync_health_checker_providers()
+    await start_health_checker()
+    logger.info("LLM health checker started with %d active providers", health_provider_count)
 
     # Initialize NativeGraphAdapter (self-developed knowledge graph engine)
     graph_service = await initialize_graph_service()
@@ -185,6 +193,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
         await stop_scheduler()
     except Exception:
         logger.exception("Error stopping cron scheduler")
+
+    await stop_health_checker()
 
     # Stop sandbox idle reaper
     await shutdown_sandbox_idle_reaper()

@@ -1,8 +1,9 @@
 /**
  * useActiveModelCapabilities Hook
  *
- * Resolves the active LLM model's capability flags from the provider store.
- * Looks up the default active provider, then finds the corresponding
+ * Resolves the effective LLM model's capability flags from the provider store.
+ * Uses optional conversation-level model override first, then falls back to
+ * the default active provider model, and finds the corresponding
  * ModelCatalogEntry to expose per-model feature support (vision, temperature,
  * penalty params, etc.).
  *
@@ -15,6 +16,7 @@ import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useProviderStore } from '@/stores/provider';
+import { findModelInCatalog, resolveCatalogProviderHint } from '@/utils/modelCatalog';
 
 import type { ModelCatalogEntry, ProviderConfig } from '@/types/memory';
 
@@ -49,43 +51,17 @@ const DEFAULT_TEMPERATURE_RANGE: [number, number] = [0, 2];
 const DEFAULT_TOP_P_RANGE: [number, number] = [0, 1];
 const DEFAULT_MAX_OUTPUT_TOKENS = 128000;
 
-/**
- * Find the catalog entry that best matches a provider's configured model name.
- *
- * Tries exact match first, then falls back to prefix/substring matching
- * because provider configs sometimes store model names with or without
- * the provider prefix (e.g. "gpt-4o" vs "openai/gpt-4o").
- */
-function findModelInCatalog(
-  modelName: string,
-  catalog: ModelCatalogEntry[]
-): ModelCatalogEntry | null {
-  if (!modelName || catalog.length === 0) return null;
+const matchesProvider = (
+  model: ModelCatalogEntry | null,
+  providerHint: string | undefined
+): boolean => {
+  if (!model || !providerHint) return Boolean(model);
+  return (model.provider ?? '').toLowerCase() === providerHint;
+};
 
-  const lower = modelName.toLowerCase();
-
-  // 1. Exact match
-  const exact = catalog.find((m) => m.name.toLowerCase() === lower);
-  if (exact) return exact;
-
-  // 2. Catalog entry whose name ends with the configured model name
-  //    e.g. configured "gpt-4o" matches catalog "openai/gpt-4o"
-  const suffix = catalog.find((m) => m.name.toLowerCase().endsWith(`/${lower}`));
-  if (suffix) return suffix;
-
-  // 3. Configured name ends with catalog name
-  //    e.g. configured "openai/gpt-4o" matches catalog "gpt-4o"
-  const prefix = catalog.find((m) => lower.endsWith(`/${m.name.toLowerCase()}`));
-  if (prefix) return prefix;
-
-  // 4. Substring containment (loosest match)
-  const sub = catalog.find(
-    (m) => m.name.toLowerCase().includes(lower) || lower.includes(m.name.toLowerCase())
-  );
-  return sub ?? null;
-}
-
-export function useActiveModelCapabilities(): ActiveModelCapabilities {
+export function useActiveModelCapabilities(
+  modelOverride?: string | null
+): ActiveModelCapabilities {
   const { providers, modelCatalog } = useProviderStore(
     useShallow((s) => ({
       providers: s.providers,
@@ -99,8 +75,19 @@ export function useActiveModelCapabilities(): ActiveModelCapabilities {
       (p) => p.is_default && p.is_active
     );
 
-    const modelName = defaultProvider?.llm_model;
-    const model = modelName ? findModelInCatalog(modelName, modelCatalog) : null;
+    const normalizedOverride = modelOverride?.trim();
+    const defaultModel = defaultProvider?.llm_model?.trim();
+    const providerHint = resolveCatalogProviderHint(
+      modelCatalog,
+      defaultModel,
+      defaultProvider?.provider_type
+    );
+    const defaultModelMeta = defaultModel ? findModelInCatalog(defaultModel, modelCatalog) : null;
+    const overrideModelMeta = normalizedOverride
+      ? findModelInCatalog(normalizedOverride, modelCatalog)
+      : null;
+    const shouldApplyOverride = matchesProvider(overrideModelMeta, providerHint);
+    const model = shouldApplyOverride ? overrideModelMeta : defaultModelMeta;
 
     if (!model) {
       // No model resolved -- default to permissive (all params enabled)
@@ -135,5 +122,5 @@ export function useActiveModelCapabilities(): ActiveModelCapabilities {
       topPRange: model.top_p_range ?? DEFAULT_TOP_P_RANGE,
       maxOutputTokens: model.max_output_tokens > 0 ? model.max_output_tokens : DEFAULT_MAX_OUTPUT_TOKENS,
     };
-  }, [providers, modelCatalog]);
+  }, [modelOverride, providers, modelCatalog]);
 }

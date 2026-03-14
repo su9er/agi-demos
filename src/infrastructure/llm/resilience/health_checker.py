@@ -96,6 +96,7 @@ class _HealthEndpoint(NamedTuple):
 _OK_ONLY: frozenset[int] = frozenset({200})
 # Some providers return 404 for models endpoint but are still reachable
 _OK_OR_NOT_FOUND: frozenset[int] = frozenset({200, 404})
+_PROVIDER_VARIANT_SUFFIXES: tuple[str, ...] = ("_coding", "_embedding", "_reranker")
 
 
 def _bearer_auth(api_key: str | None) -> dict[str, str | None]:
@@ -177,7 +178,19 @@ def _endpoint_minimax(
     config: ProviderConfig,
     api_key: str | None,
 ) -> _HealthEndpoint:
-    base_url = config.base_url or "https://api.minimax.chat/v1"
+    base_url = config.base_url or "https://api.minimax.io/v1"
+    return _HealthEndpoint(
+        url=f"{base_url}/models",
+        headers=_bearer_auth(api_key),
+        acceptable_statuses=_OK_OR_NOT_FOUND,
+    )
+
+
+def _endpoint_volcengine(
+    config: ProviderConfig,
+    api_key: str | None,
+) -> _HealthEndpoint:
+    base_url = config.base_url or "https://ark.cn-beijing.volces.com/api/v3"
     return _HealthEndpoint(
         url=f"{base_url}/models",
         headers=_bearer_auth(api_key),
@@ -245,11 +258,39 @@ _HEALTH_ENDPOINT_REGISTRY: dict[
     ProviderType.ANTHROPIC: _endpoint_anthropic,
     ProviderType.DEEPSEEK: _endpoint_deepseek,
     ProviderType.MINIMAX: _endpoint_minimax,
+    ProviderType.VOLCENGINE: _endpoint_volcengine,
     ProviderType.ZAI: _endpoint_zai,
     ProviderType.KIMI: _endpoint_kimi,
     ProviderType.OLLAMA: _endpoint_ollama,
     ProviderType.LMSTUDIO: _endpoint_lmstudio,
 }
+
+
+def _normalize_provider_variant(provider_type: ProviderType) -> ProviderType:
+    """Normalize provider variants (e.g. *_coding) back to base provider type."""
+    normalized = provider_type.value
+    for suffix in _PROVIDER_VARIANT_SUFFIXES:
+        if normalized.endswith(suffix):
+            normalized = normalized.removesuffix(suffix)
+            break
+    try:
+        return ProviderType(normalized)
+    except ValueError:
+        return provider_type
+
+
+def _resolve_endpoint_factory(
+    provider_type: ProviderType,
+) -> Callable[[ProviderConfig, str | None], _HealthEndpoint] | None:
+    """Resolve endpoint factory for base and specialized provider variants."""
+    endpoint_factory = _HEALTH_ENDPOINT_REGISTRY.get(provider_type)
+    if endpoint_factory is not None:
+        return endpoint_factory
+
+    normalized_provider_type = _normalize_provider_variant(provider_type)
+    if normalized_provider_type == provider_type:
+        return None
+    return _HEALTH_ENDPOINT_REGISTRY.get(normalized_provider_type)
 
 
 class HealthChecker:
@@ -423,7 +464,7 @@ class HealthChecker:
 
         start = time.time()
 
-        endpoint_factory = _HEALTH_ENDPOINT_REGISTRY.get(provider_type)
+        endpoint_factory = _resolve_endpoint_factory(provider_type)
 
         if endpoint_factory is None:
             # Unknown provider -- just mark as healthy

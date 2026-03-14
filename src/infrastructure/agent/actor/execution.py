@@ -396,6 +396,32 @@ def _inject_app_model_context(
     return [context_msg, *conversation_context]
 
 
+async def _load_persisted_agent_config(conversation_id: str) -> dict[str, Any] | None:
+    """Load persisted agent_config from the conversation record.
+
+    Returns the config dict, or ``None`` when the conversation is not found or
+    the config is empty.  Runs in its own short-lived DB session so it never
+    interferes with the main request transaction.
+    """
+    try:
+        from src.infrastructure.adapters.secondary.persistence.sql_conversation_repository import (
+            SqlConversationRepository,
+        )
+
+        async with async_session_factory() as session:
+            repo = SqlConversationRepository(session)
+            conversation = await repo.find_by_id(conversation_id)
+            if conversation and conversation.agent_config:
+                return dict(conversation.agent_config)
+    except Exception:
+        logger.warning(
+            "Failed to load persisted agent_config for conversation %s",
+            conversation_id,
+            exc_info=True,
+        )
+    return None
+
+
 async def execute_project_chat(
     agent: ProjectReActAgent,
     request: ProjectChatRequest,
@@ -410,10 +436,25 @@ async def execute_project_chat(
     last_time_us, last_counter = await _get_last_db_event_time(request.conversation_id)
     time_gen = EventTimeGenerator(last_time_us, last_counter)
 
-    # Extract LLM overrides from app_model_context (F1.4)
     llm_overrides: dict[str, Any] | None = None
+    model_override: str | None = None
+
+    persisted_config = await _load_persisted_agent_config(request.conversation_id)
+    if persisted_config:
+        raw_persisted_model = persisted_config.get("llm_model_override")
+        if isinstance(raw_persisted_model, str) and raw_persisted_model.strip():
+            model_override = raw_persisted_model.strip()
+        raw_persisted_llm = persisted_config.get("llm_overrides")
+        if isinstance(raw_persisted_llm, dict):
+            llm_overrides = raw_persisted_llm
+
     if request.app_model_context:
-        llm_overrides = request.app_model_context.get("llm_overrides")
+        raw_llm_overrides = request.app_model_context.get("llm_overrides")
+        if isinstance(raw_llm_overrides, dict):
+            llm_overrides = raw_llm_overrides
+        raw_model_override = request.app_model_context.get("llm_model_override")
+        if isinstance(raw_model_override, str) and raw_model_override.strip():
+            model_override = raw_model_override.strip()
 
     try:
         redis_client = await _get_redis_client()
@@ -433,6 +474,7 @@ async def execute_project_chat(
             context_summary_data=request.context_summary_data,
             plan_mode=request.plan_mode,
             llm_overrides=llm_overrides,
+            model_override=model_override,
             image_attachments=request.image_attachments,
         ):
             evt_time_us, evt_counter = time_gen.next()
@@ -939,7 +981,7 @@ async def _publish_event_to_stream(
         stream_key = f"agent:events:{conversation_id}"
         await redis_client.xadd(stream_key, redis_message, maxlen=1000)  # type: ignore[arg-type]
         if event_type in ("task_list_updated", "task_updated"):
-            task_count = len(event_data.get("tasks", []))
+            task_count = len(event_data.get("tasks", [])) if isinstance(event_data, dict) else 0
             logger.info(
                 f"[ActorExecution] Published {event_type} to Redis: "
                 f"conversation={conversation_id}, tasks={task_count}"

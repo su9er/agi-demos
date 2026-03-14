@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast, override
 
@@ -68,7 +67,7 @@ from .agent_session_pool import (
 logger = logging.getLogger(__name__)
 
 # Re-export Agent Session Pool components for convenience
-__all__ = [
+__all__ = [  # noqa: RUF022
     # Session Pool
     "AgentSessionContext",
     "MCPToolsCacheEntry",
@@ -136,10 +135,6 @@ _mcp_sandbox_adapter: Any | None = None
 _pool_adapter: Any | None = None  # PooledAgentSessionAdapter (when enabled)
 _hitl_response_listener: Any | None = None  # HITLResponseListener (real-time)
 
-# LLM client cache (by provider:model key)
-_llm_client_cache: dict[str, Any] = {}
-_llm_cache_lock = asyncio.Lock()
-
 # Tool set cache (by project_id key)
 _tools_cache: dict[str, dict[str, Any]] = {}
 _tools_cache_lock = asyncio.Lock()
@@ -154,12 +149,6 @@ _skills_cache_lock = asyncio.Lock()
 # SkillLoaderTool cache (by tenant_id:project_id:agent_mode key)
 _skill_loader_cache: dict[str, Any] = {}
 _skill_loader_cache_lock = asyncio.Lock()
-
-# Provider config cache
-_provider_config_cache: Any | None = None
-_provider_config_cached_at: float = 0.0
-_provider_config_cache_lock = asyncio.Lock()
-_provider_config_cache_ttl_seconds = int(os.getenv("PROVIDER_CONFIG_CACHE_TTL_SECONDS", "60"))
 
 
 def set_agent_graph_service(service: Any) -> None:
@@ -346,35 +335,19 @@ def clear_state() -> None:
     global \
         _agent_graph_service, \
         _tenant_graph_services, \
-        _llm_client_cache, \
         _tools_cache, \
         _skills_cache, \
-        _skill_loader_cache, \
-        _provider_config_cache, \
-        _provider_config_cached_at
+        _skill_loader_cache
     _agent_graph_service = None
     _tenant_graph_services.clear()
-    _llm_client_cache.clear()
     _tools_cache.clear()
     _skills_cache.clear()
     _skill_loader_cache.clear()
-    _provider_config_cache = None
-    _provider_config_cached_at = 0.0
 
     # Also clear Agent Session Pool caches
     pool_stats = clear_all_caches()
 
     logger.info(f"Agent Worker state cleared (pool: {pool_stats})")
-
-
-# ============================================================================
-# LLM Client Caching
-# ============================================================================
-
-
-def get_cached_llm_clients() -> dict[str, Any]:
-    """Get all cached LLM clients (for debugging/monitoring)."""
-    return dict(_llm_client_cache)
 
 
 # ============================================================================
@@ -432,6 +405,9 @@ async def get_or_create_tools(
 
     # 8. Add Todo Tools
     _add_todo_tools(tools, project_id)
+
+    # 8b. Add model availability tool
+    _add_model_awareness_tools(tools, tenant_id, project_id)
 
     # 9. Configure register_mcp_server tool
     _add_register_mcp_server_tool(tools, tenant_id, project_id)
@@ -684,6 +660,33 @@ def _add_todo_tools(tools: dict[str, Any], project_id: str) -> None:
         logger.info(f"Agent Worker: Todo tools configured for project {project_id}")
     except Exception as e:
         logger.warning(f"Agent Worker: Failed to configure todo tools: {e}")
+
+
+def _add_model_awareness_tools(
+    tools: dict[str, Any],
+    tenant_id: str,
+    project_id: str,
+) -> None:
+    """Configure model-awareness tool for listing currently usable chat models."""
+    try:
+        from src.infrastructure.agent.tools.define import get_registered_tools
+        from src.infrastructure.agent.tools.model_availability_tool import (
+            list_available_models_tool,
+            switch_model_next_turn_tool,
+        )
+
+        _ = list_available_models_tool
+        _ = switch_model_next_turn_tool
+        registry = get_registered_tools()
+        tools["list_available_models"] = registry["list_available_models"]
+        tools["switch_model_next_turn"] = registry["switch_model_next_turn"]
+        logger.info(
+            "Agent Worker: model awareness tools configured for tenant %s, project %s",
+            tenant_id,
+            project_id,
+        )
+    except Exception as e:
+        logger.warning("Agent Worker: Failed to configure model availability tool: %s", e)
 
 
 def _add_register_mcp_server_tool(
@@ -1159,7 +1162,7 @@ def _find_sandbox_id(
                 connected_score = 1 if getattr(instance, "mcp_client", None) is not None else 0
                 created_at = getattr(instance, "created_at", None)
                 created_at_score = (
-                    float(created_at.timestamp()) if hasattr(created_at, "timestamp") else 0.0
+                    float(created_at.timestamp()) if isinstance(created_at, datetime) else 0.0
                 )
                 return (running_score, connected_score, created_at_score, sid)
 
@@ -2597,6 +2600,7 @@ def invalidate_tools_cache(project_id: str | None = None) -> None:
         _custom_tool_diagnostics.clear()
         logger.info("Agent Worker: All tool caches invalidated")
 
+
 async def inject_discovered_mcp_tools_into_cache(
     project_id: str,
     server_name: str,
@@ -2660,6 +2664,7 @@ async def inject_discovered_mcp_tools_into_cache(
         )
 
     return len(injected)
+
 
 def rescan_custom_tools_for_project(project_id: str) -> int:
     """Re-scan custom tools for a project and merge into the tools cache.

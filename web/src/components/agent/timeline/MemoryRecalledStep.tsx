@@ -27,7 +27,7 @@ export const MemoryRecalledStep: React.FC<MemoryRecalledStepProps> = ({ event })
   }
 
   return (
-    <div className="my-1 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
+    <div className="py-1 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
       <button
         onClick={() => {
           setExpanded(!expanded);
@@ -74,7 +74,7 @@ export const MemoryCapturedStep: React.FC<MemoryCapturedStepProps> = ({ event })
   }
 
   return (
-    <div className="my-1 flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-xs text-green-700 dark:border-green-800 dark:bg-green-950/30 dark:text-green-300">
+    <div className="py-1 flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-xs text-green-700 dark:border-green-800 dark:bg-green-950/30 dark:text-green-300">
       <Database size={12} />
       <span>
         Captured {event.capturedCount} {event.capturedCount === 1 ? 'memory' : 'memories'}

@@ -2,7 +2,7 @@
 
 Builds provider-specific options for reasoning/thinking models
 (OpenAI o1/o3, Anthropic Claude extended thinking, Deepseek reasoner,
-Gemini 2.5, Kimi k2-thinking).
+Gemini 2.5, Kimi k2-thinking, MiniMax M2/M2.5 reasoning).
 
 Detection strategy (two-layer):
   1. **Catalog lookup** via ``ModelCatalogService`` — uses the ``reasoning``
@@ -34,8 +34,7 @@ _DEEPSEEK_REASONING_MODELS = ("deepseek-reasoner", "deepseek-r1")
 _GEMINI_THINKING_PATTERNS = ("gemini-2.5",)
 _KIMI_THINKING_MODELS = ("kimi-k2-thinking",)
 _ANTHROPIC_EXTENDED_THINKING_PREFIXES = ("claude-",)
-
-
+_MINIMAX_REASONING_PREFIXES = ("minimax-m2",)
 
 
 # ------------------------------------------------------------------
@@ -141,6 +140,15 @@ def _is_anthropic_extended_thinking(model: str) -> bool:
     return any(model_lower.startswith(p) for p in _ANTHROPIC_EXTENDED_THINKING_PREFIXES)
 
 
+def _is_minimax_reasoning(model: str) -> bool:
+    model_lower = model.lower()
+    for prefix in ("minimax/",):
+        if model_lower.startswith(prefix):
+            model_lower = model_lower[len(prefix) :]
+            break
+    return any(model_lower.startswith(p) for p in _MINIMAX_REASONING_PREFIXES)
+
+
 def is_reasoning_model(model: str) -> bool:
     """Return True if the model is a known reasoning/thinking model.
 
@@ -159,6 +167,7 @@ def is_reasoning_model(model: str) -> bool:
         or _is_deepseek_reasoning(model)
         or _is_gemini_thinking(model)
         or _is_kimi_thinking(model)
+        or _is_minimax_reasoning(model)
     )
 
 
@@ -235,6 +244,14 @@ def build_reasoning_config(  # noqa: PLR0911
             omit_temperature=should_omit_temperature(model),
         )
 
+    # MiniMax reasoning models (M2, M2.1, M2.5, M2.5-highspeed)
+    if _is_minimax_reasoning(model):
+        logger.debug(f"Configuring MiniMax reasoning model {model}")
+        return ReasoningModelConfig(
+            provider_options={},
+            omit_temperature=should_omit_temperature(model),
+        )
+
     # Anthropic extended thinking (opt-in only)
     if thinking_override and _is_anthropic_extended_thinking(model):
         budget = thinking_budget_tokens or 10000
@@ -251,9 +268,7 @@ def build_reasoning_config(  # noqa: PLR0911
     # for models that are reasoning-capable but not matched by prefix heuristics.
     if _catalog_is_reasoning(model):
         omit_temp = should_omit_temperature(model)
-        logger.debug(
-            f"Catalog-detected reasoning model {model} (omit_temperature={omit_temp})"
-        )
+        logger.debug(f"Catalog-detected reasoning model {model} (omit_temperature={omit_temp})")
         return ReasoningModelConfig(
             provider_options={},
             omit_temperature=omit_temp,

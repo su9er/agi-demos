@@ -100,11 +100,15 @@ describe('streamEventHandlers', () => {
 
   it('should handle onTextStart', () => {
     const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    mockState.streamingThought = 'old thought';
+    mockState.isThinkingStreaming = true;
     handlers.onTextStart!();
 
     expect(mockUpdateConversationState).toHaveBeenCalledWith(conversationId, {
       streamStatus: 'streaming',
       streamingAssistantContent: '',
+      streamingThought: '',
+      isThinkingStreaming: false,
     });
   });
 
@@ -211,6 +215,8 @@ describe('streamEventHandlers', () => {
 
   it('should keep text_end events stable on onComplete', () => {
     const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    mockState.streamingThought = 'stale thought chunk';
+    mockState.isThinkingStreaming = true;
     mockState.timeline = [
       {
         id: 'text-start-1',
@@ -256,6 +262,26 @@ describe('streamEventHandlers', () => {
       completionUpdates.timeline.some((e: any) => e.type === 'text_end' && e.id === 'text-end-1')
     ).toBe(true);
     expect(completionUpdates.timeline.some((e: any) => e.type === 'assistant_message')).toBe(false);
+    expect(completionUpdates.streamingThought).toBe('');
+    expect(completionUpdates.isThinkingStreaming).toBe(false);
+  });
+
+  it('should clear stale thinking state on onClose', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    mockState.streamingThought = 'partial thought';
+    mockState.isThinkingStreaming = true;
+
+    handlers.onClose!();
+
+    expect(mockUpdateConversationState).toHaveBeenCalledWith(
+      conversationId,
+      expect.objectContaining({
+        streamingThought: '',
+        isThinkingStreaming: false,
+        isStreaming: false,
+        streamStatus: 'idle',
+      })
+    );
   });
 
   it('should handle onAct (tool call)', () => {
@@ -347,6 +373,69 @@ describe('streamEventHandlers', () => {
     });
   });
 
+  it('should clear stale thinking residue after thought delta goes idle', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    handlers.onThoughtDelta!({
+      type: 'thought_delta',
+      data: { delta: 'Working through options...' },
+    } as any);
+
+    vi.advanceTimersByTime(50);
+    expect(mockState.isThinkingStreaming).toBe(true);
+    expect(mockState.streamingThought).toBe('Working through options...');
+
+    const updateCallCountAfterFlush = mockUpdateConversationState.mock.calls.length;
+    vi.advanceTimersByTime(400);
+
+    expect(mockUpdateConversationState.mock.calls.length).toBeGreaterThan(updateCallCountAfterFlush);
+    expect(mockUpdateConversationState).toHaveBeenLastCalledWith(conversationId, {
+      streamingThought: '',
+      isThinkingStreaming: false,
+    });
+  });
+
+  it('should not flush stale thought delta after onTextStart', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    handlers.onThoughtDelta!({
+      type: 'thought_delta',
+      data: { delta: 'stale thought' },
+    } as any);
+
+    vi.advanceTimersByTime(10);
+    handlers.onTextStart!();
+    mockUpdateConversationState.mockClear();
+
+    vi.advanceTimersByTime(500);
+
+    expect(mockUpdateConversationState).not.toHaveBeenCalledWith(
+      conversationId,
+      expect.objectContaining({
+        streamingThought: 'stale thought',
+        isThinkingStreaming: true,
+      })
+    );
+  });
+
+  it('should not flush stale thought delta after onThought', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    handlers.onThoughtDelta!({
+      type: 'thought_delta',
+      data: { delta: 'stale thought' },
+    } as any);
+
+    vi.advanceTimersByTime(10);
+    handlers.onThought!({
+      type: 'thought',
+      data: {
+        thought: 'finalized thought',
+      },
+    } as any);
+
+    vi.advanceTimersByTime(500);
+    expect(mockState.isThinkingStreaming).toBe(false);
+    expect(mockState.streamingThought).toBe('');
+  });
+
   it('should handle onThought and add to timeline', () => {
     const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
     const event: AgentEvent<ThoughtEventData> = {
@@ -393,6 +482,30 @@ describe('streamEventHandlers', () => {
     expect(mockUpdateConversationState).toHaveBeenCalledWith(conversationId, {
       tasks,
     });
+  });
+
+  it('should handle onModelSwitchRequested and merge appModelContext', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    mockState.appModelContext = { llm_overrides: { temperature: 0.3 } } as any;
+
+    handlers.onModelSwitchRequested!({
+      type: 'model_switch_requested',
+      data: {
+        conversation_id: conversationId,
+        model: 'volcengine/doubao-1.5-pro-32k-250115',
+        scope: 'next_turn',
+      },
+    } as any);
+
+    expect(mockUpdateConversationState).toHaveBeenCalledWith(
+      conversationId,
+      expect.objectContaining({
+        appModelContext: expect.objectContaining({
+          llm_model_override: 'volcengine/doubao-1.5-pro-32k-250115',
+          llm_overrides: { temperature: 0.3 },
+        }),
+      })
+    );
   });
 
   it('should persist execution insights events in conversation state', () => {

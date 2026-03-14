@@ -10,6 +10,8 @@ This is P0-2: Batch logging and token delta sampling in llm_stream.py
 """
 
 import time
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import pytest
 
@@ -388,3 +390,66 @@ class TestSamplerConfiguration:
 
         assert sampler.sample_rate == 1.0
         assert sampler.min_sample_interval == 0.0
+
+
+class _FakeLLMClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def generate_stream(self, **kwargs: Any) -> AsyncGenerator[Any, None]:
+        self.calls.append(dict(kwargs))
+        if False:
+            yield None
+
+
+class TestLLMStreamClientModelOverride:
+    @pytest.mark.asyncio
+    async def test_generate_with_client_forwards_model_and_provider_options(self) -> None:
+        config = StreamConfig(
+            model="volcengine/doubao-1.5-pro-32k-250115",
+            temperature=0.2,
+            max_tokens=128,
+            provider_options={
+                "top_p": 0.9,
+                "__use_max_completion_tokens": True,
+                "__override_max_tokens": 256,
+            },
+        )
+        fake_client = _FakeLLMClient()
+        stream = LLMStream(config, llm_client=fake_client)
+
+        async for _ in stream._generate_with_client(
+            messages=[{"role": "user", "content": "hello"}],
+            request_id="req-1",
+        ):
+            pass
+
+        assert len(fake_client.calls) == 1
+        call = fake_client.calls[0]
+        assert call["model"] == "volcengine/doubao-1.5-pro-32k-250115"
+        assert call["max_tokens"] == 256
+        assert call["max_completion_tokens"] == 256
+        assert call["top_p"] == 0.9
+        assert call["temperature"] == 0.2
+
+    @pytest.mark.asyncio
+    async def test_generate_with_client_omits_temperature_when_marked(self) -> None:
+        config = StreamConfig(
+            model="openai/o3",
+            temperature=0.6,
+            max_tokens=128,
+            provider_options={"__omit_temperature": True},
+        )
+        fake_client = _FakeLLMClient()
+        stream = LLMStream(config, llm_client=fake_client)
+
+        async for _ in stream._generate_with_client(
+            messages=[{"role": "user", "content": "hello"}],
+            request_id="req-2",
+        ):
+            pass
+
+        assert len(fake_client.calls) == 1
+        call = fake_client.calls[0]
+        assert call["model"] == "openai/o3"
+        assert "temperature" not in call

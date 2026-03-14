@@ -14,7 +14,7 @@ from .container import initialize_container
 from .database import initialize_database_schema
 from .docker import initialize_docker_services, shutdown_docker_services
 from .graph import initialize_graph_service
-from .llm import initialize_llm_providers
+from .llm import initialize_llm_providers, sync_health_checker_providers
 from .redis import initialize_redis_client
 from .sandbox_reaper import initialize_sandbox_idle_reaper, shutdown_sandbox_idle_reaper
 from .telemetry import initialize_telemetry, shutdown_telemetry_services
@@ -40,4 +40,5 @@ __all__ = [
     "shutdown_docker_services",
     "shutdown_sandbox_idle_reaper",
     "shutdown_telemetry_services",
+    "sync_health_checker_providers",
 ]

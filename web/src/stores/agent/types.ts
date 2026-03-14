@@ -143,4 +143,5 @@ export interface AgentV3State {
   clearError: () => void;
   togglePinEvent: (eventId: string) => void;
   setLlmOverrides: (conversationId: string, overrides: LLMConfigOverrides | null) => void;
+  setLlmModelOverride: (conversationId: string, modelName: string | null) => void;
 }

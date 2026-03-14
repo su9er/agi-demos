@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { agentService } from '@/services/agentService';
+import { routeToHandler } from '@/services/agent/messageRouter';
 
 import type { AgentStreamHandler } from '@/types/agent';
 
 describe('agentService event routing guardrails', () => {
   const route = (eventType: string, data: Record<string, unknown>, handler: AgentStreamHandler) => {
-    (agentService as any).routeToHandler(eventType, data, handler);
+    routeToHandler(eventType as any, data, handler);
   };
 
   it('routes task synchronization events to task handlers', () => {
@@ -14,12 +14,14 @@ describe('agentService event routing guardrails', () => {
     const onTaskUpdated = vi.fn();
     const onTaskStart = vi.fn();
     const onTaskComplete = vi.fn();
+    const onModelSwitchRequested = vi.fn();
 
     const handler: AgentStreamHandler = {
       onTaskListUpdated,
       onTaskUpdated,
       onTaskStart,
       onTaskComplete,
+      onModelSwitchRequested,
     };
 
     route('task_list_updated', { conversation_id: 'conv-1', tasks: [] }, handler);
@@ -30,11 +32,13 @@ describe('agentService event routing guardrails', () => {
     );
     route('task_start', { conversation_id: 'conv-1', task_id: 'task-1' }, handler);
     route('task_complete', { conversation_id: 'conv-1', task_id: 'task-1' }, handler);
+    route('model_switch_requested', { conversation_id: 'conv-1', model: 'gpt-4o-mini' }, handler);
 
     expect(onTaskListUpdated).toHaveBeenCalledTimes(1);
     expect(onTaskUpdated).toHaveBeenCalledTimes(1);
     expect(onTaskStart).toHaveBeenCalledTimes(1);
     expect(onTaskComplete).toHaveBeenCalledTimes(1);
+    expect(onModelSwitchRequested).toHaveBeenCalledTimes(1);
   });
 
   it('routes execution diagnostics events to dedicated handlers', () => {

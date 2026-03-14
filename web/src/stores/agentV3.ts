@@ -249,6 +249,28 @@ export const useAgentV3Store = create<AgentV3State>()(
         },
 
         /**
+         * Set per-conversation LLM model override.
+         * Stored inside appModelContext.llm_model_override and sent via app_model_context.
+         */
+        setLlmModelOverride: (conversationId: string, modelName: string | null) => {
+          const { updateConversationState, conversationStates } = get();
+          const convState = conversationStates.get(conversationId);
+          const currentCtx = convState?.appModelContext ?? {};
+
+          const normalizedModel = modelName?.trim() || null;
+          if (normalizedModel) {
+            updateConversationState(conversationId, {
+              appModelContext: { ...currentCtx, llm_model_override: normalizedModel },
+            });
+          } else {
+            const { llm_model_override: _removed, ...rest } = currentCtx;
+            updateConversationState(conversationId, {
+              appModelContext: Object.keys(rest).length > 0 ? rest : null,
+            });
+          }
+        },
+
+        /**
          * Get count of currently streaming conversations
          */
         getStreamingConversationCount: () => {
@@ -728,6 +750,20 @@ export const useAgentV3Store = create<AgentV3State>()(
             // Update tasks from API response
             if (taskListResult && Array.isArray(taskListResult.tasks)) {
               get().updateConversationState(conversationId, { tasks: taskListResult.tasks });
+            }
+
+            // Restore persisted model override from conversation's agent_config
+            const conversations = get().conversations;
+            const conv = conversations.find((c) => c.id === conversationId);
+            const persistedOverride = conv?.agent_config?.llm_model_override;
+            if (typeof persistedOverride === 'string' && persistedOverride.trim()) {
+              const convState = get().conversationStates.get(conversationId);
+              const currentOverride = (
+                convState?.appModelContext as Record<string, unknown> | undefined
+              )?.llm_model_override;
+              if (!currentOverride) {
+                get().setLlmModelOverride(conversationId, persistedOverride);
+              }
             }
 
             if (get().activeConversationId !== conversationId) {

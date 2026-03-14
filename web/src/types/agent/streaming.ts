@@ -66,6 +66,8 @@ import type {
   TaskUpdatedEventData,
   TaskStartEventData,
   TaskCompleteEventData,
+  ModelSwitchRequestedEventData,
+  ModelOverrideRejectedEventData,
   MemoryRecalledEventData,
   MemoryCapturedEventData,
   CanvasUpdatedEventData,
@@ -187,6 +189,8 @@ export interface AgentStreamHandler {
   // Task timeline handlers
   onTaskStart?: ((event: AgentEvent<TaskStartEventData>) => void) | undefined;
   onTaskComplete?: ((event: AgentEvent<TaskCompleteEventData>) => void) | undefined;
+  onModelSwitchRequested?: ((event: AgentEvent<ModelSwitchRequestedEventData>) => void) | undefined;
+  onModelOverrideRejected?: ((event: AgentEvent<ModelOverrideRejectedEventData>) => void) | undefined;
   // MCP App handlers
   onMCPAppResult?: ((event: AgentEvent) => void) | undefined;
   onMCPAppRegistered?: ((event: AgentEvent) => void) | undefined;

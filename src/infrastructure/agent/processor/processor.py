@@ -1811,6 +1811,7 @@ class SessionProcessor:
                 abort_signal=self._abort_event or asyncio.Event(),
                 messages=[],
                 project_id=_lctx.get("project_id", ""),
+                tenant_id=_lctx.get("tenant_id", ""),
                 user_id=_lctx.get("user_id", ""),
             )
 
@@ -2312,6 +2313,7 @@ class SessionProcessor:
             abort_signal=self._abort_event or asyncio.Event(),
             messages=[],
             project_id=(self._langfuse_context or {}).get("project_id", ""),
+            tenant_id=(self._langfuse_context or {}).get("tenant_id", ""),
             user_id=(self._langfuse_context or {}).get("user_id", ""),
         )
 

@@ -6,6 +6,7 @@ Implements fallback hierarchy and caching for performance.
 """
 
 import logging
+import time
 from typing import Any, cast
 
 from src.domain.llm_providers.models import (
@@ -17,6 +18,27 @@ from src.domain.llm_providers.models import (
 from src.domain.llm_providers.repositories import ProviderRepository
 
 logger = logging.getLogger(__name__)
+
+_PROVIDER_ALIASES: dict[str, str] = {
+    "azure_openai": "openai",
+}
+
+
+def _normalize_provider_key(provider: str | None) -> str | None:
+    """Normalize provider key for cross-layer/provider-type matching."""
+    if provider is None:
+        return None
+
+    normalized = provider.strip().lower()
+    if not normalized:
+        return None
+
+    for suffix in ("_coding", "_embedding", "_reranker"):
+        if normalized.endswith(suffix):
+            normalized = normalized.removesuffix(suffix)
+            break
+
+    return _PROVIDER_ALIASES.get(normalized, normalized)
 
 
 class ProviderResolutionService:
@@ -43,10 +65,11 @@ class ProviderResolutionService:
 
         Args:
             repository: Provider repository instance (required)
-            cache: Simple in-memory cache (use Redis in production)
+            cache: Simple in-memory cache (use Redis in production).
+                   Each entry stores (ProviderConfig, cached_at_timestamp).
         """
         self.repository = repository
-        self.cache = cache if cache is not None else {}
+        self.cache: dict[str, tuple[Any, float]] = cache if cache is not None else {}
 
     async def resolve_provider(
         self,
@@ -68,20 +91,34 @@ class ProviderResolutionService:
         Raises:
             NoActiveProviderError: If no active provider found
         """
-        # Check cache first
+        # Check cache first (with TTL enforcement)
         model_key = model_id or "any"
         cache_key = f"provider:{tenant_id or 'default'}:{operation_type.value}:{model_key}"
-        if cache_key in self.cache:
-            cached_provider = self.cache[cache_key]
-            logger.debug(f"Cache hit for {cache_key}")
-            return cast(ProviderConfig, cached_provider)
+        cached_entry = self.cache.get(cache_key)
+        if cached_entry is not None:
+            cached_provider, cached_at = cached_entry
+            age = time.monotonic() - cached_at
+            if age <= self.CACHE_TTL_SECONDS:
+                logger.debug(
+                    "Provider cache hit for %s (age=%.1fs)",
+                    cache_key,
+                    age,
+                )
+                return cast(ProviderConfig, cached_provider)
+            del self.cache[cache_key]
+            logger.debug(
+                "Provider cache expired for %s (age=%.1fs > TTL=%ds)",
+                cache_key,
+                age,
+                self.CACHE_TTL_SECONDS,
+            )
 
         # Resolve provider (with fallback logic)
         resolved = await self._resolve_with_fallback(tenant_id, operation_type, model_id)
         provider = resolved.provider
 
-        # Cache the result
-        self.cache[cache_key] = provider
+        # Cache the result with timestamp
+        self.cache[cache_key] = (provider, time.monotonic())
 
         logger.info(
             f"Resolved provider '{provider.name}' ({provider.provider_type}) "
@@ -115,12 +152,25 @@ class ProviderResolutionService:
         """
         provider = None
         resolution_source = ""
+        requested_provider = self._resolve_model_provider(model_id)
+        active_providers: list[ProviderConfig] | None = None
+        if model_id and requested_provider is None:
+            active_providers = await self.repository.list_active()
+            requested_provider = self._infer_provider_from_configured_models(
+                model_id,
+                active_providers,
+            )
 
         if tenant_id:
             # 1. Try tenant-specific provider
             logger.debug(f"Looking for tenant-specific provider: {tenant_id}")
             candidate = await self.repository.find_tenant_provider(tenant_id, operation_type)
-            if candidate and self._is_provider_eligible(candidate, model_id):
+            if candidate and self._is_provider_eligible(
+                candidate,
+                model_id,
+                operation_type=operation_type,
+                requested_provider=requested_provider,
+            ):
                 provider = candidate
                 resolution_source = "tenant"
 
@@ -128,17 +178,30 @@ class ProviderResolutionService:
             # 2. Try default provider
             logger.debug("Looking for default provider")
             candidate = await self.repository.find_default_provider()
-            if candidate and self._is_provider_eligible(candidate, model_id):
+            if candidate and self._is_provider_eligible(
+                candidate,
+                model_id,
+                operation_type=operation_type,
+                requested_provider=requested_provider,
+            ):
                 provider = candidate
                 resolution_source = "default"
 
         if not provider:
-            # 3. Fallback to first active provider
-            logger.debug("Looking for first active provider")
-            candidate = await self.repository.find_first_active_provider()
-            if candidate and self._is_provider_eligible(candidate, model_id):
-                provider = candidate
-                resolution_source = "fallback"
+            # 3. Fallback to the first eligible active provider
+            logger.debug("Looking for first eligible active provider")
+            if active_providers is None:
+                active_providers = await self.repository.list_active()
+            for candidate in active_providers:
+                if self._is_provider_eligible(
+                    candidate,
+                    model_id,
+                    operation_type=operation_type,
+                    requested_provider=requested_provider,
+                ):
+                    provider = candidate
+                    resolution_source = "fallback"
+                    break
 
         if not provider:
             raise NoActiveProviderError(
@@ -154,6 +217,9 @@ class ProviderResolutionService:
     def _is_provider_eligible(
         provider: ProviderConfig,
         model_id: str | None,
+        *,
+        operation_type: OperationType = OperationType.LLM,
+        requested_provider: str | None = None,
     ) -> bool:
         """
         Check if a provider is eligible based on enable flag
@@ -169,10 +235,121 @@ class ProviderResolutionService:
         if not provider.is_enabled:
             logger.debug(f"Provider '{provider.name}' skipped: disabled")
             return False
-        if model_id and not provider.is_model_allowed(model_id):
+
+        raw_provider_type = str(getattr(provider.provider_type, "value", provider.provider_type))
+        provider_type = raw_provider_type.strip().lower()
+        if not ProviderResolutionService._is_operation_type_compatible(
+            provider_type, operation_type
+        ):
+            logger.debug(
+                "Provider '%s' skipped: incompatible provider_type '%s' for %s operation",
+                provider.name,
+                provider_type,
+                operation_type.value,
+            )
+            return False
+
+        provider_key = _normalize_provider_key(raw_provider_type)
+        if requested_provider is not None and provider_key != requested_provider:
+            logger.debug(
+                "Provider '%s' skipped: model provider mismatch (%s != %s)",
+                provider.name,
+                provider_key,
+                requested_provider,
+            )
+            return False
+
+        if not ProviderResolutionService._is_model_allowed_for_provider(provider, model_id):
             logger.debug(f"Provider '{provider.name}' skipped: model '{model_id}' not allowed")
             return False
+
         return True
+
+    @staticmethod
+    def _is_operation_type_compatible(provider_type: str, operation_type: OperationType) -> bool:
+        """Check provider type compatibility with requested operation type."""
+        if operation_type == OperationType.LLM:
+            return not (provider_type.endswith("_embedding") or provider_type.endswith("_reranker"))
+        if operation_type == OperationType.EMBEDDING:
+            return not provider_type.endswith("_reranker")
+        if operation_type == OperationType.RERANK:
+            return not provider_type.endswith("_embedding")
+        return True
+
+    @staticmethod
+    def _is_model_allowed_for_provider(provider: ProviderConfig, model_id: str | None) -> bool:
+        """Check model allow/block rules, including provider-qualified model IDs."""
+        if not model_id:
+            return True
+
+        if provider.is_model_allowed(model_id):
+            return True
+
+        if "/" not in model_id:
+            return False
+
+        unqualified_model = model_id.split("/", 1)[1]
+        return provider.is_model_allowed(unqualified_model)
+
+    @staticmethod
+    def _resolve_model_provider(model_id: str | None) -> str | None:
+        """Resolve provider key from model id using catalog fuzzy matching."""
+        normalized_model_id = (model_id or "").strip()
+        if not normalized_model_id:
+            return None
+
+        if "/" in normalized_model_id:
+            # Explicit provider-qualified model should be authoritative.
+            return _normalize_provider_key(normalized_model_id.split("/", 1)[0])
+
+        from src.infrastructure.llm.model_catalog import get_model_catalog_service
+
+        catalog = get_model_catalog_service()
+        model_meta = catalog.get_model_fuzzy(normalized_model_id)
+        if model_meta is not None:
+            return _normalize_provider_key(model_meta.provider)
+
+        return None
+
+    @staticmethod
+    def _normalize_model_name_for_match(model_name: str | None) -> str | None:
+        """Normalize model id for cross-provider matching heuristics."""
+        normalized = (model_name or "").strip().lower()
+        if not normalized:
+            return None
+        if "/" in normalized:
+            return normalized.split("/", 1)[1]
+        return normalized
+
+    @staticmethod
+    def _infer_provider_from_configured_models(
+        model_id: str,
+        providers: list[ProviderConfig],
+    ) -> str | None:
+        """Infer provider key when model is not catalog-resolvable but matches configured models."""
+        target_model = ProviderResolutionService._normalize_model_name_for_match(model_id)
+        if not target_model:
+            return None
+
+        matched_provider_keys: set[str] = set()
+        for provider in providers:
+            provider_key = _normalize_provider_key(
+                str(getattr(provider.provider_type, "value", provider.provider_type))
+            )
+            if provider_key is None:
+                continue
+
+            for configured_model in (provider.llm_model, provider.llm_small_model):
+                configured = ProviderResolutionService._normalize_model_name_for_match(
+                    configured_model
+                )
+                if configured and configured == target_model:
+                    matched_provider_keys.add(provider_key)
+                    break
+
+        if len(matched_provider_keys) == 1:
+            return next(iter(matched_provider_keys))
+        return None
 
     def invalidate_cache(self, tenant_id: str | None = None) -> None:
         """

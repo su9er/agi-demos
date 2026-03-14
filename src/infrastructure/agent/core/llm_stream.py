@@ -67,6 +67,8 @@ MODEL_PROVIDER_MAP: dict[str, str] = {
     "glm-": "zhipu",
     # Claude models (via Anthropic/OpenAI)
     "claude-": "openai",
+    # MiniMax models
+    "minimax-": "minimax",
 }
 
 
@@ -426,6 +428,10 @@ class LLMStream:
         self._in_text: bool = False
         self._in_reasoning: bool = False
 
+        # Think-tag parsing state (for models like MiniMax that send <think> inline)
+        self._in_think_tag: bool = False
+        self._pending_tag_buffer: str = ""
+
         # Usage tracking
         self._usage: dict[str, int] | None = None
         self._finish_reason: str | None = None
@@ -495,7 +501,7 @@ class LLMStream:
             logger.error(f"LLM stream error: {e}", exc_info=True)
             yield StreamEvent.error(str(e), code=type(e).__name__)
 
-    async def _generate_with_client(
+    async def _generate_with_client(  # noqa: C901, PLR0912
         self,
         messages: list[dict[str, Any]],
         request_id: str,
@@ -530,18 +536,33 @@ class LLMStream:
 
         # Prepare additional kwargs from config
         extra_kwargs: dict[str, Any] = {}
+        extra_kwargs["model"] = self.config.model
         if self.config.tools:
             extra_kwargs["tools"] = self.config.tools
             if self.config.tool_choice:
                 extra_kwargs["tool_choice"] = self.config.tool_choice
-        if self.config.temperature:
+        omit_temperature = bool(self.config.provider_options.get("__omit_temperature", False))
+        if omit_temperature:
+            extra_kwargs["_omit_temperature"] = True
+        else:
             extra_kwargs["temperature"] = self.config.temperature
+        for key, value in self.config.provider_options.items():
+            if not key.startswith("__"):
+                extra_kwargs[key] = value
+
+        effective_max_tokens = self.config.max_tokens
+        if "__override_max_tokens" in self.config.provider_options:
+            override_max = self.config.provider_options.get("__override_max_tokens")
+            if isinstance(override_max, int) and override_max > 0:
+                effective_max_tokens = override_max
+        if self.config.provider_options.get("__use_max_completion_tokens", False):
+            extra_kwargs["max_completion_tokens"] = effective_max_tokens
 
         try:
             # Use client's generate_stream (has circuit breaker + rate limiter)
             async for chunk in self._llm_client.generate_stream(  # type: ignore[union-attr]
                 messages=messages,  # type: ignore[arg-type]
-                max_tokens=self.config.max_tokens,
+                max_tokens=effective_max_tokens,
                 langfuse_context=client_langfuse_context,
                 **extra_kwargs,
             ):
@@ -649,19 +670,103 @@ class LLMStream:
         self._in_reasoning = False
         self._usage = None
         self._finish_reason = None
+        # Think-tag parsing state
+        self._in_think_tag = False
+        self._pending_tag_buffer = ""
         # P0-2: Reset sampler for new stream
         self._token_sampler.reset()
         # Flush any pending logs
         self._log_buffer.flush()
 
     def _handle_content_delta(self, content: str) -> Iterator[StreamEvent]:
-        """Handle a text content delta from the LLM stream."""
+        """Handle a text content delta, intercepting <think> tags as reasoning."""
         logger.info(f"[LLMStream] TEXT_DELTA: {content[:50]}...")
-        if not self._in_text:
-            self._in_text = True
-            yield StreamEvent.text_start()
-        self._text_buffer += content
-        yield StreamEvent.text_delta(content)
+        # Route through think-tag parser which splits content into
+        # text vs reasoning segments
+        for is_reasoning, segment in self._parse_think_tags(content):
+            if is_reasoning:
+                yield from self._handle_reasoning_delta(segment)
+            else:
+                if not self._in_text:
+                    self._in_text = True
+                    yield StreamEvent.text_start()
+                self._text_buffer += segment
+                yield StreamEvent.text_delta(segment)
+
+    def _parse_think_tags(self, content: str) -> Iterator[tuple[bool, str]]:  # noqa: C901, PLR0912
+        """
+        Parse <think>...</think> tags from streaming content.
+
+        Handles tags split across chunk boundaries by buffering partial tags.
+        Yields (is_reasoning, segment) tuples where is_reasoning=True means
+        the segment is reasoning content that should go to REASONING_DELTA.
+
+        State machine:
+        - _in_think_tag: currently inside a <think> block
+        - _pending_tag_buffer: accumulates chars that might be part of a tag
+        """
+        # Prepend any buffered partial-tag content from previous chunk
+        if self._pending_tag_buffer:
+            content = self._pending_tag_buffer + content
+            self._pending_tag_buffer = ""
+
+        pos = 0
+        length = len(content)
+
+        while pos < length:
+            if self._in_think_tag:
+                # Inside <think> — look for </think>
+                close_idx = content.find("</think>", pos)
+                if close_idx == -1:
+                    # Check for partial </think> at end of chunk
+                    # Could be </thi, </thin, etc.
+                    for suffix_len in range(min(8, length - pos), 0, -1):
+                        suffix = content[length - suffix_len :]
+                        if "</think>".startswith(suffix) and suffix.startswith("<"):
+                            # This suffix could be start of </think>
+                            reasoning_part = content[pos : length - suffix_len]
+                            if reasoning_part:
+                                yield (True, reasoning_part)
+                            self._pending_tag_buffer = suffix
+                            return
+                    # No partial tag — all remaining content is reasoning
+                    remaining = content[pos:]
+                    if remaining:
+                        yield (True, remaining)
+                    return
+                else:
+                    # Found </think> — emit reasoning up to it
+                    reasoning_part = content[pos:close_idx]
+                    if reasoning_part:
+                        yield (True, reasoning_part)
+                    self._in_think_tag = False
+                    pos = close_idx + len("</think>")
+            else:
+                # Outside <think> — look for <think>
+                open_idx = content.find("<think>", pos)
+                if open_idx == -1:
+                    # Check for partial <think> at end of chunk
+                    for suffix_len in range(min(7, length - pos), 0, -1):
+                        suffix = content[length - suffix_len :]
+                        if "<think>".startswith(suffix) and suffix.startswith("<"):
+                            # This suffix could be start of <think>
+                            text_part = content[pos : length - suffix_len]
+                            if text_part:
+                                yield (False, text_part)
+                            self._pending_tag_buffer = suffix
+                            return
+                    # No partial tag — all remaining content is text
+                    remaining = content[pos:]
+                    if remaining:
+                        yield (False, remaining)
+                    return
+                else:
+                    # Found <think> — emit text before it
+                    text_part = content[pos:open_idx]
+                    if text_part:
+                        yield (False, text_part)
+                    self._in_think_tag = True
+                    pos = open_idx + len("<think>")
 
     def _handle_reasoning_delta(self, reasoning: str) -> Iterator[StreamEvent]:
         """Handle a reasoning content delta (o1, Claude extended thinking)."""
@@ -892,6 +997,21 @@ class LLMStream:
 
     def _finalize_streams(self) -> Iterator[StreamEvent]:
         """Close any open text/reasoning streams in correct order."""
+        # Flush any pending tag buffer as its current type
+        # (e.g., partial '<thi' that never became a full tag)
+        if self._pending_tag_buffer:
+            pending = self._pending_tag_buffer
+            self._pending_tag_buffer = ""
+            if self._in_think_tag:
+                # Was inside <think>, flush as reasoning
+                yield from self._handle_reasoning_delta(pending)
+            else:
+                # Was outside <think>, flush as text
+                if not self._in_text:
+                    self._in_text = True
+                    yield StreamEvent.text_start()
+                self._text_buffer += pending
+                yield StreamEvent.text_delta(pending)
         # IMPORTANT: End reasoning stream BEFORE text stream
         # Reasoning (thought) should logically complete before the final response (text)
         # This ensures correct timeline ordering in the frontend:

@@ -273,6 +273,14 @@ class AgentServiceImpl implements AgentService {
     return restApi.updateConversationTitle(conversationId, projectId, title);
   }
 
+  updateConversationConfig(
+    conversationId: string,
+    projectId: string,
+    config: { llm_model_override?: string | null; llm_overrides?: Record<string, unknown> | null }
+  ): Promise<Conversation> {
+    return restApi.updateConversationConfig(conversationId, projectId, config);
+  }
+
   generateConversationTitle(conversationId: string, projectId: string): Promise<Conversation> {
     return restApi.generateConversationTitle(conversationId, projectId);
   }

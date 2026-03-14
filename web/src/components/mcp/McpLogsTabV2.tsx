@@ -133,7 +133,7 @@ export const McpLogsTabV2: React.FC = () => {
               Server
             </label>
             <Select
-              value={selectedServer || undefined}
+              value={selectedServer || null}
               onChange={setSelectedServer}
               className="w-full"
               placeholder="Select server"

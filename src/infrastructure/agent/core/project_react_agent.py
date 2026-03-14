@@ -875,7 +875,7 @@ class ProjectReActAgent:
                 f"{execution_time_ms:.1f}ms, events={event_count}"
             )
 
-    async def execute_chat(
+    async def execute_chat(  # noqa: PLR0913
         self,
         conversation_id: str,
         user_message: str,
@@ -889,6 +889,7 @@ class ProjectReActAgent:
         context_summary_data: dict[str, Any] | None = None,
         plan_mode: bool = False,
         llm_overrides: dict[str, Any] | None = None,
+        model_override: str | None = None,
         image_attachments: list[str] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """
@@ -963,6 +964,7 @@ class ProjectReActAgent:
                 context_summary_data=context_summary_data,
                 plan_mode=plan_mode,
                 llm_overrides=llm_overrides,
+                model_override=model_override,
                 attachment_content=(
                     [
                         {

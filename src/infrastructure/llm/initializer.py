@@ -55,7 +55,7 @@ _PROVIDER_AUTO_DETECT: list[tuple[str, str]] = [
     ("OLLAMA_BASE_URL", "ollama"),
     ("LMSTUDIO_BASE_URL", "lmstudio"),
     ("VOLCENGINE_API_KEY", "volcengine"),
-    ("ARK_API_KEY", "volcengine")
+    ("ARK_API_KEY", "volcengine"),
 ]
 
 _LOCAL_FALLBACK_PROVIDER = "ollama"
@@ -281,11 +281,11 @@ def _env_deepseek() -> dict[str, Any]:
 def _env_minimax() -> dict[str, Any]:
     return {
         "api_key": os.getenv("MINIMAX_API_KEY"),
-        "llm_model": os.getenv("MINIMAX_MODEL", "abab6.5-chat"),
-        "llm_small_model": os.getenv("MINIMAX_SMALL_MODEL", "abab6.5s-chat"),
+        "llm_model": os.getenv("MINIMAX_MODEL", "MiniMax-M2.5"),
+        "llm_small_model": os.getenv("MINIMAX_SMALL_MODEL", "MiniMax-M2.5-highspeed"),
         "embedding_model": os.getenv("MINIMAX_EMBEDDING_MODEL", "embo-01"),
-        "reranker_model": os.getenv("MINIMAX_RERANK_MODEL", "abab6.5-chat"),
-        "base_url": os.getenv("MINIMAX_BASE_URL", "https://api.minimax.chat/v1"),
+        "reranker_model": os.getenv("MINIMAX_RERANK_MODEL", "MiniMax-M2.5-highspeed"),
+        "base_url": os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
     }
 
 
@@ -342,10 +342,9 @@ def _env_volcengine() -> dict[str, Any]:
         "llm_small_model": os.getenv("VOLCENGINE_SMALL_MODEL", "doubao-1.5-lite-32k"),
         "embedding_model": os.getenv("VOLCENGINE_EMBEDDING_MODEL", "doubao-embedding"),
         "reranker_model": os.getenv("VOLCENGINE_RERANK_MODEL", "doubao-1.5-pro-32k"),
-        "base_url": os.getenv(
-            "VOLCENGINE_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
-        ),
+        "base_url": os.getenv("VOLCENGINE_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
     }
+
 
 _PROVIDER_ENV_REGISTRY: dict[str, Any] = {
     "gemini": _env_gemini,
@@ -399,7 +398,11 @@ def detect_env_providers() -> dict[str, dict[str, Any]]:
         env_config = env_fn()
         # Only include providers with a valid key (or local providers)
         provider_type = PROVIDER_TYPE_MAP.get(provider_name)
-        if provider_type and should_require_api_key(provider_type) and not env_config.get("api_key"):
+        if (
+            provider_type
+            and should_require_api_key(provider_type)
+            and not env_config.get("api_key")
+        ):
             continue
 
         detected[provider_name] = env_config

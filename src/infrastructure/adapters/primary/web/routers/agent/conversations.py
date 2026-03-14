@@ -32,6 +32,7 @@ from .schemas import (
     ConversationResponse,
     CreateConversationRequest,
     PaginatedConversationsResponse,
+    UpdateConversationConfigRequest,
     UpdateConversationTitleRequest,
 )
 from .utils import get_container_with_db
@@ -346,6 +347,55 @@ async def update_conversation_title(
         logger.error(f"Error updating conversation title: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to update conversation title: {e!s}"
+        ) from e
+
+
+@router.patch("/conversations/{conversation_id}/config", response_model=ConversationResponse)
+async def update_conversation_config(
+    conversation_id: str,
+    data: UpdateConversationConfigRequest,
+    request: Request,
+    project_id: str = Query(..., description="Project ID for authorization"),
+    current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_current_user_tenant),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationResponse:
+    """Update conversation-level LLM configuration (model override, LLM params)."""
+    try:
+        assert request is not None
+        container = get_container_with_db(request, db)
+        llm = await create_llm_client(tenant_id)
+        agent_service = container.agent_service(llm)
+
+        conversation = await agent_service.get_conversation(
+            conversation_id=conversation_id,
+            project_id=project_id,
+            user_id=current_user.id,
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        config_patch: dict[str, Any] = {}
+        if data.llm_model_override is not None:
+            cleaned = data.llm_model_override.strip()
+            config_patch["llm_model_override"] = cleaned or None
+        if data.llm_overrides is not None:
+            cleaned_overrides = {k: v for k, v in data.llm_overrides.items() if v is not None}
+            config_patch["llm_overrides"] = cleaned_overrides or None
+
+        conversation.update_agent_config(config_patch)
+        await agent_service._conversation_repo.save(conversation)  # type: ignore[attr-defined]
+        await db.commit()
+
+        return ConversationResponse.from_domain(conversation)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error updating conversation config: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update conversation config: {e!s}"
         ) from e
 
 

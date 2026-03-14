@@ -8,8 +8,9 @@ Tests:
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
@@ -19,6 +20,7 @@ from src.application.services.provider_resolution_service import (
 )
 from src.domain.llm_providers.models import (
     NoActiveProviderError,
+    OperationType,
     ProviderConfig,
     ProviderType,
 )
@@ -119,11 +121,19 @@ class TestProviderResolutionServiceFiltering:
         tenant_provider: ProviderConfig | None = None,
         default_provider: ProviderConfig | None = None,
         fallback_provider: ProviderConfig | None = None,
+        active_providers: list[ProviderConfig] | None = None,
     ) -> ProviderResolutionService:
         repo = AsyncMock()
         repo.find_tenant_provider = AsyncMock(return_value=tenant_provider)
         repo.find_default_provider = AsyncMock(return_value=default_provider)
         repo.find_first_active_provider = AsyncMock(return_value=fallback_provider)
+        if active_providers is None:
+            active_providers = [
+                provider
+                for provider in (default_provider, fallback_provider, tenant_provider)
+                if provider is not None
+            ]
+        repo.list_active = AsyncMock(return_value=active_providers)
         return ProviderResolutionService(repository=repo)
 
     async def test_resolve_enabled_provider(self) -> None:
@@ -218,3 +228,98 @@ class TestProviderResolutionServiceFiltering:
         )
         result = await svc.resolve_provider(tenant_id="t1")
         assert result.name == "default-provider"
+
+    async def test_provider_qualified_model_skips_mismatched_default(self) -> None:
+        minimax = _make_provider(name="minimax-default", provider_type=ProviderType.MINIMAX)
+        volcengine = _make_provider(name="volcengine-fallback", provider_type=ProviderType.VOLCENGINE)
+        svc = self._make_service(
+            default_provider=minimax,
+            fallback_provider=volcengine,
+            active_providers=[minimax, volcengine],
+        )
+
+        result = await svc.resolve_provider(model_id="volcengine/doubao-1.5-pro-32k-250115")
+        assert result.name == "volcengine-fallback"
+
+    async def test_unqualified_model_uses_catalog_provider_matching(self) -> None:
+        minimax = _make_provider(name="minimax-default", provider_type=ProviderType.MINIMAX)
+        volcengine = _make_provider(name="volcengine-fallback", provider_type=ProviderType.VOLCENGINE)
+        svc = self._make_service(
+            default_provider=minimax,
+            fallback_provider=volcengine,
+            active_providers=[minimax, volcengine],
+        )
+
+        fake_meta = SimpleNamespace(provider="volcengine")
+        fake_catalog = SimpleNamespace(get_model_fuzzy=lambda _model: fake_meta)
+        with patch(
+            "src.infrastructure.llm.model_catalog.get_model_catalog_service",
+            return_value=fake_catalog,
+        ):
+            result = await svc.resolve_provider(model_id="doubao-1.5-pro-32k")
+
+        assert result.name == "volcengine-fallback"
+
+    async def test_unqualified_model_uses_configured_model_provider_match(self) -> None:
+        minimax = _make_provider(
+            name="minimax-default",
+            provider_type=ProviderType.MINIMAX,
+            llm_model="MiniMax-M2.5-highspeed",
+        )
+        volcengine = _make_provider(
+            name="volcengine-fallback",
+            provider_type=ProviderType.VOLCENGINE,
+            llm_model="doubao-1.5-pro-256k",
+        )
+        svc = self._make_service(
+            default_provider=minimax,
+            fallback_provider=volcengine,
+            active_providers=[minimax, volcengine],
+        )
+
+        fake_catalog = SimpleNamespace(get_model_fuzzy=lambda _model: None)
+        with patch(
+            "src.infrastructure.llm.model_catalog.get_model_catalog_service",
+            return_value=fake_catalog,
+        ):
+            result = await svc.resolve_provider(model_id="doubao-1.5-pro-256k")
+
+        assert result.name == "volcengine-fallback"
+
+    async def test_provider_prefix_takes_precedence_over_catalog_fuzzy(self) -> None:
+        minimax = _make_provider(name="minimax-default", provider_type=ProviderType.MINIMAX)
+        volcengine = _make_provider(name="volcengine-fallback", provider_type=ProviderType.VOLCENGINE)
+        svc = self._make_service(
+            default_provider=minimax,
+            fallback_provider=volcengine,
+            active_providers=[minimax, volcengine],
+        )
+
+        fake_meta = SimpleNamespace(provider="minimax")
+        fake_catalog = SimpleNamespace(get_model_fuzzy=lambda _model: fake_meta)
+        with patch(
+            "src.infrastructure.llm.model_catalog.get_model_catalog_service",
+            return_value=fake_catalog,
+        ):
+            result = await svc.resolve_provider(model_id="volcengine/doubao-1.5-pro-32k")
+
+        assert result.name == "volcengine-fallback"
+
+    async def test_llm_resolution_skips_embedding_provider_variant(self) -> None:
+        minimax = _make_provider(name="minimax-default", provider_type=ProviderType.MINIMAX)
+        volcengine_embedding = _make_provider(
+            name="volcengine-embedding",
+            provider_type=ProviderType.VOLCENGINE_EMBEDDING,
+        )
+        volcengine_llm = _make_provider(name="volcengine-llm", provider_type=ProviderType.VOLCENGINE)
+        svc = self._make_service(
+            default_provider=minimax,
+            fallback_provider=volcengine_llm,
+            active_providers=[minimax, volcengine_embedding, volcengine_llm],
+        )
+
+        result = await svc.resolve_provider(
+            operation_type=OperationType.LLM,
+            model_id="volcengine/doubao-1.5-pro-32k",
+        )
+        assert result.name == "volcengine-llm"

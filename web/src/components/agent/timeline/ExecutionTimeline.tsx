@@ -441,7 +441,7 @@ export const ExecutionTimeline = memo<ExecutionTimelineProps>(
     if (steps.length === 0) return null;
 
     return (
-      <div className="mb-2 rounded-md">
+      <div className="pb-2 rounded-md">
         {/* Summary header */}
         <button
           type="button"

@@ -176,11 +176,11 @@ _ENV_PROFILES: dict[ProviderType, _ProviderEnvProfile] = {
     ),
     ProviderType.MINIMAX: _ProviderEnvProfile(
         api_key=_EnvField(("MINIMAX_API_KEY",)),
-        llm_model=_EnvField(("MINIMAX_MODEL",), "abab6.5-chat"),
-        llm_small_model=_EnvField(("MINIMAX_SMALL_MODEL",), "abab6.5s-chat"),
+        llm_model=_EnvField(("MINIMAX_MODEL",), "MiniMax-M2.5"),
+        llm_small_model=_EnvField(("MINIMAX_SMALL_MODEL",), "MiniMax-M2.5-highspeed"),
         embedding_model=_EnvField(("MINIMAX_EMBEDDING_MODEL",), "embo-01"),
-        reranker_model=_EnvField(("MINIMAX_RERANK_MODEL",), "abab6.5-chat"),
-        base_url=_EnvField(("MINIMAX_BASE_URL",), "https://api.minimax.chat/v1"),
+        reranker_model=_EnvField(("MINIMAX_RERANK_MODEL",), "MiniMax-M2.5-highspeed"),
+        base_url=_EnvField(("MINIMAX_BASE_URL",), "https://api.minimax.io/v1"),
     ),
     ProviderType.MINIMAX_CODING: _ProviderEnvProfile(
         api_key=_EnvField(("MINIMAX_API_KEY",)),
@@ -199,23 +199,27 @@ _ENV_PROFILES: dict[ProviderType, _ProviderEnvProfile] = {
     ProviderType.MINIMAX_EMBEDDING: _ProviderEnvProfile(
         api_key=_EnvField(("MINIMAX_API_KEY",)),
         llm_model=_EnvField(("MINIMAX_EMBEDDING_MODEL", "MINIMAX_MODEL"), "embo-01"),
-        llm_small_model=_EnvField(("MINIMAX_EMBEDDING_SMALL_MODEL", "MINIMAX_SMALL_MODEL"), "embo-01"),
+        llm_small_model=_EnvField(
+            ("MINIMAX_EMBEDDING_SMALL_MODEL", "MINIMAX_SMALL_MODEL"), "embo-01"
+        ),
         embedding_model=_EnvField(("MINIMAX_EMBEDDING_MODEL",), "embo-01"),
-        reranker_model=_EnvField(("MINIMAX_RERANK_MODEL",), "abab6.5-chat"),
+        reranker_model=_EnvField(("MINIMAX_RERANK_MODEL",), "MiniMax-M2.5-highspeed"),
         base_url=_EnvField(
             ("MINIMAX_EMBEDDING_BASE_URL", "MINIMAX_BASE_URL"),
-            "https://api.minimax.chat/v1",
+            "https://api.minimax.io/v1",
         ),
     ),
     ProviderType.MINIMAX_RERANKER: _ProviderEnvProfile(
         api_key=_EnvField(("MINIMAX_API_KEY",)),
-        llm_model=_EnvField(("MINIMAX_RERANK_MODEL", "MINIMAX_MODEL"), "abab6.5-chat"),
-        llm_small_model=_EnvField(("MINIMAX_RERANK_SMALL_MODEL", "MINIMAX_SMALL_MODEL"), "abab6.5-chat"),
+        llm_model=_EnvField(("MINIMAX_RERANK_MODEL", "MINIMAX_MODEL"), "MiniMax-M2.5-highspeed"),
+        llm_small_model=_EnvField(
+            ("MINIMAX_RERANK_SMALL_MODEL", "MINIMAX_SMALL_MODEL"), "MiniMax-M2.5-highspeed"
+        ),
         embedding_model=_EnvField(("MINIMAX_EMBEDDING_MODEL",), "embo-01"),
-        reranker_model=_EnvField(("MINIMAX_RERANK_MODEL",), "abab6.5-chat"),
+        reranker_model=_EnvField(("MINIMAX_RERANK_MODEL",), "MiniMax-M2.5-highspeed"),
         base_url=_EnvField(
             ("MINIMAX_RERANK_BASE_URL", "MINIMAX_BASE_URL"),
-            "https://api.minimax.chat/v1",
+            "https://api.minimax.io/v1",
         ),
     ),
     ProviderType.KIMI: _ProviderEnvProfile(
@@ -240,10 +244,14 @@ _ENV_PROFILES: dict[ProviderType, _ProviderEnvProfile] = {
     ProviderType.KIMI_EMBEDDING: _ProviderEnvProfile(
         api_key=_EnvField(("KIMI_API_KEY",)),
         llm_model=_EnvField(("KIMI_EMBEDDING_MODEL", "KIMI_MODEL"), "kimi-embedding-1"),
-        llm_small_model=_EnvField(("KIMI_EMBEDDING_SMALL_MODEL", "KIMI_SMALL_MODEL"), "kimi-embedding-1"),
+        llm_small_model=_EnvField(
+            ("KIMI_EMBEDDING_SMALL_MODEL", "KIMI_SMALL_MODEL"), "kimi-embedding-1"
+        ),
         embedding_model=_EnvField(("KIMI_EMBEDDING_MODEL",), "kimi-embedding-1"),
         reranker_model=_EnvField(("KIMI_RERANK_MODEL",), "kimi-rerank-1"),
-        base_url=_EnvField(("KIMI_EMBEDDING_BASE_URL", "KIMI_BASE_URL"), "https://api.moonshot.cn/v1"),
+        base_url=_EnvField(
+            ("KIMI_EMBEDDING_BASE_URL", "KIMI_BASE_URL"), "https://api.moonshot.cn/v1"
+        ),
     ),
     ProviderType.KIMI_RERANKER: _ProviderEnvProfile(
         api_key=_EnvField(("KIMI_API_KEY",)),
@@ -269,7 +277,9 @@ _ENV_PROFILES: dict[ProviderType, _ProviderEnvProfile] = {
     ),
     ProviderType.ZAI_EMBEDDING: _ProviderEnvProfile(
         api_key=_EnvField(("ZAI_API_KEY", "ZHIPU_API_KEY")),
-        llm_model=_EnvField(("ZAI_EMBEDDING_MODEL", "ZHIPU_EMBEDDING_MODEL", "ZAI_MODEL"), "embedding-3"),
+        llm_model=_EnvField(
+            ("ZAI_EMBEDDING_MODEL", "ZHIPU_EMBEDDING_MODEL", "ZAI_MODEL"), "embedding-3"
+        ),
         llm_small_model=_EnvField(
             ("ZAI_EMBEDDING_SMALL_MODEL", "ZHIPU_EMBEDDING_SMALL_MODEL", "ZAI_SMALL_MODEL"),
             "embedding-3",
@@ -277,7 +287,12 @@ _ENV_PROFILES: dict[ProviderType, _ProviderEnvProfile] = {
         embedding_model=_EnvField(("ZAI_EMBEDDING_MODEL", "ZHIPU_EMBEDDING_MODEL"), "embedding-3"),
         reranker_model=_EnvField(("ZAI_RERANK_MODEL", "ZHIPU_RERANK_MODEL"), "glm-4-flash"),
         base_url=_EnvField(
-            ("ZAI_EMBEDDING_BASE_URL", "ZHIPU_EMBEDDING_BASE_URL", "ZAI_BASE_URL", "ZHIPU_BASE_URL"),
+            (
+                "ZAI_EMBEDDING_BASE_URL",
+                "ZHIPU_EMBEDDING_BASE_URL",
+                "ZAI_BASE_URL",
+                "ZHIPU_BASE_URL",
+            ),
             "https://open.bigmodel.cn/api/paas/v4",
         ),
     ),
@@ -326,7 +341,9 @@ _ENV_PROFILES: dict[ProviderType, _ProviderEnvProfile] = {
     ProviderType.DASHSCOPE_RERANKER: _ProviderEnvProfile(
         api_key=_EnvField(("DASHSCOPE_API_KEY",)),
         llm_model=_EnvField(("DASHSCOPE_RERANK_MODEL", "DASHSCOPE_MODEL"), "qwen-turbo"),
-        llm_small_model=_EnvField(("DASHSCOPE_RERANK_SMALL_MODEL", "DASHSCOPE_SMALL_MODEL"), "qwen-turbo"),
+        llm_small_model=_EnvField(
+            ("DASHSCOPE_RERANK_SMALL_MODEL", "DASHSCOPE_SMALL_MODEL"), "qwen-turbo"
+        ),
         embedding_model=_EnvField(("DASHSCOPE_EMBEDDING_MODEL",), "text-embedding-v3"),
         reranker_model=_EnvField(("DASHSCOPE_RERANK_MODEL",), "qwen-turbo"),
         base_url=_EnvField(

@@ -929,8 +929,18 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
                 onUpdateModelContext={(ctx) => {
                   const convId = useAgentV3Store.getState().activeConversationId;
                   if (convId) {
+                    const convState = useAgentV3Store.getState().conversationStates.get(convId);
+                    const currentCtx = convState?.appModelContext ?? {};
+                    const controlFields: Record<string, unknown> = {};
+                    if ('llm_overrides' in currentCtx) {
+                      controlFields.llm_overrides = currentCtx.llm_overrides;
+                    }
+                    if ('llm_model_override' in currentCtx) {
+                      controlFields.llm_model_override = currentCtx.llm_model_override;
+                    }
+                    const mergedCtx = { ...ctx, ...controlFields };
                     useAgentV3Store.getState().updateConversationState(convId, {
-                      appModelContext: ctx,
+                      appModelContext: Object.keys(mergedCtx).length > 0 ? mergedCtx : null,
                     });
                   }
                 }}

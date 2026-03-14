@@ -90,6 +90,32 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _react_bg_tasks: set[asyncio.Task[Any]] = set()
+_MODEL_PROVIDER_ALIASES: dict[str, str] = {
+    "azure_openai": "openai",
+}
+
+
+def _normalize_model_provider(provider: str | None) -> str | None:
+    """Normalize provider identifiers for cross-surface comparisons."""
+    if provider is None:
+        return None
+    normalized = provider.strip().lower()
+    if not normalized:
+        return None
+    if normalized.endswith("_coding"):
+        normalized = normalized.removesuffix("_coding")
+    return _MODEL_PROVIDER_ALIASES.get(normalized, normalized)
+
+
+def _infer_provider_from_model_name(model_name: str | None) -> str | None:
+    """Infer provider from explicit `<provider>/<model>` naming."""
+    if model_name is None:
+        return None
+    normalized_model = model_name.strip()
+    if not normalized_model or "/" not in normalized_model:
+        return None
+    provider_part = normalized_model.split("/", 1)[0]
+    return _normalize_model_provider(provider_part)
 
 
 class ReActAgent:
@@ -1783,13 +1809,16 @@ class ReActAgent:
         config: ProcessorConfig,
         selection_context: ToolSelectionContext,
     ) -> ProcessorConfig:
-        """Create processor config, optionally with dynamic tool provider."""
-        if not (self._use_dynamic_tools and self._tool_provider is not None):
-            return config
+        """Create request-scoped processor config, optionally with dynamic tool provider."""
 
-        def _tool_provider_wrapper() -> list[ToolDefinition]:
-            _, tool_defs = self._get_current_tools(selection_context=selection_context)
-            return list(tool_defs)
+        tool_provider: Callable[[], list[ToolDefinition]] | None = config.tool_provider
+        if self._use_dynamic_tools and self._tool_provider is not None:
+
+            def _tool_provider_wrapper() -> list[ToolDefinition]:
+                _, tool_defs = self._get_current_tools(selection_context=selection_context)
+                return list(tool_defs)
+
+            tool_provider = _tool_provider_wrapper
 
         new_config = ProcessorConfig(
             model=config.model,
@@ -1799,20 +1828,31 @@ class ReActAgent:
             max_tokens=config.max_tokens,
             max_steps=config.max_steps,
             max_tool_calls_per_step=config.max_tool_calls_per_step,
+            enable_parallel_tool_execution=config.enable_parallel_tool_execution,
+            parallel_tool_batch_size=config.parallel_tool_batch_size,
             doom_loop_threshold=config.doom_loop_threshold,
+            max_no_progress_steps=config.max_no_progress_steps,
             max_attempts=config.max_attempts,
             initial_delay_ms=config.initial_delay_ms,
             permission_timeout=config.permission_timeout,
             continue_on_deny=config.continue_on_deny,
             context_limit=config.context_limit,
+            max_cost_per_request=config.max_cost_per_request,
+            max_cost_per_session=config.max_cost_per_session,
             llm_client=config.llm_client,
-            tool_provider=_tool_provider_wrapper,
+            plugin_registry=config.plugin_registry,
+            tool_provider=tool_provider,
             forced_skill_name=config.forced_skill_name,
-            forced_skill_tools=config.forced_skill_tools,
-            skill_names=config.skill_names,
-            provider_options=config.provider_options,
+            forced_skill_tools=(
+                list(config.forced_skill_tools) if config.forced_skill_tools else None
+            ),
+            skill_names=list(config.skill_names),
+            provider_options=dict(config.provider_options),
         )
-        logger.debug("[ReActAgent] Created processor config with tool_provider for dynamic tools")
+        if tool_provider is not None:
+            logger.debug(
+                "[ReActAgent] Created processor config with tool_provider for dynamic tools"
+            )
         return new_config
 
     async def _stream_process_events(
@@ -1875,10 +1915,14 @@ class ReActAgent:
         conversation_context: list[dict[str, str]],
         matched_skill: Skill | None,
         success: bool,
+        llm_client_override: Any | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Post-process: memory capture, conversation indexing, final complete event."""
         # Auto-capture important user messages for memory indexing
         if self._memory_capture and success:
+            original_client = self._memory_capture._llm_client
+            if llm_client_override is not None:
+                self._memory_capture._llm_client = llm_client_override
             try:
                 captured = await self._memory_capture.capture(
                     user_message=processed_user_message,
@@ -1898,6 +1942,8 @@ class ReActAgent:
                     )
             except Exception as e:
                 logger.warning(f"[ReActAgent] Memory capture failed: {e}")
+            finally:
+                self._memory_capture._llm_client = original_client
 
         # Async conversation indexing (fire-and-forget)
         if conversation_id and conversation_context and success:
@@ -2059,6 +2105,7 @@ class ReActAgent:
         context_summary_data: dict[str, Any] | None = None,
         plan_mode: bool = False,
         llm_overrides: dict[str, Any] | None = None,
+        model_override: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Stream agent response with ReAct loop.
@@ -2160,7 +2207,7 @@ class ReActAgent:
                         for mcp_tool in mcp_tools:
                             if not mcp_tool.schema.is_model_visible:
                                 continue
-                            client = self._skill_mcp_manager._active_clients.get(
+                            client = self._skill_mcp_manager.get_active_client(
                                 mcp_tool.server_name
                             )
 
@@ -2303,22 +2350,183 @@ class ReActAgent:
         if is_forced and matched_skill:
             config.forced_skill_name = matched_skill.name
             config.forced_skill_tools = list(matched_skill.tools) if matched_skill.tools else None
+
+        # Apply per-request model override before LLM parameter overrides.
+        normalized_model_override = (model_override or "").strip() or None
+        if normalized_model_override:
+            from src.infrastructure.llm.model_catalog import get_model_catalog_service
+            from src.infrastructure.llm.provider_factory import get_ai_service_factory
+            from src.infrastructure.llm.reasoning_config import build_reasoning_config
+
+            catalog = get_model_catalog_service()
+            override_meta = catalog.get_model_fuzzy(normalized_model_override)
+            current_meta = catalog.get_model_fuzzy(config.model)
+            current_provider = _normalize_model_provider(
+                current_meta.provider if current_meta is not None else None
+            )
+            override_provider = _normalize_model_provider(
+                override_meta.provider if override_meta is not None else None
+            )
+
+            if current_provider is None:
+                current_provider = _infer_provider_from_model_name(config.model)
+            if override_provider is None:
+                override_provider = _infer_provider_from_model_name(normalized_model_override)
+
+            resolved_provider_config: Any | None = None
+            resolved_provider: str | None = None
+            if tenant_id:
+                from src.domain.llm_providers.models import NoActiveProviderError, OperationType
+
+                factory = get_ai_service_factory()
+                try:
+                    resolved_provider_config = await factory.resolve_provider(
+                        tenant_id=tenant_id,
+                        operation_type=OperationType.LLM,
+                        model_id=normalized_model_override,
+                    )
+                except NoActiveProviderError:
+                    logger.warning(
+                        "[ReActAgent] Unable to resolve provider for model override '%s' (tenant=%s)",
+                        normalized_model_override,
+                        tenant_id,
+                    )
+
+                if resolved_provider_config is not None:
+                    provider_type_raw = getattr(
+                        resolved_provider_config.provider_type,
+                        "value",
+                        resolved_provider_config.provider_type,
+                    )
+                    resolved_provider = _normalize_model_provider(str(provider_type_raw))
+
+            if tenant_id:
+                # With tenant-scoped providers, fail closed unless resolution succeeds.
+                should_apply_override = (
+                    resolved_provider_config is not None
+                    and resolved_provider_config.is_model_allowed(normalized_model_override)
+                )
+            elif resolved_provider_config is not None:
+                should_apply_override = resolved_provider_config.is_model_allowed(
+                    normalized_model_override
+                )
+            else:
+                should_apply_override = override_meta is not None
+                if should_apply_override:
+                    if current_provider is None or override_provider is None:
+                        should_apply_override = False
+                    else:
+                        should_apply_override = current_provider == override_provider
+
+            if not should_apply_override:
+                logger.warning(
+                    "[ReActAgent] Ignoring invalid or cross-provider model override '%s' "
+                    "(current model: '%s', current provider: '%s', override provider: '%s')",
+                    normalized_model_override,
+                    config.model,
+                    current_provider,
+                    override_provider,
+                )
+                yield {
+                    "type": "model_override_rejected",
+                    "data": {
+                        "model": normalized_model_override,
+                        "reason": (
+                            f"Cross-provider switch not allowed: override provider "
+                            f"'{override_provider}' != current '{current_provider}'"
+                        ),
+                        "current_model": config.model,
+                        "current_provider": current_provider,
+                    },
+                }
+            else:
+                if resolved_provider_config is not None:
+                    current_client_provider = getattr(config.llm_client, "provider_config", None)
+                    current_provider_config_id = getattr(current_client_provider, "id", None)
+                    resolved_provider_config_id = getattr(resolved_provider_config, "id", None)
+                    should_refresh_llm_client = (
+                        current_provider_config_id is None
+                        or resolved_provider_config_id is None
+                        or current_provider_config_id != resolved_provider_config_id
+                    )
+                    if should_refresh_llm_client:
+                        resolved_provider_label = resolved_provider or _normalize_model_provider(
+                            str(
+                                getattr(
+                                    resolved_provider_config.provider_type,
+                                    "value",
+                                    resolved_provider_config.provider_type,
+                                )
+                            )
+                        )
+                        config.base_url = resolved_provider_config.base_url
+                        config.llm_client = get_ai_service_factory().create_llm_client(
+                            resolved_provider_config
+                        )
+                        logger.info(
+                            "[ReActAgent] Switched runtime provider for model override '%s': %s -> %s",
+                            normalized_model_override,
+                            current_provider,
+                            resolved_provider_label,
+                        )
+
+                config.model = normalized_model_override
+                provider_options = dict(config.provider_options)
+                for key in (
+                    "reasoning_effort",
+                    "thinking",
+                    "reasoning_split",
+                    "__omit_temperature",
+                    "__use_max_completion_tokens",
+                    "__override_max_tokens",
+                ):
+                    provider_options.pop(key, None)
+
+                reasoning_cfg = build_reasoning_config(normalized_model_override)
+                if reasoning_cfg:
+                    provider_options.update(reasoning_cfg.provider_options)
+                    provider_options["__omit_temperature"] = reasoning_cfg.omit_temperature
+                    provider_options["__use_max_completion_tokens"] = (
+                        reasoning_cfg.use_max_completion_tokens
+                    )
+                    provider_options["__override_max_tokens"] = reasoning_cfg.override_max_tokens
+                config.provider_options = provider_options
+
         # Apply per-request LLM overrides (F1.4)
         if llm_overrides:
+
+            def _to_float(value: Any) -> float | None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return None
+
+            def _to_int(value: Any) -> int | None:
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return None
+
             if "temperature" in llm_overrides:
-                config.temperature = float(llm_overrides["temperature"])
+                parsed = _to_float(llm_overrides["temperature"])
+                if parsed is not None:
+                    config.temperature = parsed
             if "max_tokens" in llm_overrides:
-                config.max_tokens = int(llm_overrides["max_tokens"])
+                parsed = _to_int(llm_overrides["max_tokens"])
+                if parsed is not None:
+                    config.max_tokens = parsed
             if "top_p" in llm_overrides:
-                config.provider_options["top_p"] = float(llm_overrides["top_p"])
+                parsed = _to_float(llm_overrides["top_p"])
+                if parsed is not None:
+                    config.provider_options["top_p"] = parsed
             if "frequency_penalty" in llm_overrides:
-                config.provider_options["frequency_penalty"] = float(
-                    llm_overrides["frequency_penalty"]
-                )
+                parsed = _to_float(llm_overrides["frequency_penalty"])
+                if parsed is not None:
+                    config.provider_options["frequency_penalty"] = parsed
             if "presence_penalty" in llm_overrides:
-                config.provider_options["presence_penalty"] = float(
-                    llm_overrides["presence_penalty"]
-                )
+                parsed = _to_float(llm_overrides["presence_penalty"])
+                if parsed is not None:
+                    config.provider_options["presence_penalty"] = parsed
         processor = self._processor_factory.create_for_main(
             config=config,
             tools=tools_to_use,
@@ -2360,6 +2568,7 @@ class ReActAgent:
             conversation_context=conversation_context,
             matched_skill=matched_skill,
             success=self._stream_success,
+            llm_client_override=config.llm_client if normalized_model_override else None,
         ):
             yield event
 

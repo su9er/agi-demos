@@ -4590,12 +4590,14 @@
       "supports_tool_call": true,
       "open_weights": true,
       "supports_response_format": true,
+      "supports_frequency_penalty": false,
+      "supports_presence_penalty": false,
       "temperature_range": [
-        0.0,
-        2.0
+        0.01,
+        1.0
       ],
       "top_p_range": [
-        0.0,
+        0.01,
         1.0
       ]
     },
@@ -4622,12 +4624,14 @@
       "supports_tool_call": true,
       "open_weights": true,
       "supports_response_format": true,
+      "supports_frequency_penalty": false,
+      "supports_presence_penalty": false,
       "temperature_range": [
-        0.0,
-        2.0
+        0.01,
+        1.0
       ],
       "top_p_range": [
-        0.0,
+        0.01,
         1.0
       ]
     },
@@ -4656,12 +4660,14 @@
       "cache_write_cost_per_1m": 0.375,
       "open_weights": true,
       "supports_response_format": true,
+      "supports_frequency_penalty": false,
+      "supports_presence_penalty": false,
       "temperature_range": [
-        0.0,
-        2.0
+        0.01,
+        1.0
       ],
       "top_p_range": [
-        0.0,
+        0.01,
         1.0
       ]
     },
@@ -4690,12 +4696,15 @@
       "cache_write_cost_per_1m": 0.375,
       "open_weights": true,
       "supports_response_format": true,
+      "supports_frequency_penalty": false,
+      "supports_presence_penalty": false,
+      "supports_temperature": false,
       "temperature_range": [
-        0.0,
-        2.0
+        0.01,
+        1.0
       ],
       "top_p_range": [
-        0.0,
+        0.01,
         1.0
       ]
     },

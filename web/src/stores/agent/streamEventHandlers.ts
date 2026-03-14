@@ -31,6 +31,8 @@ import type {
   ExecutionNarrativeEntry,
   MemoryCapturedEventData,
   MemoryRecalledEventData,
+  ModelSwitchRequestedEventData,
+  ModelOverrideRejectedEventData,
   MessageEventData,
   PermissionAskedEventData,
   ReflectionCompleteEvent,
@@ -95,6 +97,37 @@ export function createStreamEventHandlers(
 
   // Type-safe wrapper for set to handle both object and updater forms
   const setState = set as any;
+  const THINKING_IDLE_RESET_MS = 400;
+  let thoughtIdleResetTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearThoughtIdleResetTimer = () => {
+    if (thoughtIdleResetTimer) {
+      clearTimeout(thoughtIdleResetTimer);
+      thoughtIdleResetTimer = null;
+    }
+  };
+  const clearPendingThoughtDelta = () => {
+    const buffer = getDeltaBuffer(handlerConversationId);
+    if (buffer.thoughtDeltaFlushTimer) {
+      clearTimeout(buffer.thoughtDeltaFlushTimer);
+      buffer.thoughtDeltaFlushTimer = null;
+    }
+    buffer.thoughtDeltaBuffer = '';
+  };
+  const armThoughtIdleResetTimer = () => {
+    clearThoughtIdleResetTimer();
+    thoughtIdleResetTimer = setTimeout(() => {
+      thoughtIdleResetTimer = null;
+      const { updateConversationState, getConversationState } = get();
+      const convState = getConversationState(handlerConversationId);
+      if (!convState.isThinkingStreaming && !convState.streamingThought) {
+        return;
+      }
+      updateConversationState(handlerConversationId, {
+        streamingThought: '',
+        isThinkingStreaming: false,
+      });
+    }, THINKING_IDLE_RESET_MS);
+  };
   // Keep the most recent execution diagnostics while bounding per-conversation memory usage.
   const EXECUTION_NARRATIVE_LIMIT = 40;
   const buildNarrativeId = (stage: ExecutionNarrativeEntry['stage'], traceId?: string): string =>
@@ -163,6 +196,7 @@ export function createStreamEventHandlers(
     onThoughtDelta: (event) => {
       const delta = event.data.delta;
       if (!delta) return;
+      armThoughtIdleResetTimer();
 
       const buffer = getDeltaBuffer(handlerConversationId);
       buffer.thoughtDeltaBuffer += delta;
@@ -189,6 +223,8 @@ export function createStreamEventHandlers(
     },
 
     onThought: (event) => {
+      clearThoughtIdleResetTimer();
+      clearPendingThoughtDelta();
       const newThought = event.data.thought;
       const { updateConversationState, getConversationState } = get();
 
@@ -297,6 +333,53 @@ export function createStreamEventHandlers(
       const convState = getConversationState(handlerConversationId);
       const updatedTimeline = appendSSEEventToTimeline(convState.timeline, event);
       updateConversationState(handlerConversationId, {
+        timeline: updatedTimeline,
+      });
+    },
+
+    onModelSwitchRequested: (event: AgentEvent<ModelSwitchRequestedEventData>) => {
+      const model = (event.data?.model || '').trim();
+      if (!model) return;
+
+      if (!event.data?.provider_type) {
+        console.warn(
+          '[model-switch] Received model_switch_requested with no provider_type for model:',
+          model,
+        );
+      }
+
+      const { updateConversationState, getConversationState } = get();
+      const convState = getConversationState(handlerConversationId);
+      const nextAppModelContext = {
+        ...((convState.appModelContext ?? {}) as Record<string, unknown>),
+        llm_model_override: model,
+      };
+      const updatedTimeline = appendSSEEventToTimeline(convState.timeline, event);
+
+      updateConversationState(handlerConversationId, {
+        appModelContext: nextAppModelContext,
+        timeline: updatedTimeline,
+      });
+    },
+
+    onModelOverrideRejected: (event: AgentEvent<ModelOverrideRejectedEventData>) => {
+      const { updateConversationState, getConversationState } = get();
+      const convState = getConversationState(handlerConversationId);
+
+      console.warn(
+        '[model-switch] Model override rejected by backend:',
+        event.data?.model,
+        'reason:',
+        event.data?.reason,
+      );
+
+      // Clear the rejected override from appModelContext
+      const currentCtx = (convState.appModelContext ?? {}) as Record<string, unknown>;
+      const { llm_model_override: _removed, ...restCtx } = currentCtx;
+      const updatedTimeline = appendSSEEventToTimeline(convState.timeline, event);
+
+      updateConversationState(handlerConversationId, {
+        appModelContext: Object.keys(restCtx).length > 0 ? restCtx : null,
         timeline: updatedTimeline,
       });
     },
@@ -570,11 +653,15 @@ export function createStreamEventHandlers(
     },
 
     onTextStart: () => {
+      clearThoughtIdleResetTimer();
+      clearPendingThoughtDelta();
       const { updateConversationState } = get();
 
       updateConversationState(handlerConversationId, {
         streamStatus: 'streaming',
         streamingAssistantContent: '',
+        streamingThought: '',
+        isThinkingStreaming: false,
       });
     },
 
@@ -1638,6 +1725,7 @@ export function createStreamEventHandlers(
     onComplete: (event) => {
       const { updateConversationState, getConversationState } = get();
 
+      clearThoughtIdleResetTimer();
       clearAllDeltaBuffers();
 
       const convState = getConversationState(handlerConversationId);
@@ -1672,6 +1760,8 @@ export function createStreamEventHandlers(
       updateConversationState(handlerConversationId, {
         timeline: updatedTimeline,
         streamingAssistantContent: '',
+        streamingThought: '',
+        isThinkingStreaming: false,
         isStreaming: false,
         streamStatus: 'idle',
         agentState: 'idle',
@@ -1715,6 +1805,7 @@ export function createStreamEventHandlers(
     onError: (event) => {
       const { updateConversationState, getConversationState } = get();
 
+      clearThoughtIdleResetTimer();
       clearDeltaBuffers(handlerConversationId);
 
       const convState = getConversationState(handlerConversationId);
@@ -1733,9 +1824,12 @@ export function createStreamEventHandlers(
     onClose: () => {
       const { updateConversationState } = get();
 
+      clearThoughtIdleResetTimer();
       clearDeltaBuffers(handlerConversationId);
 
       updateConversationState(handlerConversationId, {
+        streamingThought: '',
+        isThinkingStreaming: false,
         isStreaming: false,
         streamStatus: 'idle',
       });

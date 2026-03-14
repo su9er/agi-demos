@@ -845,7 +845,7 @@ const MessageAreaInner: React.FC<_MessageAreaRootProps> = memo(
                           transform: `translateY(${String(virtualRow.start)}px)`,
                         }}
                       >
-                        <div className="flex items-start gap-3 mb-1.5">
+                        <div className="flex items-start gap-3 pb-1.5">
                           <div className="w-8 shrink-0" />
                           <div className="flex-1 min-w-0 max-w-[85%] md:max-w-[75%] lg:max-w-[70%]">
                             <ExecutionTimeline
@@ -875,7 +875,7 @@ const MessageAreaInner: React.FC<_MessageAreaRootProps> = memo(
                           transform: `translateY(${String(virtualRow.start)}px)`,
                         }}
                       >
-                        <div className="flex items-start gap-3 mb-1.5">
+                        <div className="flex items-start gap-3 pb-1.5">
                           <div className="w-8 shrink-0" />
                           <div className="flex-1 min-w-0 max-w-[85%] md:max-w-[75%] lg:max-w-[70%]">
                             <SubAgentTimeline
@@ -907,7 +907,7 @@ const MessageAreaInner: React.FC<_MessageAreaRootProps> = memo(
                           transform: `translateY(${String(virtualRow.start)}px)`,
                         }}
                       >
-                        <div className="flex items-start gap-3 mb-1.5">
+                        <div className="flex items-start gap-3 pb-1.5">
                           <div className="w-8 shrink-0" />
                           <div className="flex-1 min-w-0 max-w-[85%] md:max-w-[75%] lg:max-w-[70%]">
                             {event.type === 'memory_recalled' ? (

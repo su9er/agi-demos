@@ -27,6 +27,26 @@ class UpdateConversationTitleRequest(BaseModel):
     title: str
 
 
+class UpdateConversationConfigRequest(BaseModel):
+    """Request to update conversation-level LLM configuration.
+
+    Allows persisting per-conversation model override and LLM parameter overrides.
+    These are loaded as defaults for every chat turn in this conversation, but can be
+    overridden per-request via ``app_model_context``.
+    """
+
+    llm_model_override: str | None = Field(
+        None,
+        description="Model name to use for this conversation (e.g. 'gpt-4o', 'gemini-2.0-flash'). "
+        "Set to empty string or null to clear the override.",
+    )
+    llm_overrides: dict[str, Any] | None = Field(
+        None,
+        description="LLM parameter overrides (temperature, max_tokens, top_p, etc.). "
+        "Set to null to clear. Keys with null values are removed individually.",
+    )
+
+
 class ConversationResponse(BaseModel):
     """Response with conversation details."""
 
@@ -40,6 +60,7 @@ class ConversationResponse(BaseModel):
     created_at: str
     updated_at: str | None = None
     summary: str | None = None
+    agent_config: dict[str, Any] | None = None
 
     @classmethod
     def from_domain(cls, conversation: Conversation) -> "ConversationResponse":
@@ -55,6 +76,7 @@ class ConversationResponse(BaseModel):
             created_at=conversation.created_at.isoformat(),
             updated_at=conversation.updated_at.isoformat() if conversation.updated_at else None,
             summary=conversation.summary,
+            agent_config=conversation.agent_config or None,
         )
 
 
@@ -431,6 +453,7 @@ class WorkflowStatusResponse(BaseModel):
 
 class CommandArgInfo(BaseModel):
     """Command argument specification for API response."""
+
     name: str
     description: str
     arg_type: str
@@ -440,6 +463,7 @@ class CommandArgInfo(BaseModel):
 
 class CommandInfo(BaseModel):
     """Single command definition for API response."""
+
     name: str
     description: str
     category: str
@@ -450,5 +474,6 @@ class CommandInfo(BaseModel):
 
 class CommandsListResponse(BaseModel):
     """Response for listing available commands."""
+
     commands: list[CommandInfo]
     total: int

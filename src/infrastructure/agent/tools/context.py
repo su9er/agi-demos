@@ -50,6 +50,7 @@ class ToolContext:
 
     # Project / user identity (populated by pipeline when available)
     project_id: str = ""
+    tenant_id: str = ""
     user_id: str = ""
 
     # Internal event collection (pipeline reads these)

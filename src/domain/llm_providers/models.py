@@ -30,6 +30,16 @@ class ModelCapability(StrEnum):
     IMAGE_GENERATION = "image_generation"
     IMAGE_EDITING = "image_editing"
     VIDEO_GENERATION = "video_generation"
+    # Volcengine Ark platform capabilities
+    TTS = "tts"
+    ASR = "asr"
+    THREE_D_GENERATION = "3d_generation"
+    DOCUMENT_UNDERSTANDING = "document_understanding"
+    VIDEO_UNDERSTANDING = "video_understanding"
+    MULTIMODAL_EMBEDDING = "multimodal_embedding"
+    AUDIO_GENERATION = "audio_generation"
+    VOICE_CLONING = "voice_cloning"
+    REALTIME_VOICE = "realtime_voice"
 
 
 class ModelMetadata(BaseModel):
