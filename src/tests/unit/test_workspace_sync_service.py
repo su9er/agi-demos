@@ -103,6 +103,21 @@ class TestPreDestroySync:
 
         assert mock_storage.upload_file.call_count == 2
 
+    async def test_pre_destroy_sync_returns_empty_manifest_for_nonexistent_workspace(  # type: ignore[no-untyped-def]
+        self, tmp_path
+    ) -> None:
+        """Workspace directory doesn't exist: returns empty manifest without disk writes."""
+        service = WorkspaceSyncService(workspace_base=str(tmp_path))
+
+        manifest = await service.pre_destroy_sync(
+            sandbox_id="sb-1", project_id="nonexistent-project"
+        )
+
+        assert manifest.project_id == "nonexistent-project"
+        assert manifest.last_sandbox_id == "sb-1"
+        assert manifest.files == {}
+        assert not (tmp_path / "nonexistent-project" / ".memstack").exists()
+
     async def test_pre_destroy_sync_with_s3_marks_files_synced(  # type: ignore[no-untyped-def]
         self, tmp_path
     ) -> None:

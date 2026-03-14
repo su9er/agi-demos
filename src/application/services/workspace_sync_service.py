@@ -61,6 +61,10 @@ class WorkspaceSyncService:
         Scans the workspace, updates the manifest with current files,
         saves it to disk, and optionally syncs unsynced files to S3.
 
+        If the workspace directory does not exist on the host (e.g. the
+        workspace_base points to a container-internal path), an empty
+        manifest is returned without attempting any disk writes.
+
         Args:
             sandbox_id: ID of the sandbox being destroyed.
             project_id: Project that owns the workspace.
@@ -70,6 +74,25 @@ class WorkspaceSyncService:
             The updated WorkspaceManifest.
         """
         workspace = self._workspace_path(project_id)
+
+        # If the workspace directory does not exist on this host, there is
+        # nothing to scan or persist.  Return an empty manifest so the
+        # caller (e.g. SandboxIdleReaper) can proceed with termination
+        # without hitting OSError on read-only / non-existent paths.
+        if not workspace.exists():
+            logger.debug(
+                "WorkspaceSyncService.pre_destroy_sync: workspace %s does not exist, "
+                "skipping sync for sandbox %s (project %s)",
+                workspace,
+                sandbox_id,
+                project_id,
+            )
+            manifest = WorkspaceManifest.create(
+                workspace, project_id=project_id, tenant_id=tenant_id
+            )
+            manifest.update_sandbox_id(sandbox_id)
+            return manifest
+
         manifest = WorkspaceManifest.scan(workspace, project_id=project_id, tenant_id=tenant_id)
         manifest.update_sandbox_id(sandbox_id)
         manifest.save(workspace)
