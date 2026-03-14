@@ -6,8 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.channels.media_import_service import MediaImportService
-from src.infrastructure.adapters.secondary.channels.feishu.media_downloader import (
-    FeishuMediaDownloader,
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+    load_channel_module,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def create_media_import_service(
     """
     try:
         # Create Feishu media downloader
-        feishu_downloader = FeishuMediaDownloader(
+        feishu_downloader = load_channel_module("feishu", "media_downloader").FeishuMediaDownloader(
             app_id=app_id,
             app_secret=app_secret,
             domain=domain,

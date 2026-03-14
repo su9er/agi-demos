@@ -1409,9 +1409,11 @@ async def test_config(
     # Test connection based on channel type
     try:
         if config.channel_type == "feishu":
-            from src.infrastructure.adapters.secondary.channels.feishu import (
-                FeishuClient,
+            from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+                load_channel_module,
             )
+
+            FeishuClient = load_channel_module("feishu", "client").FeishuClient
 
             # Create client to validate credentials
             FeishuClient(

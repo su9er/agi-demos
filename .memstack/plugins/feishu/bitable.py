@@ -1,9 +1,12 @@
 """Feishu Bitable (Multi-dimensional Table) operations."""
 
-import logging
-from typing import Any, cast
+from __future__ import annotations
 
-from src.infrastructure.adapters.secondary.channels.feishu.client import FeishuClient
+import logging
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from feishu_client import FeishuClient  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 

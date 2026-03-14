@@ -424,9 +424,7 @@ class ChannelMessageRouter:
                 if conversation_id:
                     self._cache_conversation(session_key, conversation_id)
                     if self._infra_router:
-                        self._infra_router.set_channel_mapping(
-                            session_key, conversation_id
-                        )
+                        self._infra_router.set_channel_mapping(session_key, conversation_id)
 
                 return conversation_id
 
@@ -954,10 +952,13 @@ class ChannelMessageRouter:
         cardkit_state = None
 
         try:
-            from src.infrastructure.adapters.secondary.channels.feishu.cardkit_streaming import (
-                CardKitStreamingManager,
+            from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+                load_channel_module,
             )
 
+            CardKitStreamingManager = load_channel_module(
+                "feishu", "cardkit_streaming"
+            ).CardKitStreamingManager
             cardkit_mgr = CardKitStreamingManager(cast(Any, streaming_adapter))
             cardkit_state = await cardkit_mgr.start_streaming(message.chat_id, reply_to=reply_to)
         except Exception as e:

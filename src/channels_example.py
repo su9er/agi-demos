@@ -12,7 +12,11 @@ from typing import Any
 
 from src.application.services.channels import ChannelService
 from src.domain.model.channels import ChannelConfig, Message
-from src.infrastructure.adapters.secondary.channels.feishu import FeishuAdapter
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+    load_channel_module,
+)
+
+FeishuAdapter = load_channel_module("feishu", "adapter").FeishuAdapter
 
 _background_tasks: set[asyncio.Task[Any]] = set()
 
@@ -96,11 +100,10 @@ async def multi_channel_example() -> None:
 
 async def direct_api_example() -> None:
     """Direct API usage example (without adapter)."""
-    from src.infrastructure.adapters.secondary.channels.feishu import (
-        FeishuClient,
-        send_feishu_card,
-        send_feishu_text,
-    )
+    _client_mod = load_channel_module("feishu", "client")
+    FeishuClient = _client_mod.FeishuClient
+    send_feishu_card = _client_mod.send_feishu_card
+    send_feishu_text = _client_mod.send_feishu_text
 
     app_id = os.getenv("FEISHU_APP_ID", "cli_xxx")
     app_secret = os.getenv("FEISHU_APP_SECRET", "xxx")

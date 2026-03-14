@@ -1,7 +1,7 @@
 """Channel router -- dispatches incoming channel messages to agent conversations.
 
-The router maintains a registry of :class:`ChannelAdapter` instances and a
-mapping from ``channel_id`` to ``conversation_id`` so that follow-up
+The router maintains a registry of :class:`TransportChannelAdapter` instances
+and a mapping from ``channel_id`` to ``conversation_id`` so that follow-up
 messages on the same channel automatically continue the correct
 conversation.
 """
@@ -12,9 +12,8 @@ import logging
 import uuid
 from dataclasses import dataclass
 
-from src.infrastructure.agent.channels.channel_adapter import ChannelAdapter
+from src.infrastructure.agent.channels.channel_adapter import TransportChannelAdapter
 from src.infrastructure.agent.channels.channel_message import ChannelMessage
-from src.infrastructure.agent.channels.channel_types import ChannelType
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,7 @@ class ChannelRouter:
 
     def __init__(self) -> None:
         # (channel_type, channel_id) -> ChannelAdapter
-        self._adapters: dict[tuple[ChannelType, str], ChannelAdapter] = {}
+        self._adapters: dict[tuple[str, str], TransportChannelAdapter] = {}
         # channel_id -> conversation_id
         self._channel_to_conversation: dict[str, str] = {}
 
@@ -59,24 +58,24 @@ class ChannelRouter:
     # Adapter registry
     # ------------------------------------------------------------------
 
-    def register_adapter(self, adapter: ChannelAdapter) -> None:
+    def register_adapter(self, adapter: TransportChannelAdapter) -> None:
         """Register an adapter so the router can later look it up."""
         key = (adapter.channel_type, adapter.channel_id)
         self._adapters[key] = adapter
-        logger.debug("Registered adapter %s/%s", adapter.channel_type.value, adapter.channel_id)
+        logger.debug("Registered adapter %s/%s", adapter.channel_type, adapter.channel_id)
 
-    def unregister_adapter(self, adapter: ChannelAdapter) -> None:
+    def unregister_adapter(self, adapter: TransportChannelAdapter) -> None:
         """Remove a previously registered adapter."""
         key = (adapter.channel_type, adapter.channel_id)
         self._adapters.pop(key, None)
-        logger.debug("Unregistered adapter %s/%s", adapter.channel_type.value, adapter.channel_id)
+        logger.debug("Unregistered adapter %s/%s", adapter.channel_type, adapter.channel_id)
 
-    def get_adapter(self, channel_type: ChannelType, channel_id: str) -> ChannelAdapter | None:
+    def get_adapter(self, channel_type: str, channel_id: str) -> TransportChannelAdapter | None:
         """Look up a registered adapter by type and id."""
         return self._adapters.get((channel_type, channel_id))
 
     @property
-    def registered_adapters(self) -> list[ChannelAdapter]:
+    def registered_adapters(self) -> list[TransportChannelAdapter]:
         """Return a snapshot of all currently registered adapters."""
         return list(self._adapters.values())
 
@@ -110,7 +109,7 @@ class ChannelRouter:
             logger.info(
                 "New conversation %s for channel %s/%s",
                 conversation_id,
-                message.channel_type.value,
+                message.channel_type,
                 message.channel_id,
             )
 

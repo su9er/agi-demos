@@ -1,0 +1,10 @@
+{
+  "id": "feishu-channel-plugin",
+  "kind": "channel",
+  "name": "Feishu Channel Plugin",
+  "description": "Feishu (Lark) IM platform integration providing messaging, document, wiki, drive, bitable, and card building capabilities via WebSocket and Webhook modes.",
+  "version": "1.0.0",
+  "channels": ["feishu"],
+  "providers": [],
+  "skills": []
+}

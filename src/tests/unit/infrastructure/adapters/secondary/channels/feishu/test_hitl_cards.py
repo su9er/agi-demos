@@ -4,9 +4,11 @@ import json
 
 import pytest
 
-from src.infrastructure.adapters.secondary.channels.feishu.hitl_cards import (
-    HITLCardBuilder,
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+    load_channel_module,
 )
+
+HITLCardBuilder = load_channel_module("feishu", "hitl_cards").HITLCardBuilder
 
 
 @pytest.fixture

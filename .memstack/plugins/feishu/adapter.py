@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib.util
 import json
 import logging
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
+from types import ModuleType
 from typing import Any, cast
 
 from src.domain.model.channels.message import (
@@ -21,6 +24,20 @@ from src.domain.model.channels.message import (
 )
 
 logger = logging.getLogger(__name__)
+
+_PLUGIN_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(module_file: str) -> ModuleType:
+    file_path = _PLUGIN_DIR / module_file
+    module_name = f"feishu_{file_path.stem}"
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load sibling module: {file_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 
 _ws_bg_tasks: set[asyncio.Task[Any]] = set()
 
@@ -505,11 +522,8 @@ class FeishuAdapter:
         selected_label: str = "",
     ) -> dict[str, Any] | None:
         """Build a confirmation card after user responds to HITL request."""
-        from src.infrastructure.adapters.secondary.channels.feishu.hitl_cards import (
-            HITLCardBuilder,
-        )
-
-        return HITLCardBuilder().build_responded_card(hitl_type, selected_label)
+        _hitl_mod = _load_sibling("hitl_cards.py")
+        return _hitl_mod.HITLCardBuilder().build_responded_card(hitl_type, selected_label)
 
     async def _connect_webhook(self) -> None:
         """Connect via Webhook (HTTP server mode).
@@ -523,14 +537,12 @@ class FeishuAdapter:
         - ``webhook_path`` (default ``/webhook/feishu``)
         - ``verification_token`` / ``encrypt_key`` for request verification
         """
-        from src.infrastructure.adapters.secondary.channels.feishu.webhook import (
-            FeishuWebhookHandler,
-        )
+        _webhook_mod = _load_sibling("webhook.py")
 
         port = self._config.webhook_port or 9321
         path = self._config.webhook_path or "/webhook/feishu"
 
-        handler = FeishuWebhookHandler(
+        handler = _webhook_mod.FeishuWebhookHandler(
             verification_token=self._config.verification_token,
             encrypt_key=self._config.encrypt_key,
         )
@@ -619,7 +631,11 @@ class FeishuAdapter:
         parsed_content = self._parse_content(
             message_data.get("content", ""), message_data.get("message_type", "text")
         )
-        content: MessageContent = parsed_content if parsed_content is not None else MessageContent(type=MessageType.TEXT, text="")
+        content: MessageContent = (
+            parsed_content
+            if parsed_content is not None
+            else MessageContent(type=MessageType.TEXT, text="")
+        )
 
         sender_id = self._extract_sender_open_id(sender_data.get("sender_id"))
         sender_type_raw = sender_data.get("sender_type", "user")
@@ -1723,11 +1739,9 @@ class FeishuAdapter:
             The message_id on success, None on failure.
         """
         try:
-            from src.infrastructure.adapters.secondary.channels.feishu.hitl_cards import (
-                HITLCardBuilder,
-            )
+            _hitl_mod = _load_sibling("hitl_cards.py")
 
-            builder = HITLCardBuilder()
+            builder = _hitl_mod.HITLCardBuilder()
 
             # 1. Build base card (header + question, no buttons)
             base_card = builder.build_card_entity_data(hitl_type, request_id, event_data)

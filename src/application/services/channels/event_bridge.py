@@ -21,9 +21,6 @@ from src.domain.model.channels.message import ChannelAdapter
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from src.infrastructure.adapters.secondary.channels.feishu.cardkit_streaming import (
-        CardStreamState,
-    )
     from src.infrastructure.channels.connection_manager import ChannelConnectionManager
 
 # Type alias for event handler coroutines
@@ -212,7 +209,7 @@ class ChannelEventBridge:
     # Card state management (for unified CardKit HITL)
     # ------------------------------------------------------------------
 
-    def register_card_state(self, conversation_id: str, card_state: CardStreamState) -> None:
+    def register_card_state(self, conversation_id: str, card_state: Any) -> None:
         """Register a CardStreamState for unified HITL on a streaming card.
 
         Called by ``_invoke_agent()`` when CardKit streaming starts so HITL
@@ -224,7 +221,7 @@ class ChannelEventBridge:
         """Remove card state tracking for a conversation."""
         self._card_states.pop(conversation_id, None)
 
-    def get_card_state(self, conversation_id: str) -> CardStreamState | None:
+    def get_card_state(self, conversation_id: str) -> Any:
         """Get the active CardStreamState for a conversation (or None)."""
         return self._card_states.get(conversation_id)
 
@@ -294,11 +291,11 @@ class ChannelEventBridge:
                 logger.info("[EventBridge] CardKit HITL failed, falling back to static card")
 
             # 3. Fallback: build static card and send as regular interactive message
-            from src.infrastructure.adapters.secondary.channels.feishu.hitl_cards import (
-                HITLCardBuilder,
+            from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+                load_channel_module,
             )
 
-            builder = HITLCardBuilder()
+            builder = load_channel_module("feishu", "hitl_cards").HITLCardBuilder()
             card = builder.build_card(
                 event_type,
                 request_id,
@@ -329,7 +326,7 @@ class ChannelEventBridge:
     async def _add_hitl_to_streaming_card(
         self,
         adapter: ChannelAdapter,
-        card_state: CardStreamState,
+        card_state: Any,
         event_type: str,
         request_id: str,
         event_data: dict[str, Any],
@@ -343,14 +340,11 @@ class ChannelEventBridge:
         appends button/select elements to the card via CardKit API.
         """
         try:
-            from src.infrastructure.adapters.secondary.channels.feishu.cardkit_streaming import (
-                CardKitStreamingManager,
-            )
-            from src.infrastructure.adapters.secondary.channels.feishu.hitl_cards import (
-                HITLCardBuilder,
+            from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+                load_channel_module,
             )
 
-            builder = HITLCardBuilder()
+            builder = load_channel_module("feishu", "hitl_cards").HITLCardBuilder()
             elements = builder.build_hitl_action_elements(
                 event_type,
                 request_id,
@@ -361,6 +355,9 @@ class ChannelEventBridge:
             if not elements:
                 return False
 
+            CardKitStreamingManager = load_channel_module(
+                "feishu", "cardkit_streaming"
+            ).CardKitStreamingManager
             mgr = CardKitStreamingManager(cast(Any, adapter))
             return await mgr.add_hitl_buttons(card_state, elements)
         except Exception as e:
@@ -385,11 +382,15 @@ class ChannelEventBridge:
         conversation_id = event_data.get("_conversation_id", "")
 
         try:
-            from src.infrastructure.adapters.secondary.channels.feishu.rich_cards import (
-                RichCardBuilder,
+            from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+                load_channel_module,
             )
 
-            card = RichCardBuilder().build_task_progress_card(tasks)
+            card = (
+                load_channel_module("feishu", "rich_cards")
+                .RichCardBuilder()
+                .build_task_progress_card(tasks)
+            )
             if not card:
                 # Fallback to plain text
                 await self._send_task_text_fallback(adapter, chat_id, tasks)
@@ -519,16 +520,20 @@ class ChannelEventBridge:
         url = event_data.get("url") or event_data.get("download_url") or ""
 
         try:
-            from src.infrastructure.adapters.secondary.channels.feishu.rich_cards import (
-                RichCardBuilder,
+            from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+                load_channel_module,
             )
 
-            card = RichCardBuilder().build_artifact_card(
-                name,
-                url=url,
-                file_type=event_data.get("file_type", ""),
-                size=event_data.get("size", ""),
-                description=event_data.get("description", ""),
+            card = (
+                load_channel_module("feishu", "rich_cards")
+                .RichCardBuilder()
+                .build_artifact_card(
+                    name,
+                    url=url,
+                    file_type=event_data.get("file_type", ""),
+                    size=event_data.get("size", ""),
+                    description=event_data.get("description", ""),
+                )
             )
             await adapter.send_card(chat_id, card)
         except Exception:
@@ -552,15 +557,19 @@ class ChannelEventBridge:
         conversation_id = event_data.get("conversation_id", "")
 
         try:
-            from src.infrastructure.adapters.secondary.channels.feishu.rich_cards import (
-                RichCardBuilder,
+            from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+                load_channel_module,
             )
 
-            card = RichCardBuilder().build_error_card(
-                message,
-                error_code=code,
-                conversation_id=conversation_id,
-                retryable=event_data.get("retryable", False),
+            card = (
+                load_channel_module("feishu", "rich_cards")
+                .RichCardBuilder()
+                .build_error_card(
+                    message,
+                    error_code=code,
+                    conversation_id=conversation_id,
+                    retryable=event_data.get("retryable", False),
+                )
             )
             await adapter.send_card(chat_id, card)
         except Exception:

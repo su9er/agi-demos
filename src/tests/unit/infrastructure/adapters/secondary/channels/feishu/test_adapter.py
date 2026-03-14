@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.domain.model.channels.message import ChannelConfig, ChatType
-from src.infrastructure.adapters.secondary.channels.feishu.adapter import FeishuAdapter
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import load_channel_module
+
+FeishuAdapter = load_channel_module("feishu", "adapter").FeishuAdapter
 
 
 @pytest.fixture
@@ -176,7 +178,7 @@ async def test_connect_websocket_starts_dedicated_thread(adapter: FeishuAdapter)
     with (
         pytest.MonkeyPatch.context() as monkeypatch,
         patch(
-            "src.infrastructure.adapters.secondary.channels.feishu.adapter.threading.Thread",
+            "memstack_plugins_feishu.adapter.threading.Thread",
             new=_FakeThread,
         ),
         patch.object(adapter, "_wait_for_websocket_ready", new=AsyncMock()),
@@ -244,7 +246,7 @@ async def test_connect_websocket_cleans_up_when_wait_fails(
     with (
         pytest.MonkeyPatch.context() as monkeypatch,
         patch(
-            "src.infrastructure.adapters.secondary.channels.feishu.adapter.threading.Thread",
+            "memstack_plugins_feishu.adapter.threading.Thread",
             new=_FakeThread,
         ),
         patch.object(
@@ -372,7 +374,7 @@ async def test_disconnect_stops_thread_and_clears_runtime_state(adapter: FeishuA
     adapter._ws_start_error = RuntimeError("old error")
 
     with patch(
-        "src.infrastructure.adapters.secondary.channels.feishu.adapter.asyncio.run_coroutine_threadsafe",
+        "memstack_plugins_feishu.adapter.asyncio.run_coroutine_threadsafe",
         side_effect=_run_coroutine_threadsafe,
     ):
         await adapter.disconnect()

@@ -1,13 +1,16 @@
 """Feishu Drive (Cloud Storage) operations."""
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, BinaryIO, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, cast
 
 import httpx
 
-from src.infrastructure.adapters.secondary.channels.feishu.client import FeishuClient
+if TYPE_CHECKING:
+    from feishu_client import FeishuClient  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 

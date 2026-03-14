@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from src.infrastructure.agent.channels.channel_types import ChannelType
-
 
 @dataclass(frozen=True)
 class ChannelMessage:
@@ -26,7 +24,7 @@ class ChannelMessage:
         tenant_id: Optional tenant scope.
     """
 
-    channel_type: ChannelType
+    channel_type: str
     channel_id: str
     sender_id: str
     content: str

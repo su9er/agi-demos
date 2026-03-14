@@ -13,14 +13,14 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
-from src.infrastructure.agent.channels.channel_adapter import ChannelAdapter
+from src.infrastructure.agent.channels.channel_adapter import TransportChannelAdapter
 from src.infrastructure.agent.channels.channel_message import ChannelMessage
-from src.infrastructure.agent.channels.channel_types import ChannelType
+from src.infrastructure.agent.channels.channel_types import REST_API
 
 logger = logging.getLogger(__name__)
 
 
-class RestApiChannelAdapter(ChannelAdapter):
+class RestApiChannelAdapter(TransportChannelAdapter):
     """Adapter that models a REST API request as a channel message.
 
     Parameters:
@@ -52,8 +52,8 @@ class RestApiChannelAdapter(ChannelAdapter):
     # ------------------------------------------------------------------
 
     @property
-    def channel_type(self) -> ChannelType:
-        return ChannelType.REST_API
+    def channel_type(self) -> str:
+        return REST_API
 
     @property
     def channel_id(self) -> str:
@@ -87,7 +87,7 @@ class RestApiChannelAdapter(ChannelAdapter):
                 metadata[key] = str(value)
 
         yield ChannelMessage(
-            channel_type=ChannelType.REST_API,
+            channel_type=REST_API,
             channel_id=self._request_id,
             sender_id=self._user_id,
             content=str(self._request_body.get("message", "")),
@@ -120,7 +120,7 @@ class RestApiChannelAdapter(ChannelAdapter):
         if self._response is None:
             return {"error": "No response captured"}
         return {
-            "channel_type": self._response.channel_type.value,
+            "channel_type": self._response.channel_type,
             "content": self._response.content,
             "sender_id": self._response.sender_id,
             "conversation_id": self._response.conversation_id,

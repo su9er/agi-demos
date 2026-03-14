@@ -1,10 +1,13 @@
 """Feishu Wiki (Knowledge Base) operations."""
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Iterator
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from src.infrastructure.adapters.secondary.channels.feishu.client import FeishuClient
+if TYPE_CHECKING:
+    from feishu_client import FeishuClient  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 

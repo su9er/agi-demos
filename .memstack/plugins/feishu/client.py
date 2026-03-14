@@ -1,9 +1,25 @@
 """Feishu utility functions for direct API calls."""
 
+import importlib.util
 import json
+from pathlib import Path
+from types import ModuleType
 from typing import Any, cast
 
 from src.domain.model.channels.message import SenderInfo
+
+_PLUGIN_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(module_file: str) -> ModuleType:
+    file_path = _PLUGIN_DIR / module_file
+    module_name = f"feishu_{file_path.stem}"
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load sibling module: {file_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class FeishuClient:
@@ -49,51 +65,40 @@ class FeishuClient:
     def media(self) -> object:
         """Get media manager for image/file operations."""
         if self._media is None:
-            from src.infrastructure.adapters.secondary.channels.feishu.media import (
-                FeishuMediaManager,
-            )
-
-            self._media = FeishuMediaManager(self._get_client())
+            _media_mod = _load_sibling("media.py")
+            self._media = _media_mod.FeishuMediaManager(self._get_client())
         return self._media
 
     @property
     def docs(self) -> object:
         """Get document client for docx operations."""
         if self._docs is None:
-            from src.infrastructure.adapters.secondary.channels.feishu.docx import FeishuDocClient
-
-            self._docs = FeishuDocClient(self._get_client())
+            _docx_mod = _load_sibling("docx.py")
+            self._docs = _docx_mod.FeishuDocClient(self._get_client())
         return self._docs
 
     @property
     def wiki(self) -> object:
         """Get wiki client for knowledge base operations."""
         if self._wiki is None:
-            from src.infrastructure.adapters.secondary.channels.feishu.wiki import FeishuWikiClient
-
-            self._wiki = FeishuWikiClient(self._get_client())
+            _wiki_mod = _load_sibling("wiki.py")
+            self._wiki = _wiki_mod.FeishuWikiClient(self._get_client())
         return self._wiki
 
     @property
     def drive(self) -> object:
         """Get drive client for cloud storage operations."""
         if self._drive is None:
-            from src.infrastructure.adapters.secondary.channels.feishu.drive import (
-                FeishuDriveClient,
-            )
-
-            self._drive = FeishuDriveClient(self._get_client())
+            _drive_mod = _load_sibling("drive.py")
+            self._drive = _drive_mod.FeishuDriveClient(self._get_client())
         return self._drive
 
     @property
     def bitable(self) -> object:
         """Get bitable client for multi-dimensional table operations."""
         if self._bitable is None:
-            from src.infrastructure.adapters.secondary.channels.feishu.bitable import (
-                FeishuBitableClient,
-            )
-
-            self._bitable = FeishuBitableClient(self._get_client())
+            _bitable_mod = _load_sibling("bitable.py")
+            self._bitable = _bitable_mod.FeishuBitableClient(self._get_client())
         return self._bitable
 
     async def send_text_message(self, to: str, text: str) -> str:
@@ -158,9 +163,8 @@ class FeishuClient:
         Returns:
             Message ID
         """
-        from src.infrastructure.adapters.secondary.channels.feishu.cards import CardBuilder
-
-        card = CardBuilder.create_markdown_card(content, title)
+        _cards_mod = _load_sibling("cards.py")
+        card = _cards_mod.CardBuilder.create_markdown_card(content, title)
         return await self.send_card_message(to, card)
 
     async def send_image_message(self, to: str, image_key: str) -> str:

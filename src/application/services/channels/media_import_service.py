@@ -13,9 +13,8 @@ from typing import TYPE_CHECKING, Any, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.channels.message import Message, MessageType
-from src.infrastructure.adapters.secondary.channels.feishu.media_downloader import (
-    FeishuMediaDownloader,
-    FeishuMediaDownloadError,
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+    load_channel_module,
 )
 
 if TYPE_CHECKING:
@@ -30,7 +29,6 @@ class MediaImportError(Exception):
     """Exception raised when media import fails."""
 
 
-
 class MediaImportService:
     """Service for importing channel media files to workspace.
 
@@ -43,7 +41,7 @@ class MediaImportService:
     are passed as parameters to each method call.
     """
 
-    def __init__(self, feishu_downloader: FeishuMediaDownloader) -> None:
+    def __init__(self, feishu_downloader: Any) -> None:
         """Initialize the media import service.
 
         Args:
@@ -155,7 +153,7 @@ class MediaImportService:
 
             return sandbox_path
 
-        except FeishuMediaDownloadError as e:
+        except load_channel_module("feishu", "media_downloader").FeishuMediaDownloadError as e:
             logger.error(f"Failed to download media from Feishu: {e}")
             # Graceful degradation - return None instead of raising
             return None

@@ -10,14 +10,20 @@ from typing import Any
 
 from src.application.services.channels import ChannelService
 from src.domain.model.channels import ChannelConfig
-from src.infrastructure.adapters.secondary.channels.feishu import (
-    CardBuilder,
-    FeishuAdapter,
-    FeishuClient,
-    PostBuilder,
-    send_feishu_card,
-    send_feishu_text,
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+    load_channel_module,
 )
+
+_adapter_mod = load_channel_module("feishu", "adapter")
+_client_mod = load_channel_module("feishu", "client")
+_cards_mod = load_channel_module("feishu", "cards")
+
+CardBuilder = _cards_mod.CardBuilder
+FeishuAdapter = _adapter_mod.FeishuAdapter
+FeishuClient = _client_mod.FeishuClient
+PostBuilder = _cards_mod.PostBuilder
+send_feishu_card = _client_mod.send_feishu_card
+send_feishu_text = _client_mod.send_feishu_text
 
 
 async def basic_messaging_example() -> None:
@@ -161,10 +167,9 @@ async def bitable_example() -> None:
     print(f"Created table: {table_id}")
 
     # Create fields
-    from src.infrastructure.adapters.secondary.channels.feishu.bitable import (
-        FIELD_TYPE_SINGLE_SELECT,
-        FIELD_TYPE_TEXT,
-    )
+    _bitable_mod = load_channel_module("feishu", "bitable")
+    FIELD_TYPE_SINGLE_SELECT = _bitable_mod.FIELD_TYPE_SINGLE_SELECT
+    FIELD_TYPE_TEXT = _bitable_mod.FIELD_TYPE_TEXT
 
     _name_field = await client.bitable.create_field(
         app_token, table_id, field_name="任务名称", field_type=FIELD_TYPE_TEXT

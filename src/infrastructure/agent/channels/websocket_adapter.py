@@ -13,9 +13,9 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from src.infrastructure.agent.channels.channel_adapter import ChannelAdapter
+from src.infrastructure.agent.channels.channel_adapter import TransportChannelAdapter
 from src.infrastructure.agent.channels.channel_message import ChannelMessage
-from src.infrastructure.agent.channels.channel_types import ChannelType
+from src.infrastructure.agent.channels.channel_types import WEBSOCKET
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +28,7 @@ class _WebSocketLike(Protocol):
     async def send_json(self, data: dict[str, Any]) -> None: ...
 
 
-
-class WebSocketChannelAdapter(ChannelAdapter):
+class WebSocketChannelAdapter(TransportChannelAdapter):
     """Adapter that bridges a raw WebSocket connection to :class:`ChannelMessage`.
 
     Parameters:
@@ -58,8 +57,8 @@ class WebSocketChannelAdapter(ChannelAdapter):
     # ------------------------------------------------------------------
 
     @property
-    def channel_type(self) -> ChannelType:
-        return ChannelType.WEBSOCKET
+    def channel_type(self) -> str:
+        return WEBSOCKET
 
     @property
     def channel_id(self) -> str:
@@ -103,7 +102,7 @@ class WebSocketChannelAdapter(ChannelAdapter):
                 break
 
             yield ChannelMessage(
-                channel_type=ChannelType.WEBSOCKET,
+                channel_type=WEBSOCKET,
                 channel_id=self._session_id,
                 sender_id=self._user_id,
                 content=str(raw.get("message", "")),
@@ -125,7 +124,7 @@ class WebSocketChannelAdapter(ChannelAdapter):
 
         payload: dict[str, Any] = {
             "type": "channel_message",
-            "channel_type": message.channel_type.value,
+            "channel_type": message.channel_type,
             "content": message.content,
             "sender_id": message.sender_id,
             "timestamp": message.timestamp.isoformat(),

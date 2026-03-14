@@ -4,14 +4,17 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.infrastructure.adapters.secondary.channels.feishu.cardkit_streaming import (
-    CONTENT_ELEMENT_ID,
-    CardKitSequence,
-    CardKitStreamingManager,
-    CardStreamState,
-    build_initial_card_data,
-    build_streaming_settings,
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+    load_channel_module,
 )
+
+_csm = load_channel_module("feishu", "cardkit_streaming")
+CONTENT_ELEMENT_ID = _csm.CONTENT_ELEMENT_ID
+CardKitSequence = _csm.CardKitSequence
+CardKitStreamingManager = _csm.CardKitStreamingManager
+CardStreamState = _csm.CardStreamState
+build_initial_card_data = _csm.build_initial_card_data
+build_streaming_settings = _csm.build_streaming_settings
 
 # ------------------------------------------------------------------
 # CardKitSequence

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from src.infrastructure.adapters.secondary.channels.feishu.adapter import FeishuAdapter
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+    load_channel_module,
+)
 
 
 class FeishuChannelPlugin:
@@ -14,6 +16,8 @@ class FeishuChannelPlugin:
         """Register Feishu adapter factory under channel_type=feishu."""
 
         def _factory(context):
+            adapter_mod = load_channel_module("feishu", "adapter")
+            FeishuAdapter = adapter_mod.FeishuAdapter
             return FeishuAdapter(context.channel_config)
 
         api.register_channel_adapter_factory("feishu", _factory)

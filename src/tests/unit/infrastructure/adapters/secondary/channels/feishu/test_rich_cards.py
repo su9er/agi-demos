@@ -2,9 +2,11 @@
 
 import pytest
 
-from src.infrastructure.adapters.secondary.channels.feishu.rich_cards import (
-    RichCardBuilder,
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+    load_channel_module,
 )
+
+RichCardBuilder = load_channel_module("feishu", "rich_cards").RichCardBuilder
 
 
 @pytest.fixture

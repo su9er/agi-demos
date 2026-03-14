@@ -1,13 +1,4 @@
-"""Tests for the multi-channel message adapter system.
-
-Covers:
-- ChannelType enum
-- ChannelMessage frozen dataclass
-- ChannelAdapter ABC contract
-- WebSocketChannelAdapter
-- RestApiChannelAdapter
-- ChannelRouter + RouteResult
-"""
+"""Tests for the multi-channel message adapter system."""
 
 from __future__ import annotations
 
@@ -17,34 +8,47 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.infrastructure.agent.channels.channel_adapter import ChannelAdapter
+from src.infrastructure.agent.channels.channel_adapter import TransportChannelAdapter
 from src.infrastructure.agent.channels.channel_message import ChannelMessage
 from src.infrastructure.agent.channels.channel_router import ChannelRouter, RouteResult
-from src.infrastructure.agent.channels.channel_types import ChannelType
+from src.infrastructure.agent.channels.channel_types import (
+    FEISHU,
+    REST_API,
+    SLACK,
+    WEBHOOK,
+    WEBSOCKET,
+    ChannelType,
+    normalize_channel_type,
+)
 from src.infrastructure.agent.channels.rest_api_adapter import RestApiChannelAdapter
 from src.infrastructure.agent.channels.websocket_adapter import WebSocketChannelAdapter
 
 # =====================================================================
-# ChannelType
+# Channel type constants
 # =====================================================================
 
 
 @pytest.mark.unit
 class TestChannelType:
-    """ChannelType enum basics."""
-
     def test_values(self) -> None:
-        assert ChannelType.WEBSOCKET.value == "websocket"
-        assert ChannelType.REST_API.value == "rest_api"
-        assert ChannelType.FEISHU.value == "feishu"
-        assert ChannelType.SLACK.value == "slack"
-        assert ChannelType.WEBHOOK.value == "webhook"
+        assert WEBSOCKET == "websocket"
+        assert REST_API == "rest_api"
+        assert FEISHU == "feishu"
+        assert SLACK == "slack"
+        assert WEBHOOK == "webhook"
 
     def test_is_str(self) -> None:
-        assert isinstance(ChannelType.WEBSOCKET, str)
+        assert isinstance(WEBSOCKET, str)
+        assert isinstance(REST_API, str)
+        assert isinstance(FEISHU, str)
 
-    def test_membership(self) -> None:
-        assert len(ChannelType) == 5
+    def test_normalize_channel_type(self) -> None:
+        assert normalize_channel_type("WebSocket") == "websocket"
+        assert normalize_channel_type("REST-API") == "rest_api"
+        assert normalize_channel_type("  feishu  ") == "feishu"
+
+    def test_backwards_compat_alias(self) -> None:
+        assert ChannelType is str
 
 
 # =====================================================================
@@ -54,16 +58,14 @@ class TestChannelType:
 
 @pytest.mark.unit
 class TestChannelMessage:
-    """ChannelMessage frozen dataclass."""
-
     def test_create_minimal(self) -> None:
         msg = ChannelMessage(
-            channel_type=ChannelType.WEBSOCKET,
+            channel_type=WEBSOCKET,
             channel_id="sess-1",
             sender_id="user-1",
             content="hello",
         )
-        assert msg.channel_type == ChannelType.WEBSOCKET
+        assert msg.channel_type == "websocket"
         assert msg.channel_id == "sess-1"
         assert msg.sender_id == "user-1"
         assert msg.content == "hello"
@@ -75,7 +77,7 @@ class TestChannelMessage:
     def test_create_full(self) -> None:
         ts = datetime(2025, 1, 1, tzinfo=UTC)
         msg = ChannelMessage(
-            channel_type=ChannelType.REST_API,
+            channel_type=REST_API,
             channel_id="req-42",
             sender_id="user-2",
             content="world",
@@ -93,17 +95,17 @@ class TestChannelMessage:
 
     def test_frozen(self) -> None:
         msg = ChannelMessage(
-            channel_type=ChannelType.FEISHU,
+            channel_type=FEISHU,
             channel_id="c",
             sender_id="s",
             content="x",
         )
         with pytest.raises(AttributeError):
-            msg.content = "new"
+            msg.content = "new"  # type: ignore[misc]
 
     def test_default_timestamp_is_utc(self) -> None:
         msg = ChannelMessage(
-            channel_type=ChannelType.SLACK,
+            channel_type=SLACK,
             channel_id="c",
             sender_id="s",
             content="x",
@@ -118,11 +120,9 @@ class TestChannelMessage:
 
 @pytest.mark.unit
 class TestChannelAdapterContract:
-    """Verify the ABC cannot be instantiated directly."""
-
     def test_cannot_instantiate(self) -> None:
         with pytest.raises(TypeError):
-            ChannelAdapter()
+            TransportChannelAdapter()  # type: ignore[call-arg]
 
 
 # =====================================================================
@@ -131,7 +131,6 @@ class TestChannelAdapterContract:
 
 
 def _make_ws_mock(messages: list[dict[str, Any]]) -> AsyncMock:
-    """Create a mock WebSocket that yields *messages* then raises."""
     ws = AsyncMock()
     call_count = 0
 
@@ -150,12 +149,10 @@ def _make_ws_mock(messages: list[dict[str, Any]]) -> AsyncMock:
 
 @pytest.mark.unit
 class TestWebSocketChannelAdapter:
-    """WebSocketChannelAdapter unit tests."""
-
     async def test_properties(self) -> None:
         ws = AsyncMock()
         adapter = WebSocketChannelAdapter(ws, user_id="u1", session_id="s1", tenant_id="t1")
-        assert adapter.channel_type == ChannelType.WEBSOCKET
+        assert adapter.channel_type == "websocket"
         assert adapter.channel_id == "s1"
 
     async def test_connect_disconnect(self) -> None:
@@ -182,7 +179,7 @@ class TestWebSocketChannelAdapter:
         assert msg.conversation_id == "conv-1"
         assert msg.project_id == "proj-1"
         assert msg.tenant_id == "t1"
-        assert msg.channel_type == ChannelType.WEBSOCKET
+        assert msg.channel_type == "websocket"
         assert msg.sender_id == "u1"
 
     async def test_receive_multiple_messages(self) -> None:
@@ -206,7 +203,6 @@ class TestWebSocketChannelAdapter:
     async def test_receive_not_connected(self) -> None:
         ws = AsyncMock()
         adapter = WebSocketChannelAdapter(ws, user_id="u1", session_id="s1")
-        # Never connect -> receive loop should not yield
         received: list[ChannelMessage] = []
         async for msg in adapter.receive():
             received.append(msg)
@@ -219,7 +215,7 @@ class TestWebSocketChannelAdapter:
         await adapter.connect()
 
         msg = ChannelMessage(
-            channel_type=ChannelType.WEBSOCKET,
+            channel_type="websocket",
             channel_id="s1",
             sender_id="agent",
             content="reply",
@@ -235,9 +231,8 @@ class TestWebSocketChannelAdapter:
     async def test_send_when_disconnected_does_not_raise(self) -> None:
         ws = AsyncMock()
         adapter = WebSocketChannelAdapter(ws, user_id="u1", session_id="s1")
-        # Not connected
         msg = ChannelMessage(
-            channel_type=ChannelType.WEBSOCKET,
+            channel_type="websocket",
             channel_id="s1",
             sender_id="agent",
             content="reply",
@@ -266,8 +261,6 @@ class TestWebSocketChannelAdapter:
 
 @pytest.mark.unit
 class TestRestApiChannelAdapter:
-    """RestApiChannelAdapter unit tests."""
-
     async def test_properties(self) -> None:
         adapter = RestApiChannelAdapter(
             request_body={},
@@ -275,7 +268,7 @@ class TestRestApiChannelAdapter:
             tenant_id="t1",
             request_id="r1",
         )
-        assert adapter.channel_type == ChannelType.REST_API
+        assert adapter.channel_type == "rest_api"
         assert adapter.channel_id == "r1"
 
     async def test_receive_yields_one_message(self) -> None:
@@ -303,8 +296,7 @@ class TestRestApiChannelAdapter:
         assert msg.conversation_id == "conv-1"
         assert msg.project_id == "proj-1"
         assert msg.tenant_id == "t1"
-        assert msg.channel_type == ChannelType.REST_API
-        # Headers should be in metadata
+        assert msg.channel_type == "rest_api"
         assert msg.metadata.get("x-custom") == "h"
 
     async def test_receive_not_connected_yields_nothing(self) -> None:
@@ -329,7 +321,7 @@ class TestRestApiChannelAdapter:
         assert adapter.response is None
 
         response_msg = ChannelMessage(
-            channel_type=ChannelType.REST_API,
+            channel_type="rest_api",
             channel_id="r1",
             sender_id="agent",
             content="reply",
@@ -345,11 +337,10 @@ class TestRestApiChannelAdapter:
             tenant_id="t1",
             request_id="r1",
         )
-        # No response yet
         assert "error" in adapter.response_as_dict()
 
         response_msg = ChannelMessage(
-            channel_type=ChannelType.REST_API,
+            channel_type="rest_api",
             channel_id="r1",
             sender_id="agent",
             content="ok",
@@ -380,7 +371,6 @@ class TestRestApiChannelAdapter:
         async for msg in adapter.receive():
             received.append(msg)
 
-        # "attachment_ids" is an extra field -> should be in metadata
         assert "attachment_ids" in received[0].metadata
 
 
@@ -391,15 +381,12 @@ class TestRestApiChannelAdapter:
 
 @pytest.mark.unit
 class TestChannelRouter:
-    """ChannelRouter unit tests."""
-
     def _make_adapter(
         self,
-        channel_type: ChannelType = ChannelType.WEBSOCKET,
+        channel_type: str = "websocket",
         channel_id: str = "ch-1",
-    ) -> ChannelAdapter:
-        """Return a lightweight mock adapter."""
-        adapter = MagicMock(spec=ChannelAdapter)
+    ) -> TransportChannelAdapter:
+        adapter = MagicMock(spec=TransportChannelAdapter)
         adapter.channel_type = channel_type
         adapter.channel_id = channel_id
         return adapter
@@ -408,19 +395,19 @@ class TestChannelRouter:
         router = ChannelRouter()
         adapter = self._make_adapter()
         router.register_adapter(adapter)
-        assert router.get_adapter(ChannelType.WEBSOCKET, "ch-1") is adapter
+        assert router.get_adapter("websocket", "ch-1") is adapter
 
     def test_unregister(self) -> None:
         router = ChannelRouter()
         adapter = self._make_adapter()
         router.register_adapter(adapter)
         router.unregister_adapter(adapter)
-        assert router.get_adapter(ChannelType.WEBSOCKET, "ch-1") is None
+        assert router.get_adapter("websocket", "ch-1") is None
 
     def test_registered_adapters_list(self) -> None:
         router = ChannelRouter()
         a1 = self._make_adapter(channel_id="a")
-        a2 = self._make_adapter(channel_type=ChannelType.REST_API, channel_id="b")
+        a2 = self._make_adapter(channel_type="rest_api", channel_id="b")
         router.register_adapter(a1)
         router.register_adapter(a2)
         assert len(router.registered_adapters) == 2
@@ -428,7 +415,7 @@ class TestChannelRouter:
     def test_route_explicit_conversation(self) -> None:
         router = ChannelRouter()
         msg = ChannelMessage(
-            channel_type=ChannelType.WEBSOCKET,
+            channel_type="websocket",
             channel_id="ch-1",
             sender_id="u1",
             content="hi",
@@ -437,13 +424,12 @@ class TestChannelRouter:
         result = router.route(msg)
         assert result.message.conversation_id == "conv-existing"
         assert result.is_new_conversation is False
-        # Mapping should be updated
         assert router.conversation_for_channel("ch-1") == "conv-existing"
 
     def test_route_new_conversation(self) -> None:
         router = ChannelRouter()
         msg = ChannelMessage(
-            channel_type=ChannelType.WEBSOCKET,
+            channel_type="websocket",
             channel_id="ch-new",
             sender_id="u1",
             content="first",
@@ -451,12 +437,12 @@ class TestChannelRouter:
         result = router.route(msg)
         assert result.is_new_conversation is True
         assert result.message.conversation_id is not None
-        assert len(result.message.conversation_id) == 36  # UUID4
+        assert len(result.message.conversation_id) == 36
 
     def test_route_reuses_existing_mapping(self) -> None:
         router = ChannelRouter()
         msg1 = ChannelMessage(
-            channel_type=ChannelType.WEBSOCKET,
+            channel_type="websocket",
             channel_id="ch-1",
             sender_id="u1",
             content="first",
@@ -464,7 +450,7 @@ class TestChannelRouter:
         r1 = router.route(msg1)
 
         msg2 = ChannelMessage(
-            channel_type=ChannelType.WEBSOCKET,
+            channel_type="websocket",
             channel_id="ch-1",
             sender_id="u1",
             content="second",
@@ -478,7 +464,7 @@ class TestChannelRouter:
         router = ChannelRouter()
         ts = datetime(2025, 6, 1, tzinfo=UTC)
         msg = ChannelMessage(
-            channel_type=ChannelType.FEISHU,
+            channel_type="feishu",
             channel_id="feishu-chat-1",
             sender_id="u1",
             content="hello",
@@ -489,7 +475,7 @@ class TestChannelRouter:
         )
         result = router.route(msg)
         routed = result.message
-        assert routed.channel_type == ChannelType.FEISHU
+        assert routed.channel_type == "feishu"
         assert routed.channel_id == "feishu-chat-1"
         assert routed.sender_id == "u1"
         assert routed.content == "hello"
@@ -501,7 +487,7 @@ class TestChannelRouter:
     def test_clear_channel(self) -> None:
         router = ChannelRouter()
         msg = ChannelMessage(
-            channel_type=ChannelType.WEBSOCKET,
+            channel_type="websocket",
             channel_id="ch-1",
             sender_id="u1",
             content="x",
@@ -514,7 +500,7 @@ class TestChannelRouter:
 
     def test_clear_unknown_channel_is_noop(self) -> None:
         router = ChannelRouter()
-        router.clear_channel("nonexistent")  # Should not raise
+        router.clear_channel("nonexistent")
 
     def test_conversation_for_unknown_channel(self) -> None:
         router = ChannelRouter()
@@ -523,13 +509,13 @@ class TestChannelRouter:
     def test_different_channels_get_different_conversations(self) -> None:
         router = ChannelRouter()
         msg_a = ChannelMessage(
-            channel_type=ChannelType.WEBSOCKET,
+            channel_type="websocket",
             channel_id="ch-a",
             sender_id="u1",
             content="a",
         )
         msg_b = ChannelMessage(
-            channel_type=ChannelType.FEISHU,
+            channel_type="feishu",
             channel_id="ch-b",
             sender_id="u2",
             content="b",
@@ -546,11 +532,9 @@ class TestChannelRouter:
 
 @pytest.mark.unit
 class TestRouteResult:
-    """RouteResult basics."""
-
     def test_fields(self) -> None:
         msg = ChannelMessage(
-            channel_type=ChannelType.WEBSOCKET,
+            channel_type="websocket",
             channel_id="c",
             sender_id="s",
             content="x",

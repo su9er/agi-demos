@@ -1,12 +1,15 @@
 """Feishu media handling - images, files, audio, video."""
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
-from typing import Any, BinaryIO, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, cast
 
 import httpx
 
-from src.infrastructure.adapters.secondary.channels.feishu.client import FeishuClient
+if TYPE_CHECKING:
+    from feishu_client import FeishuClient  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from src.infrastructure.adapters.secondary.channels.feishu.adapter import FeishuAdapter
+    from feishu_adapter import FeishuAdapter  # type: ignore[import-not-found]
 
 CONTENT_ELEMENT_ID = "content"
 """Fixed element_id for the main markdown content element."""

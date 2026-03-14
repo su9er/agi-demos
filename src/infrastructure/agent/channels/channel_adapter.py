@@ -6,10 +6,9 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
 from src.infrastructure.agent.channels.channel_message import ChannelMessage
-from src.infrastructure.agent.channels.channel_types import ChannelType
 
 
-class ChannelAdapter(ABC):
+class TransportChannelAdapter(ABC):
     """Base class that every channel adapter must implement.
 
     A channel adapter translates between a specific transport protocol
@@ -35,7 +34,7 @@ class ChannelAdapter(ABC):
 
     @property
     @abstractmethod
-    def channel_type(self) -> ChannelType:
+    def channel_type(self) -> str:
         """Return the channel type this adapter handles."""
 
     @property

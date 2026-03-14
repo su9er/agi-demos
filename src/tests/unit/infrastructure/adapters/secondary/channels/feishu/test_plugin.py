@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from src.domain.model.channels.message import ChannelConfig
-from src.infrastructure.adapters.secondary.channels.feishu import FeishuAdapter
 from src.infrastructure.agent.plugins.discovery import discover_plugins
 from src.infrastructure.agent.plugins.loader import AgentPluginLoader
 from src.infrastructure.agent.plugins.registry import (
@@ -49,5 +48,5 @@ async def test_feishu_plugin_registers_channel_adapter_factory() -> None:
         )
     )
 
-    assert isinstance(adapter, FeishuAdapter)
+    assert type(adapter).__name__ == "FeishuAdapter"
     assert any(d.code == "channel_adapter_loaded" for d in build_diagnostics)

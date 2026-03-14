@@ -13,18 +13,28 @@ src/
 ├── application/services/channels/  # 应用层
 │   └── channel_service.py          # 渠道服务编排
 └── infrastructure/adapters/secondary/channels/  # 基础设施层
-    └── feishu/                     # 飞书适配器 (Adapter)
-        ├── __init__.py             # 导出所有功能
-        ├── adapter.py              # 主适配器
-        ├── client.py               # API 客户端
-        ├── media.py                # 媒体操作
-        ├── cards.py                # 卡片构建器
-        ├── webhook.py              # Webhook 处理器
-        ├── docx.py                 # 文档操作
-        ├── wiki.py                 # 知识库操作
-        ├── drive.py                # 云盘操作
-        └── bitable.py              # 多维表格操作
+    └── channel_plugin_loader.py    # 通用渠道插件加载器
+
+.memstack/plugins/feishu/           # 飞书插件 (实际实现)
+    ├── memstack.plugin.json        # 插件清单
+    ├── plugin.py                   # 插件入口
+    ├── adapter.py                  # 主适配器
+    ├── client.py                   # API 客户端
+    ├── media.py                    # 媒体操作
+    ├── cards.py                    # 卡片构建器
+    ├── webhook.py                  # Webhook 处理器
+    ├── docx.py                     # 文档操作
+    ├── wiki.py                     # 知识库操作
+    ├── drive.py                    # 云盘操作
+    ├── bitable.py                  # 多维表格操作
+    ├── cardkit_streaming.py        # CardKit 流式卡片
+    ├── hitl_cards.py               # HITL 交互卡片
+    ├── rich_cards.py               # 富文本卡片
+    └── media_downloader.py         # 媒体下载器
 ```
+
+> **注意**: 飞书实现已迁移至 `.memstack/plugins/feishu/` 作为本地插件。
+> `channel_plugin_loader.py` 提供通用的渠道插件加载机制，支持任意渠道插件的动态加载。
 
 ## 快速开始
 
@@ -41,7 +51,9 @@ import asyncio
 import os
 from src.domain.model.channels import ChannelConfig
 from src.application.services.channels import ChannelService
-from src.infrastructure.adapters.secondary.channels.feishu import FeishuAdapter
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import load_channel_module
+
+FeishuAdapter = load_channel_module("feishu", "adapter").FeishuAdapter
 
 async def main():
     # 创建服务
@@ -78,7 +90,10 @@ asyncio.run(main())
 ### 3. 增强版客户端使用
 
 ```python
-from src.infrastructure.adapters.secondary.channels.feishu import FeishuClient
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import load_channel_module
+
+FeishuClient = load_channel_module("feishu", "client").FeishuClient
+PostBuilder = load_channel_module("feishu", "cards").PostBuilder
 
 client = FeishuClient(app_id, app_secret)
 
@@ -94,7 +109,6 @@ await client.send_markdown_card(
 )
 
 # 发送富文本
-from src.infrastructure.adapters.secondary.channels.feishu.cards import PostBuilder
 post = PostBuilder(title="公告")
 post.add_text("大家好！").add_link("点击查看", "https://example.com")
 await client.send_card_message("oc_xxx", post.build())
@@ -202,41 +216,22 @@ records = await client.bitable.list_records(app_token, table_id)
 
 ```python
 from fastapi import FastAPI, Request
-from src.infrastructure.adapters.secondary.channels.feishu import (
-    FeishuWebhookHandler,
-    FeishuEventDispatcher,
-    EVENT_MESSAGE_RECEIVE,
-)
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import load_channel_module
+
+# Webhook 符号通过 adapter 模块访问
+adapter_mod = load_channel_module("feishu", "adapter")
 
 app = FastAPI()
 
-# 创建处理器
-handler = FeishuWebhookHandler(
-    verification_token="your_token",
-    encrypt_key="your_key"
-)
-
-# 创建事件分发器
-dispatcher = FeishuEventDispatcher()
-
-@dispatcher.on(EVENT_MESSAGE_RECEIVE)
-async def handle_message(event):
-    message = event.get("message", {})
-    print(f"收到消息: {message.get('content')}")
-    # 处理消息...
-
-# 注册处理器到 handler
-handler.register_handler(EVENT_MESSAGE_RECEIVE, dispatcher.dispatch)
-
-@app.post("/webhook/feishu")
-async def feishu_webhook(request: Request):
-    return await handler.handle_request(request)
+# 详细的 webhook 使用方式请参考 .memstack/plugins/feishu/webhook.py
 ```
 
 ### 5. 卡片构建器
 
 ```python
-from src.infrastructure.adapters.secondary.channels.feishu.cards import CardBuilder
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import load_channel_module
+
+CardBuilder = load_channel_module("feishu", "cards").CardBuilder
 
 # 简单 Markdown 卡片
 card = CardBuilder.create_markdown_card(
@@ -274,6 +269,36 @@ card = CardBuilder.create_note_card(
     note_type="warning"  # default, info, warning, danger
 )
 ```
+
+## 插件加载器接口
+
+`channel_plugin_loader.py` 提供通用的渠道插件加载机制:
+
+```python
+from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
+    load_channel_module,
+    register_channel_plugin,
+)
+
+# 加载已注册渠道的子模块
+module = load_channel_module("feishu", "client")
+
+# 注册新的渠道插件目录
+register_channel_plugin("dingtalk", Path("/path/to/dingtalk/plugin"))
+```
+
+### 飞书模块映射
+
+| 调用方式 | 加载模块 | 主要导出 |
+|---------|---------|---------|
+| `load_channel_module("feishu", "client")` | `client.py` | `FeishuClient`, `send_feishu_card`, `send_feishu_text` |
+| `load_channel_module("feishu", "adapter")` | `adapter.py` | `FeishuAdapter` |
+| `load_channel_module("feishu", "cards")` | `cards.py` | `CardBuilder`, `PostBuilder` |
+| `load_channel_module("feishu", "cardkit_streaming")` | `cardkit_streaming.py` | `CardKitStreamingManager`, `CardStreamState` |
+| `load_channel_module("feishu", "hitl_cards")` | `hitl_cards.py` | `HITLCardBuilder` |
+| `load_channel_module("feishu", "rich_cards")` | `rich_cards.py` | `RichCardBuilder` |
+| `load_channel_module("feishu", "media_downloader")` | `media_downloader.py` | `FeishuMediaDownloader` |
+| `load_channel_module("feishu", "bitable")` | `bitable.py` | `FIELD_TYPE_*` 常量 |
 
 ## 配置
 
@@ -371,6 +396,8 @@ class Message:
 - [x] 飞书多维表格操作 (bitable)
 - [x] 卡片构建器
 - [x] Webhook 处理器
+- [x] 飞书插件迁移至 `.memstack/plugins/feishu/`
+- [x] 通用渠道插件加载器 (`channel_plugin_loader.py`)
 - [ ] 钉钉适配器
 - [ ] 企业微信适配器
 - [ ] 消息持久化
