@@ -375,44 +375,98 @@ class AgentRuntimeBootstrapper:
                     logger.error("[AgentService] Graph service init failed: %s", e)
                     raise
 
-            # Initialize MCP Sandbox Adapter for Project Sandbox tool loading
-            from src.infrastructure.agent.state.agent_worker_state import (
-                get_mcp_sandbox_adapter,
-                set_mcp_sandbox_adapter,
-                sync_mcp_sandbox_adapter_from_docker,
-            )
-
-            if not get_mcp_sandbox_adapter():
-                try:
-                    from src.configuration.config import get_settings
-                    from src.infrastructure.adapters.secondary.sandbox.mcp_sandbox_adapter import (
-                        MCPSandboxAdapter,
-                    )
-
-                    settings = get_settings()
-                    mcp_sandbox_adapter = MCPSandboxAdapter(
-                        mcp_image=settings.sandbox_default_image,
-                        default_timeout=settings.sandbox_timeout_seconds,
-                        default_memory_limit=settings.sandbox_memory_limit,
-                        default_cpu_limit=settings.sandbox_cpu_limit,
-                    )
-                    set_mcp_sandbox_adapter(mcp_sandbox_adapter)
-                    count = await sync_mcp_sandbox_adapter_from_docker()
-                    if count > 0:
-                        logger.info(
-                            "[AgentService] Synced %d existing sandboxes from Docker", count
-                        )
-                    logger.info(
-                        "[AgentService] MCP Sandbox adapter bootstrapped for local execution"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "[AgentService] MCP Sandbox adapter init failed "
-                        "(Sandbox tools disabled): %s",
-                        e,
-                    )
+            await self._bootstrap_mcp_sandbox()
+            await self._bootstrap_agent_orchestrator()
 
             AgentRuntimeBootstrapper._local_bootstrapped = True
+
+    async def _bootstrap_mcp_sandbox(self) -> None:
+        """Initialize MCP Sandbox Adapter for Project Sandbox tool loading."""
+        from src.infrastructure.agent.state.agent_worker_state import (
+            get_mcp_sandbox_adapter,
+            set_mcp_sandbox_adapter,
+            sync_mcp_sandbox_adapter_from_docker,
+        )
+
+        if get_mcp_sandbox_adapter():
+            return
+
+        try:
+            from src.configuration.config import get_settings
+            from src.infrastructure.adapters.secondary.sandbox.mcp_sandbox_adapter import (
+                MCPSandboxAdapter,
+            )
+
+            settings = get_settings()
+            mcp_sandbox_adapter = MCPSandboxAdapter(
+                mcp_image=settings.sandbox_default_image,
+                default_timeout=settings.sandbox_timeout_seconds,
+                default_memory_limit=settings.sandbox_memory_limit,
+                default_cpu_limit=settings.sandbox_cpu_limit,
+            )
+            set_mcp_sandbox_adapter(mcp_sandbox_adapter)
+            count = await sync_mcp_sandbox_adapter_from_docker()
+            if count > 0:
+                logger.info("[AgentService] Synced %d existing sandboxes from Docker", count)
+            logger.info("[AgentService] MCP Sandbox adapter bootstrapped for local execution")
+        except Exception as e:
+            logger.warning(
+                "[AgentService] MCP Sandbox adapter init failed (Sandbox tools disabled): %s",
+                e,
+            )
+
+    async def _bootstrap_agent_orchestrator(self) -> None:
+        """Initialize AgentOrchestrator for multi-agent tools."""
+        from src.infrastructure.agent.state.agent_worker_state import (
+            get_agent_orchestrator,
+            set_agent_orchestrator,
+        )
+
+        if get_agent_orchestrator():
+            return
+
+        try:
+            from src.configuration.config import get_settings as _get_ma_settings
+
+            _ma_settings = _get_ma_settings()
+            if _ma_settings.multi_agent_enabled:
+                from src.infrastructure.adapters.secondary.messaging.redis_agent_message_bus import (
+                    RedisAgentMessageBusAdapter,
+                )
+                from src.infrastructure.adapters.secondary.persistence.database import (
+                    async_session_factory,
+                )
+                from src.infrastructure.adapters.secondary.persistence.sql_agent_registry import (
+                    SqlAgentRegistryRepository,
+                )
+                from src.infrastructure.agent.orchestration.orchestrator import (
+                    AgentOrchestrator,
+                )
+                from src.infrastructure.agent.orchestration.session_registry import (
+                    AgentSessionRegistry,
+                )
+                from src.infrastructure.agent.orchestration.spawn_manager import (
+                    SpawnManager,
+                )
+                from src.infrastructure.agent.state.agent_worker_state import (
+                    get_redis_client,
+                )
+
+                _db_session = async_session_factory()
+                _redis = await get_redis_client()
+                _orchestrator = AgentOrchestrator(
+                    agent_registry=SqlAgentRegistryRepository(_db_session),
+                    session_registry=AgentSessionRegistry(),
+                    spawn_manager=SpawnManager(),
+                    message_bus=RedisAgentMessageBusAdapter(_redis),
+                )
+                set_agent_orchestrator(_orchestrator)
+                logger.info("[AgentService] AgentOrchestrator bootstrapped for multi-agent tools")
+        except Exception as e:
+            logger.warning(
+                "[AgentService] AgentOrchestrator init failed (multi-agent tools disabled): %s",
+                e,
+            )
 
     def _get_api_key(self, settings: Settings) -> None:
         # Deprecated: Using ProviderResolutionService now

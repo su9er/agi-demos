@@ -316,4 +316,51 @@ class ProjectAgentActor:
             except Exception as e:
                 logger.warning(f"[ProjectAgentActor] MCP Sandbox adapter disabled: {e}")
 
+            from src.infrastructure.agent.state.agent_worker_state import (
+                get_agent_orchestrator,
+                set_agent_orchestrator,
+            )
+
+            if not get_agent_orchestrator() and settings.multi_agent_enabled:
+                try:
+                    from src.infrastructure.adapters.secondary.messaging.redis_agent_message_bus import (
+                        RedisAgentMessageBusAdapter,
+                    )
+                    from src.infrastructure.adapters.secondary.persistence.database import (
+                        async_session_factory,
+                    )
+                    from src.infrastructure.adapters.secondary.persistence.sql_agent_registry import (
+                        SqlAgentRegistryRepository,
+                    )
+                    from src.infrastructure.agent.orchestration.orchestrator import (
+                        AgentOrchestrator,
+                    )
+                    from src.infrastructure.agent.orchestration.session_registry import (
+                        AgentSessionRegistry,
+                    )
+                    from src.infrastructure.agent.orchestration.spawn_manager import (
+                        SpawnManager,
+                    )
+                    from src.infrastructure.agent.state.agent_worker_state import (
+                        get_redis_client,
+                    )
+
+                    _db_session = async_session_factory()
+                    _redis = await get_redis_client()
+                    _orchestrator = AgentOrchestrator(
+                        agent_registry=SqlAgentRegistryRepository(_db_session),
+                        session_registry=AgentSessionRegistry(),
+                        spawn_manager=SpawnManager(),
+                        message_bus=RedisAgentMessageBusAdapter(_redis),
+                    )
+                    set_agent_orchestrator(_orchestrator)
+                    logger.info(
+                        "[ProjectAgentActor] AgentOrchestrator bootstrapped for multi-agent tools"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[ProjectAgentActor] AgentOrchestrator init failed "
+                        f"(multi-agent tools disabled): {e}"
+                    )
+
             self._bootstrapped = True
