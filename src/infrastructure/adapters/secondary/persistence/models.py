@@ -489,6 +489,13 @@ class Conversation(Base):
     branch_point_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Fork/merge support (Phase 3)
+    fork_source_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("conversations.id"), nullable=True
+    )
+    fork_context_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    merge_strategy: Mapped[str] = mapped_column(String(20), default="result_only", nullable=False)
+
     project: Mapped["Project"] = relationship(foreign_keys=[project_id])
     tenant: Mapped["Tenant"] = relationship(foreign_keys=[tenant_id])
     user: Mapped["User"] = relationship(foreign_keys=[user_id])

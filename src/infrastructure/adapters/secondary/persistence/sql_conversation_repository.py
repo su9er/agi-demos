@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent import Conversation, ConversationStatus
 from src.domain.model.agent.agent_mode import AgentMode
+from src.domain.model.agent.merge_strategy import MergeStrategy
 from src.domain.ports.repositories.agent_repository import ConversationRepository
 from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
 from src.infrastructure.adapters.secondary.persistence.models import (
@@ -92,6 +93,9 @@ class SqlConversationRepository(
             "current_plan_id": conversation.current_plan_id,
             "parent_conversation_id": conversation.parent_conversation_id,
             "summary": conversation.summary,
+            "fork_source_id": conversation.fork_source_id,
+            "fork_context_snapshot": conversation.fork_context_snapshot,
+            "merge_strategy": conversation.merge_strategy.value,
         }
 
         # Use PostgreSQL ON CONFLICT for upsert
@@ -111,6 +115,9 @@ class SqlConversationRepository(
                     "current_plan_id": conversation.current_plan_id,
                     "parent_conversation_id": conversation.parent_conversation_id,
                     "summary": conversation.summary,
+                    "fork_source_id": conversation.fork_source_id,
+                    "fork_context_snapshot": conversation.fork_context_snapshot,
+                    "merge_strategy": conversation.merge_strategy.value,
                 },
             )
         )
@@ -327,6 +334,11 @@ class SqlConversationRepository(
             current_plan_id=db_conversation.current_plan_id,
             parent_conversation_id=db_conversation.parent_conversation_id,
             summary=db_conversation.summary,
+            fork_source_id=db_conversation.fork_source_id,
+            fork_context_snapshot=db_conversation.fork_context_snapshot,
+            merge_strategy=MergeStrategy(db_conversation.merge_strategy)
+            if db_conversation.merge_strategy
+            else MergeStrategy.RESULT_ONLY,
         )
 
     def _to_db(self, domain_entity: Conversation) -> DBConversation:
@@ -358,4 +370,7 @@ class SqlConversationRepository(
             current_plan_id=domain_entity.current_plan_id,
             parent_conversation_id=domain_entity.parent_conversation_id,
             summary=domain_entity.summary,
+            fork_source_id=domain_entity.fork_source_id,
+            fork_context_snapshot=domain_entity.fork_context_snapshot,
+            merge_strategy=domain_entity.merge_strategy.value,
         )

@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any
 
 from src.domain.model.agent.agent_mode import AgentMode  # stays in agent/
+from src.domain.model.agent.merge_strategy import MergeStrategy
 from src.domain.shared_kernel import Entity
 
 
@@ -47,6 +48,11 @@ class Conversation(Entity):
     parent_conversation_id: str | None = None  # Parent conversation for SubAgent sessions
     branch_point_message_id: str | None = None  # Message ID where branch was forked
     summary: str | None = None  # Auto-generated conversation summary
+
+    # Fork/merge support (Phase 3)
+    fork_source_id: str | None = None  # Conversation this was forked from
+    fork_context_snapshot: str | None = None  # Serialized context at fork time
+    merge_strategy: MergeStrategy = MergeStrategy.RESULT_ONLY  # How to merge results back
 
     def archive(self) -> None:
         """Archive this conversation."""
@@ -133,6 +139,31 @@ class Conversation(Entity):
         """Check if this is a SubAgent session."""
         return self.parent_conversation_id is not None
 
+    @property
+    def is_forked(self) -> bool:
+        """Check if this conversation was forked from another."""
+        return self.fork_source_id is not None
+
+    def fork(
+        self,
+        *,
+        user_id: str,
+        title: str,
+        merge_strategy: MergeStrategy = MergeStrategy.RESULT_ONLY,
+        context_snapshot: str | None = None,
+    ) -> "Conversation":
+        """Create a child conversation forked from this one."""
+        return Conversation(
+            project_id=self.project_id,
+            tenant_id=self.tenant_id,
+            user_id=user_id,
+            title=title,
+            parent_conversation_id=self.id,
+            fork_source_id=self.id,
+            fork_context_snapshot=context_snapshot,
+            merge_strategy=merge_strategy,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for caching."""
         return {
@@ -146,11 +177,18 @@ class Conversation(Entity):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "summary": self.summary,
+            "fork_source_id": self.fork_source_id,
+            "fork_context_snapshot": self.fork_context_snapshot,
+            "merge_strategy": self.merge_strategy.value,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Conversation":
         """Deserialize from dictionary."""
+        merge_strategy_raw = data.get("merge_strategy")
+        merge_strategy = (
+            MergeStrategy(merge_strategy_raw) if merge_strategy_raw else MergeStrategy.RESULT_ONLY
+        )
         return cls(
             id=data["id"],
             project_id=data["project_id"],
@@ -164,4 +202,7 @@ class Conversation(Entity):
                 datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None
             ),
             summary=data.get("summary"),
+            fork_source_id=data.get("fork_source_id"),
+            fork_context_snapshot=data.get("fork_context_snapshot"),
+            merge_strategy=merge_strategy,
         )
