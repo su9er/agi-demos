@@ -168,6 +168,7 @@ class AgentContainer:
         self._subagent_run_registry_instance: Any | None = None
         self._spawn_validator_instance: Any | None = None
         self._announce_service_instance: Any | None = None
+        self._control_channel_instance: Any | None = None
 
     # === Agent Repositories ===
 
@@ -476,6 +477,20 @@ class AgentContainer:
             config=config,
         )
         return self._announce_service_instance
+
+    def control_channel(self) -> Any:
+        """Get ControlChannel singleton for steer/kill/pause/resume signals."""
+        if self._control_channel_instance is not None:
+            return self._control_channel_instance
+        from src.infrastructure.agent.subagent.control_channel import (
+            RedisControlChannel,
+        )
+
+        assert self._redis_client is not None, "redis_client is required for ControlChannel"
+        self._control_channel_instance = RedisControlChannel(
+            redis_client=self._redis_client,
+        )
+        return self._control_channel_instance
 
     def orphan_sweeper(self, tracker: Any = None) -> Any:
         """Create OrphanSweeper for a given state tracker.

@@ -10,6 +10,8 @@ from typing import Any
 
 from src.domain.events.agent_events import SubAgentDepthLimitedEvent
 from src.domain.model.agent.subagent_run import SubAgentRun, SubAgentRunStatus
+from src.domain.model.agent.tool_policy import ControlMessageType
+from src.domain.ports.agent.control_channel_port import ControlChannelPort, ControlMessage
 from src.infrastructure.agent.subagent.run_registry import SubAgentRunRegistry
 from src.infrastructure.agent.tools.context import ToolContext
 from src.infrastructure.agent.tools.define import tool_define
@@ -1829,6 +1831,7 @@ _ctrl_subagent_names: list[str] = []
 _ctrl_subagent_descriptions: dict[str, str] = {}
 _ctrl_cancel_callback: Callable[[str], Awaitable[bool]] | None = None
 _ctrl_restart_callback: Callable[[str, str, str], Awaitable[str]] | None = None
+_ctrl_control_channel: ControlChannelPort | None = None
 _ctrl_steer_rate_limit_ms: int = 2000
 _ctrl_max_active_runs: int = 16
 _ctrl_max_active_runs_per_lineage: int = 16
@@ -1849,6 +1852,7 @@ def configure_subagents_control(  # noqa: PLR0913
     cancel_callback: Callable[[str], Awaitable[bool]],
     *,
     restart_callback: (Callable[[str, str, str], Awaitable[str]] | None) = None,
+    control_channel: ControlChannelPort | None = None,
     steer_rate_limit_ms: int = 2000,
     max_active_runs: int = 16,
     max_active_runs_per_lineage: int | None = None,
@@ -1864,6 +1868,7 @@ def configure_subagents_control(  # noqa: PLR0913
     global _ctrl_subagent_descriptions
     global _ctrl_cancel_callback
     global _ctrl_restart_callback
+    global _ctrl_control_channel
     global _ctrl_steer_rate_limit_ms
     global _ctrl_max_active_runs
     global _ctrl_max_active_runs_per_lineage
@@ -1880,6 +1885,7 @@ def configure_subagents_control(  # noqa: PLR0913
     _ctrl_subagent_descriptions = subagent_descriptions
     _ctrl_cancel_callback = cancel_callback
     _ctrl_restart_callback = restart_callback
+    _ctrl_control_channel = control_channel
     _ctrl_steer_rate_limit_ms = max(1, steer_rate_limit_ms)
     _ctrl_max_active_runs = max(1, max_active_runs)
     _ctrl_max_active_runs_per_lineage = max(1, max_active_runs_per_lineage or max_active_runs)
@@ -2287,6 +2293,37 @@ def _ctrl_collect_kill_candidates(
     return candidates
 
 
+async def _ctrl_send_control_message(
+    run_id: str,
+    message_type: ControlMessageType,
+    payload: str = "",
+    cascade: bool = False,
+) -> None:
+    """Send a control message via the control channel (best-effort).
+
+    Silently logs and ignores errors so that the existing cancel/steer
+    flow is never disrupted by a channel failure.
+    """
+    if _ctrl_control_channel is None:
+        return
+    try:
+        msg = ControlMessage(
+            run_id=run_id,
+            message_type=message_type,
+            payload=payload,
+            sender_id=_ctrl_conversation_id,
+            cascade=cascade,
+        )
+        await _ctrl_control_channel.send_control(msg)
+    except Exception:
+        logger.warning(
+            "Failed to send %s control message for run %s",
+            message_type.value,
+            run_id,
+            exc_info=True,
+        )
+
+
 async def _ctrl_exec_cancellations(
     ctx: ToolContext,
     candidates: dict[str, str],
@@ -2301,6 +2338,11 @@ async def _ctrl_exec_cancellations(
         if not cand or cand.status not in _CTRL_ACTIVE_STATUSES:
             continue
         cancelled = await _ctrl_cancel_callback(cand.run_id)
+        await _ctrl_send_control_message(
+            cand.run_id,
+            ControlMessageType.KILL,
+            cascade=(root_id != cand_id),
+        )
         updated = _ctrl_run_registry.mark_cancelled(
             conversation_id=_ctrl_conversation_id,
             run_id=cand.run_id,
@@ -2433,6 +2475,7 @@ async def _ctrl_steer_metadata_only(
             "data": {**updated.to_event_data(), "instruction": instruction},
         }
     )
+    await _ctrl_send_control_message(resolved_run_id, ControlMessageType.STEER, instruction)
     return ToolResult(
         output=(f"Steering instruction attached to run {resolved_run_id}"),
         title=f"SubAgents: steer {resolved_run_id}",
@@ -2447,6 +2490,7 @@ async def _ctrl_steer_with_restart(
     assert _ctrl_cancel_callback is not None
     assert _ctrl_restart_callback is not None
     resolved_run_id = run.run_id
+    await _ctrl_send_control_message(resolved_run_id, ControlMessageType.KILL)
     cancelled = await _ctrl_cancel_callback(resolved_run_id)
     updated_old = _ctrl_run_registry.mark_cancelled(
         conversation_id=_ctrl_conversation_id,
