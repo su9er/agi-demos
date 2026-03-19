@@ -197,6 +197,7 @@ class AgentEventType(str, Enum):
     SUBAGENT_SPAWN_REJECTED = "subagent_spawn_rejected"
     SUBAGENT_ANNOUNCE_RETRY = "subagent_announce_retry"
     SUBAGENT_ORPHAN_DETECTED = "subagent_orphan_detected"
+    TOOL_POLICY_DENIED = "tool_policy_denied"
 
     # =========================================================================
     # Control events (used by event bus)
@@ -381,6 +382,10 @@ EVENT_CATEGORIES: dict[AgentEventType, EventCategory] = {
     AgentEventType.SUBAGENT_STEERED: EventCategory.AGENT,
     AgentEventType.SUBAGENT_DEPTH_LIMITED: EventCategory.AGENT,
     AgentEventType.SUBAGENT_SESSION_UPDATE: EventCategory.AGENT,
+    AgentEventType.SUBAGENT_SPAWN_REJECTED: EventCategory.AGENT,
+    AgentEventType.SUBAGENT_ANNOUNCE_RETRY: EventCategory.AGENT,
+    AgentEventType.SUBAGENT_ORPHAN_DETECTED: EventCategory.AGENT,
+    AgentEventType.TOOL_POLICY_DENIED: EventCategory.AGENT,
     # Multi-agent inter-agent communication
     AgentEventType.AGENT_SPAWNED: EventCategory.AGENT,
     AgentEventType.AGENT_COMPLETED: EventCategory.AGENT,

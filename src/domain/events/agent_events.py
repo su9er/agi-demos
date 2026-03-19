@@ -61,6 +61,7 @@ __all__ = [
     "SubAgentSpawningEvent",
     "SubAgentStartedEvent",
     "SubAgentSteeredEvent",
+    "ToolPolicyDeniedEvent",
     "get_frontend_event_types",
 ]
 
@@ -1211,6 +1212,14 @@ class SubAgentOrphanDetectedEvent(AgentDomainEvent):
     reason: str  # "timeout" | "parent_gone" | "cancel_key" | "no_heartbeat"
     age_seconds: float = 0.0
     action_taken: str = ""  # "cancelled" | "marked_failed" | "ignored"
+
+
+class ToolPolicyDeniedEvent(AgentDomainEvent):
+    event_type: AgentEventType = AgentEventType.TOOL_POLICY_DENIED
+    agent_id: str
+    tool_name: str
+    policy_layer: str = ""
+    denial_reason: str = ""
 
 
 class AgentSpawnedEvent(AgentDomainEvent):
