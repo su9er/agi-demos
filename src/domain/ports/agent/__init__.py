@@ -7,6 +7,10 @@ Following hexagonal architecture, domain depends on ports (not implementations).
 
 from src.domain.ports.agent.agent_registry import AgentRegistryPort
 from src.domain.ports.agent.agent_tool_port import AgentToolBase
+from src.domain.ports.agent.control_channel_port import (
+    ControlChannelPort,
+    ControlMessage,
+)
 from src.domain.ports.agent.binding_repository import (
     AgentBindingRepositoryPort,
 )
@@ -53,6 +57,9 @@ __all__ = [
     "CompressionStrategy",
     "ContextBuildRequest",
     "ContextBuildResult",
+    # Control Channel
+    "ControlChannelPort",
+    "ControlMessage",
     # Context Manager
     "ContextManagerPort",
     "LLMInvocationRequest",
