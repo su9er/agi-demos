@@ -202,6 +202,13 @@ export const TimelineEventItem: React.FC<TimelineEventItemProps> = memo(
           </div>
         );
 
+      case 'agent_spawned':
+      case 'agent_completed':
+      case 'agent_stopped':
+      case 'agent_message_sent':
+      case 'agent_message_received':
+        return null;
+
       default:
         console.warn('Unknown event type in TimelineEventItem:', (event as { type: string }).type);
         return null;

@@ -28,6 +28,8 @@ import {
   AppWindow,
 } from 'lucide-react';
 
+import { isAgentTool, AgentToolStepCard } from '../timeline-items/AgentToolCards';
+
 import { useMCPAppOpen } from './useMCPAppOpen';
 
 export interface TimelineStep {
@@ -163,6 +165,49 @@ const TimelineStepItem = memo<{
   const { t } = useTranslation();
   const preview = getInputPreview(step.input, step.toolName);
   const openMCPApp = useMCPAppOpen(step);
+
+  if (isAgentTool(step.toolName)) {
+    return (
+      <div className="relative flex gap-2 mb-0" style={{ minHeight: '24px' }}>
+        <div className="flex flex-col items-center flex-shrink-0" style={{ width: '24px' }}>
+          <div
+            className={`
+              w-6 h-6 rounded-full flex items-center justify-center border-2 flex-shrink-0 transition-all duration-300
+              ${
+                step.status === 'running'
+                  ? 'border-blue-400 bg-blue-50 dark:bg-blue-950/50'
+                  : step.status === 'success'
+                    ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/50'
+                    : 'border-red-400 bg-red-50 dark:bg-red-950/50'
+              }
+            `}
+            style={{ minWidth: '24px', minHeight: '24px' }}
+          >
+            {step.status === 'running' ? (
+              <Loader2 size={11} className="text-blue-500 animate-spin" />
+            ) : (
+              <span className="animate-fade-in flex items-center justify-center">
+                <Brain size={11} className={step.status === 'success' ? 'text-emerald-500' : 'text-red-500'} />
+              </span>
+            )}
+          </div>
+          {!isLast && (
+            <div className="w-px flex-1 min-h-[16px] bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+          )}
+        </div>
+        <div className="flex-1 pb-1.5 min-w-0">
+          <AgentToolStepCard
+            toolName={step.toolName}
+            input={step.input}
+            output={step.output}
+            status={step.status}
+            isError={step.isError}
+            duration={step.duration}
+          />
+        </div>
+      </div>
+    );
+  }
 
   const statusColor =
     step.status === 'running'

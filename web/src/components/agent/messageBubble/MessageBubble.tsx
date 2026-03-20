@@ -1436,6 +1436,14 @@ const MessageBubbleRoot: React.FC<MessageBubbleRootProps> = memo(
         // Rendered in timeline view only, not in chat bubble view
         return null;
 
+      case 'agent_spawned':
+      case 'agent_completed':
+      case 'agent_stopped':
+      case 'agent_message_sent':
+      case 'agent_message_received':
+        // L4 agent lifecycle events are handled by agentNodes store, not rendered as bubbles
+        return null;
+
       default:
         console.warn('Unknown event type in MessageBubble:', event.type);
         return null;

@@ -530,6 +530,101 @@ function AgentHistoryCard({ params, result, status, error, duration }: AgentHist
   );
 }
 
+interface AgentToolStepCardProps {
+  toolName: string;
+  input?: Record<string, unknown>;
+  output?: string | Record<string, unknown>;
+  status: 'running' | 'success' | 'error';
+  isError?: boolean;
+  duration?: number;
+}
+
+export const AgentToolStepCard = memo(function AgentToolStepCard({
+  toolName,
+  input,
+  output,
+  status,
+  isError,
+  duration,
+}: AgentToolStepCardProps) {
+  const errorMsg = isError && typeof output === 'string' ? output : undefined;
+  const parsed = output ? parseResult(output) : null;
+  const params = input ?? {};
+
+  let card: React.ReactNode;
+
+  switch (toolName) {
+    case 'agent_spawn':
+      card = (
+        <AgentSpawnCard
+          params={params}
+          result={parsed && !Array.isArray(parsed) ? parsed : null}
+          status={status}
+          error={errorMsg}
+          duration={duration}
+        />
+      );
+      break;
+    case 'agent_stop':
+      card = (
+        <AgentStopCard
+          params={params}
+          result={parsed && !Array.isArray(parsed) ? parsed : null}
+          status={status}
+          error={errorMsg}
+          duration={duration}
+        />
+      );
+      break;
+    case 'agent_send':
+      card = (
+        <AgentSendCard
+          params={params}
+          result={parsed && !Array.isArray(parsed) ? parsed : null}
+          status={status}
+          error={errorMsg}
+          duration={duration}
+        />
+      );
+      break;
+    case 'agent_list':
+      card = (
+        <AgentListCard
+          result={parsed}
+          status={status}
+          error={errorMsg}
+          duration={duration}
+        />
+      );
+      break;
+    case 'agent_sessions':
+      card = (
+        <AgentSessionsCard
+          result={parsed}
+          status={status}
+          error={errorMsg}
+          duration={duration}
+        />
+      );
+      break;
+    case 'agent_history':
+      card = (
+        <AgentHistoryCard
+          params={params}
+          result={parsed}
+          status={status}
+          error={errorMsg}
+          duration={duration}
+        />
+      );
+      break;
+    default:
+      return null;
+  }
+
+  return card;
+});
+
 interface AgentToolCardProps {
   event: ActEvent;
   observeEvent?: ObserveEvent;
