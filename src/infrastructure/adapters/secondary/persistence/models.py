@@ -1737,6 +1737,24 @@ class AgentBindingModel(Base):
     )
 
 
+class MessageBindingModel(Base):
+    __tablename__ = "message_bindings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(20), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    filter_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (Index("ix_message_bindings_scope", "scope", "scope_id"),)
+
+
 # Runtime import to register ChannelConfigModel on Base.metadata so that
 # SQLAlchemy can resolve the string reference in Project.channel_configs.
 # This must come after Base and all models above are defined to avoid

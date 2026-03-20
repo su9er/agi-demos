@@ -32,6 +32,9 @@ from src.domain.ports.agent.llm_invoker_port import (
     LLMInvokerPort,
     StreamChunk,
 )
+from src.domain.ports.agent.message_binding_repository_port import (
+    MessageBindingRepositoryPort,
+)
 from src.domain.ports.agent.message_router_port import MessageRouterPort
 from src.domain.ports.agent.react_loop_port import (
     ReActLoopConfig,
@@ -70,6 +73,7 @@ __all__ = [
     "LLMInvocationResult",
     # LLM Invoker
     "LLMInvokerPort",
+    "MessageBindingRepositoryPort",
     "MessageBuilderPort",
     "MessageInput",
     # Message Router
