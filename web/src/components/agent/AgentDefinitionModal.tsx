@@ -137,8 +137,10 @@ export const AgentDefinitionModal: React.FC<AgentDefinitionModalProps> = ({
           discoverable: definition.discoverable,
           max_retries: definition.max_retries,
         });
+        setKeywords(definition.trigger?.keywords ?? []);
       } else {
         form.resetFields();
+        setKeywords([]);
       }
       if (openStateChanged) {
         setTimeout(() => {
@@ -150,21 +152,6 @@ export const AgentDefinitionModal: React.FC<AgentDefinitionModalProps> = ({
     prevDefinitionRef.current = definition || null;
     prevIsOpenRef.current = isOpen;
   }, [isOpen, definition, form]);
-
-  // Update keywords when definition changes
-  useEffect(() => {
-    const definitionChanged = prevDefinitionRef.current?.id !== definition?.id;
-
-    if (isOpen && definition && definitionChanged) {
-      setTimeout(() => {
-        setKeywords(definition.trigger?.keyword ?? []);
-      }, 0);
-    } else if (isOpen && !definition && definitionChanged) {
-      setTimeout(() => {
-        setKeywords([]);
-      }, 0);
-    }
-  }, [isOpen, definition]);
 
   // Handle form submission
   const handleSubmit = useCallback(async () => {

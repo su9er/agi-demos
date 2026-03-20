@@ -5,7 +5,7 @@ export type AgentSource = 'filesystem' | 'database';
 export type SpawnStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface AgentTrigger {
-  keyword?: string[] | undefined;
+  keywords?: string[] | undefined;
   semantic?: string | undefined;
   mode?: 'keyword' | 'semantic' | 'hybrid' | undefined;
 }
