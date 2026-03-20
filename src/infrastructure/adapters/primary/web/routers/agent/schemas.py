@@ -528,3 +528,61 @@ class ToolPolicyDebugResponse(BaseModel):
     total_tools: int
     allowed_count: int
     denied_count: int
+
+
+# --- SubAgent Run / Trace Schemas ---
+
+
+class SubAgentRunResponse(BaseModel):
+    """Single SubAgent run detail."""
+
+    run_id: str
+    conversation_id: str
+    subagent_name: str
+    task: str
+    status: str
+    created_at: str
+    started_at: str | None = None
+    ended_at: str | None = None
+    summary: str | None = None
+    error: str | None = None
+    execution_time_ms: int | None = None
+    tokens_used: int | None = None
+    metadata: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+    frozen_result_text: str | None = None
+    frozen_at: str | None = None
+    trace_id: str | None = None
+    parent_span_id: str | None = None
+
+
+class SubAgentRunListResponse(BaseModel):
+    """List of SubAgent runs for a conversation."""
+
+    conversation_id: str
+    runs: list[SubAgentRunResponse]
+    total: int
+
+
+class TraceChainResponse(BaseModel):
+    """Execution chain grouped by trace_id."""
+
+    trace_id: str
+    conversation_id: str
+    runs: list[SubAgentRunResponse]
+    total: int
+
+
+class DescendantTreeResponse(BaseModel):
+    """Descendant tree for a parent run."""
+
+    parent_run_id: str
+    conversation_id: str
+    descendants: list[SubAgentRunResponse]
+    total: int
+
+
+class ActiveRunCountResponse(BaseModel):
+    """Active run count (global or per-conversation)."""
+
+    active_count: int
+    conversation_id: str | None = None

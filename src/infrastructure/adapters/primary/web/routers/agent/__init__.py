@@ -20,8 +20,10 @@ from . import (
     subagent_router,
     templates,
     tools,
+    trace_router,
 )
 from .schemas import (
+    ActiveRunCountResponse,
     CapabilityDomainSummary,
     CapabilitySummaryResponse,
     ChatRequest,
@@ -32,6 +34,7 @@ from .schemas import (
     ConversationResponse,
     CreateConversationRequest,
     DecisionResponseRequest,
+    DescendantTreeResponse,
     DoomLoopResponseRequest,
     EnvVarResponseRequest,
     EventReplayResponse,
@@ -46,6 +49,8 @@ from .schemas import (
     PolicyLayerSummary,
     RecoveryInfo,
     ResetPatternsResponse,
+    SubAgentRunListResponse,
+    SubAgentRunResponse,
     TenantAgentConfigResponse,
     ToolCompositionResponse,
     ToolCompositionsListResponse,
@@ -54,6 +59,7 @@ from .schemas import (
     ToolPolicyDebugResponse,
     ToolPolicyReportItem,
     ToolsListResponse,
+    TraceChainResponse,
     UpdateConversationTitleRequest,
     UpdateTenantAgentConfigRequest,
     WorkflowPatternResponse,
@@ -78,8 +84,10 @@ router.include_router(plans.router)
 router.include_router(subagent_router.router)
 router.include_router(binding_router.router)
 router.include_router(definitions_router.router)
+router.include_router(trace_router.router)
 
 __all__ = [
+    "ActiveRunCountResponse",
     "CapabilityDomainSummary",
     "CapabilitySummaryResponse",
     # Schemas
@@ -91,6 +99,7 @@ __all__ = [
     "ConversationResponse",
     "CreateConversationRequest",
     "DecisionResponseRequest",
+    "DescendantTreeResponse",
     "DoomLoopResponseRequest",
     "EnvVarResponseRequest",
     "EventReplayResponse",
@@ -105,6 +114,8 @@ __all__ = [
     "PolicyLayerSummary",
     "RecoveryInfo",
     "ResetPatternsResponse",
+    "SubAgentRunListResponse",
+    "SubAgentRunResponse",
     "TenantAgentConfigResponse",
     "ToolCompositionResponse",
     "ToolCompositionsListResponse",
@@ -113,6 +124,7 @@ __all__ = [
     "ToolPolicyDebugResponse",
     "ToolPolicyReportItem",
     "ToolsListResponse",
+    "TraceChainResponse",
     "UpdateConversationTitleRequest",
     "UpdateTenantAgentConfigRequest",
     "WorkflowPatternResponse",

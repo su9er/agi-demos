@@ -427,6 +427,9 @@ class DIContainer:
     def spawn_manager(self) -> Any:
         return self._agent.spawn_manager()
 
+    def subagent_run_registry(self) -> Any:
+        return self._agent.subagent_run_registry()
+
     def agent_orchestrator(self) -> Any:
         return self._agent.agent_orchestrator()
 
