@@ -71,7 +71,7 @@ async def agent_history_tool(
         )
         result: list[dict[str, Any]] = [
             {
-                "id": msg.id,
+                "id": msg.message_id,
                 "from_agent_id": msg.from_agent_id,
                 "to_agent_id": msg.to_agent_id,
                 "content": msg.content,

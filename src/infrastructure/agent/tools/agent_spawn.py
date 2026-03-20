@@ -6,6 +6,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from src.domain.events.agent_events import AgentSpawnedEvent
 from src.domain.model.agent.spawn_mode import SpawnMode
 from src.infrastructure.agent.tools.context import ToolContext
 from src.infrastructure.agent.tools.define import tool_define
@@ -82,8 +83,20 @@ async def agent_spawn_tool(
             conversation_id=ctx.conversation_id,
         )
         record = spawn_result.spawn_record
+        agent = spawn_result.agent
+        await ctx.emit(
+            AgentSpawnedEvent(
+                agent_id=agent_id,
+                agent_name=agent.display_name or agent.name,
+                parent_agent_id=ctx.agent_name,
+                child_session_id=record.child_session_id,
+                mode=mode,
+                task_summary=message[:200],
+            ).to_event_dict()
+        )
         result: dict[str, Any] = {
             "agent_id": agent_id,
+            "agent_name": agent.display_name or agent.name,
             "session_id": record.child_session_id,
             "mode": mode,
             "status": record.status,

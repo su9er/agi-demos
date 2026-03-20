@@ -6,6 +6,7 @@ import { memo } from 'react';
 
 import { AgentSection, ToolExecutionCardDisplay } from '../chat/MessageStream';
 
+import { isAgentTool, AgentToolCard } from './AgentToolCards';
 import { TimeBadge } from './shared';
 
 import type { ActEvent, ObserveEvent, TimelineEvent } from '../../../types/agent';
@@ -13,6 +14,7 @@ import type { ActEvent, ObserveEvent, TimelineEvent } from '../../../types/agent
 /**
  * Find matching observe event for an act event
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function findMatchingObserve(
   actEvent: ActEvent,
   events: TimelineEvent[]
@@ -49,6 +51,10 @@ export const ActItem = memo(function ActItem({ event, allEvents }: ActItemProps)
   if (event.type !== 'act') return null;
 
   const observeEvent = allEvents ? findMatchingObserve(event, allEvents) : undefined;
+
+  if (isAgentTool(event.toolName)) {
+    return <AgentToolCard event={event} observeEvent={observeEvent} />;
+  }
 
   const ToolCard = observeEvent ? (
     <AgentSection icon="construction" iconBg="bg-slate-100 dark:bg-slate-800" opacity={true}>

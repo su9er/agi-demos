@@ -6,6 +6,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from src.domain.events.agent_events import AgentMessageSentEvent
 from src.infrastructure.agent.tools.context import ToolContext
 from src.infrastructure.agent.tools.define import tool_define
 from src.infrastructure.agent.tools.result import ToolResult
@@ -76,6 +77,15 @@ async def agent_send_tool(
             message=message,
             session_id=session_id,
             project_id=ctx.project_id,
+        )
+        await ctx.emit(
+            AgentMessageSentEvent(
+                from_agent_id=send_result.from_agent_id,
+                to_agent_id=send_result.to_agent_id,
+                from_agent_name=ctx.agent_name,
+                to_agent_name=agent_id,
+                message_preview=message[:200],
+            ).to_event_dict()
         )
         result: dict[str, Any] = {
             "message_id": send_result.message_id,

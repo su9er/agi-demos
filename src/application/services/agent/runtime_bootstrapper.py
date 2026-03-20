@@ -454,10 +454,11 @@ class AgentRuntimeBootstrapper:
 
                 _db_session = async_session_factory()
                 _redis = await get_redis_client()
+                _session_registry = AgentSessionRegistry()
                 _orchestrator = AgentOrchestrator(
                     agent_registry=SqlAgentRegistryRepository(_db_session),
-                    session_registry=AgentSessionRegistry(),
-                    spawn_manager=SpawnManager(),
+                    session_registry=_session_registry,
+                    spawn_manager=SpawnManager(session_registry=_session_registry),
                     message_bus=RedisAgentMessageBusAdapter(_redis),
                 )
                 set_agent_orchestrator(_orchestrator)

@@ -67,10 +67,10 @@ async def agent_list_tool(
             {
                 "id": agent.id,
                 "name": agent.name,
-                "description": agent.description,
+                "display_name": agent.display_name,
                 "can_spawn": agent.can_spawn,
-                "agent_to_agent_enabled": (agent.agent_to_agent_enabled),
-                "tags": agent.tags,
+                "agent_to_agent_enabled": agent.agent_to_agent_enabled,
+                "discoverable": agent.discoverable,
             }
             for agent in agents
         ]

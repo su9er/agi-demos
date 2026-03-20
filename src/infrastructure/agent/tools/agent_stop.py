@@ -6,6 +6,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from src.domain.events.agent_events import AgentStoppedEvent
 from src.infrastructure.agent.tools.context import ToolContext
 from src.infrastructure.agent.tools.define import tool_define
 from src.infrastructure.agent.tools.result import ToolResult
@@ -67,6 +68,15 @@ async def agent_stop_tool(
             cascade=cascade,
             conversation_id=ctx.conversation_id,
         )
+        for sid in stopped:
+            await ctx.emit(
+                AgentStoppedEvent(
+                    agent_id=sid,
+                    agent_name=sid,
+                    reason="stopped by parent agent",
+                    stopped_by=ctx.agent_name,
+                ).to_event_dict()
+            )
         result: dict[str, Any] = {
             "stopped_sessions": stopped,
             "count": len(stopped),
