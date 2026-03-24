@@ -793,9 +793,14 @@ class ChannelMessageRouter:
                 binding_router = container.binding_router()
                 agent = await binding_router.resolve_agent(
                     tenant_id=conversation.tenant_id or "",
-                    channel_type=(str(message.channel.value) if message.channel else None),
+                    channel_type=(str(message.channel.value) if message.channel else None),  # type: ignore[union-attr]
                     channel_id=self._extract_channel_config_id(message),
                     account_id=(message.sender.id if message.sender else None),
+                    peer_id=(
+                        message.sender.id
+                        if message.sender and message.chat_type == ChatType.P2P
+                        else None
+                    ),
                 )
                 if agent is not None:
                     resolved_agent_id = str(agent.id)
@@ -1112,14 +1117,14 @@ class ChannelMessageRouter:
             )
 
             bridge = get_channel_event_bridge()
-            binding = await bridge._lookup_binding(conversation_id)
+            binding = await bridge._lookup_binding(conversation_id)  # type: ignore[reportPrivateUsage]
             if not binding:
                 logger.debug(
                     f"[MessageRouter] No channel binding for conversation {conversation_id}"
                 )
                 return False
 
-            adapter = bridge._get_adapter(binding.channel_config_id)
+            adapter = bridge._get_adapter(binding.channel_config_id)  # type: ignore[reportPrivateUsage]
             if not adapter:
                 logger.warning(f"[MessageRouter] No adapter for config {binding.channel_config_id}")
                 return False
@@ -2015,7 +2020,7 @@ def get_channel_message_router() -> ChannelMessageRouter:
                 async_session_factory,
             )
 
-            async def _init_media_service() -> MediaImportService | None:
+            async def _init_media_service() -> MediaImportService | None:  # type: ignore[reportUnusedFunction]
                 """Initialize media import service asynchronously."""
                 try:
                     async with async_session_factory() as session:

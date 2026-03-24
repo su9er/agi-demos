@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.configuration.config import get_settings
 from src.domain.model.agent.tenant_agent_config import TenantAgentConfig
 from src.domain.model.auth.user import User
 from src.infrastructure.adapters.primary.web.dependencies import (
@@ -100,6 +101,7 @@ async def get_tenant_agent_config(
             tool_timeout_seconds=config.tool_timeout_seconds,
             enabled_tools=config.enabled_tools,
             disabled_tools=config.disabled_tools,
+            multi_agent_enabled=get_settings().multi_agent_enabled,
             created_at=config.created_at.isoformat(),
             updated_at=config.updated_at.isoformat(),
         )
@@ -223,6 +225,7 @@ async def update_tenant_agent_config(
             tool_timeout_seconds=saved_config.tool_timeout_seconds,
             enabled_tools=saved_config.enabled_tools,
             disabled_tools=saved_config.disabled_tools,
+            multi_agent_enabled=get_settings().multi_agent_enabled,
             created_at=saved_config.created_at.isoformat(),
             updated_at=saved_config.updated_at.isoformat(),
         )

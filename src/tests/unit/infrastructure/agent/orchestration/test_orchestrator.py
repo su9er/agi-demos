@@ -388,15 +388,32 @@ class TestSendMessage:
         send_kwargs = fx.message_bus.send_message.call_args.kwargs
         assert send_kwargs["session_id"] == "resolved-sess"
 
-    async def test_send_message_sender_not_found_raises_value_error(
+    async def test_send_message_unknown_sender_allowed_as_root_agent(
         self, fx: _OrchestratorFixture
     ) -> None:
-        """Sender not found raises ValueError."""
-        # Arrange
+        """Unknown sender is treated as root/main agent and allowed to send."""
+        target_agent = _make_agent()
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[None, target_agent])
+        fx.message_bus.send_message = AsyncMock(return_value="msg-root")
+
+        result = await fx.orchestrator.send_message(
+            from_agent_id="unknown-sender",
+            to_agent_id="agent-b",
+            message="hello",
+            session_id="sess-1",
+        )
+
+        assert isinstance(result, SendResult)
+        assert result.message_id == "msg-root"
+        assert result.from_agent_id == "unknown-sender"
+
+    async def test_send_message_unknown_sender_target_not_found_raises(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Unknown sender with non-existent target still raises ValueError."""
         fx.agent_registry.get_by_id = AsyncMock(return_value=None)
 
-        # Act / Assert
-        with pytest.raises(ValueError, match="Sender agent not found: unknown-sender"):
+        with pytest.raises(ValueError, match="Target agent not found: agent-b"):
             await fx.orchestrator.send_message(
                 from_agent_id="unknown-sender",
                 to_agent_id="agent-b",

@@ -163,6 +163,7 @@ function deserializeState(stored: SerializedConversationState): ConversationStat
     tasks: (stored as any).tasks ?? [],
     appModelContext: (stored as any).appModelContext ?? null,
     recalledMemories: (stored as any).recalledMemories ?? null,
+    agentNodes: new Map(),
     subagentPreviews: new Map(),
   };
 }

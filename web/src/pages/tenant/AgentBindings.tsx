@@ -2,10 +2,23 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { message, Popconfirm, Spin, Switch, Table, Tag } from 'antd';
-import { Link, Plus, RefreshCw, Search } from 'lucide-react';
+import {
+  Form,
+  Input,
+  message,
+  Modal,
+  Popconfirm,
+  Progress,
+  Spin,
+  Switch,
+  Table,
+  Tag,
+  Tooltip,
+} from 'antd';
+import { Link, Plus, RefreshCw, Route, Search } from 'lucide-react';
 
 import { AgentBindingModal } from '../../components/agent/AgentBindingModal';
+import { bindingsService } from '../../services/agent/bindingsService';
 import {
   useBindingError,
   useBindingLoading,
@@ -17,14 +30,28 @@ import {
 } from '../../stores/agentBindings';
 import { useDefinitions, useListDefinitions } from '../../stores/agentDefinitions';
 
-import type { AgentBinding } from '../../types/multiAgent';
+import type { AgentBinding, BindingTraceEntry, TestBindingResponse } from '../../types/multiAgent';
 import type { ColumnsType } from 'antd/es/table';
+
+const CHANNEL_TYPES = [
+  { value: 'web', label: 'Web Chat' },
+  { value: 'feishu', label: 'Feishu' },
+  { value: 'dingtalk', label: 'DingTalk' },
+  { value: 'wechat', label: 'WeChat' },
+  { value: 'slack', label: 'Slack' },
+  { value: 'api', label: 'API' },
+];
 
 export const AgentBindings: React.FC = () => {
   const { t } = useTranslation();
 
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+  const [testForm] = Form.useForm();
+  const [testResult, setTestResult] = useState<TestBindingResponse | null>(null);
+  const [showTrace, setShowTrace] = useState(false);
+  const [isTestLoading, setIsTestLoading] = useState(false);
 
   const bindings = useBindings();
   const isLoading = useBindingLoading();
@@ -54,7 +81,9 @@ export const AgentBindings: React.FC = () => {
       return (
         agentName.toLowerCase().includes(lower) ||
         (b.channel_type ?? '').toLowerCase().includes(lower) ||
-        (b.channel_id ?? '').toLowerCase().includes(lower)
+        (b.channel_id ?? '').toLowerCase().includes(lower) ||
+        (b.account_id ?? '').toLowerCase().includes(lower) ||
+        (b.peer_id ?? '').toLowerCase().includes(lower)
       );
     });
   }, [bindings, search, defNameMap]);
@@ -110,6 +139,105 @@ export const AgentBindings: React.FC = () => {
     listBindings();
   }, [listBindings]);
 
+  const handleTestModalOpen = useCallback(() => {
+    setIsTestModalOpen(true);
+    testForm.resetFields();
+    setTestResult(null);
+  }, [testForm]);
+
+  const handleTestModalClose = useCallback(() => {
+    setIsTestModalOpen(false);
+    setTestResult(null);
+  }, []);
+
+  const handleTestSubmit = useCallback(async () => {
+    try {
+      const values = await testForm.validateFields();
+      setIsTestLoading(true);
+      const result = await bindingsService.test({
+        channel_type: values.channel_type,
+        channel_id: values.channel_id || undefined,
+        account_id: values.account_id || undefined,
+        peer_id: values.peer_id || undefined,
+      });
+      setTestResult(result);
+    } catch (err: unknown) {
+      const error = err as { errorFields?: unknown[] | undefined };
+      if (!error.errorFields) {
+        message.error('Failed to test routing');
+      }
+    } finally {
+      setIsTestLoading(false);
+    }
+  }, [testForm]);
+
+  const traceColumns: ColumnsType<BindingTraceEntry> = useMemo(
+    () => [
+      {
+        title: t('tenant.agentBindings.trace.agentId', 'Agent ID'),
+        dataIndex: 'agent_id',
+        key: 'agent_id',
+        render: (val: string) => (
+          <Tooltip title={val}>
+            <span className="font-mono text-xs">{val.slice(0, 8)}</span>
+          </Tooltip>
+        ),
+      },
+      {
+        title: t('tenant.agentBindings.trace.specificity', 'Score'),
+        dataIndex: 'specificity_score',
+        key: 'specificity_score',
+        render: (val: number, record: BindingTraceEntry) => (
+          <span className={record.selected ? 'font-bold' : ''}>{val}</span>
+        ),
+      },
+      {
+        title: t('tenant.agentBindings.trace.priority', 'Priority'),
+        dataIndex: 'priority',
+        key: 'priority',
+      },
+      {
+        title: t('tenant.agentBindings.trace.channelType', 'Channel Type'),
+        dataIndex: 'channel_type',
+        key: 'channel_type',
+        render: (val: string | null) => val ?? '—',
+      },
+      {
+        title: t('tenant.agentBindings.trace.matchCriteria', 'Match Criteria'),
+        key: 'criteria',
+        render: (_: unknown, record: BindingTraceEntry) => {
+          const criteria = [];
+          if (record.channel_id) criteria.push(`${t('tenant.agentBindings.trace.channel', 'Channel')}: ${record.channel_id}`);
+          if (record.account_id) criteria.push(`${t('tenant.agentBindings.trace.account', 'Account')}: ${record.account_id}`);
+          if (record.peer_id) criteria.push(`${t('tenant.agentBindings.trace.peer', 'Peer')}: ${record.peer_id}`);
+          return criteria.length > 0 ? (
+            <span className="text-xs">{criteria.join(', ')}</span>
+          ) : (
+            <span className="text-xs text-slate-400">—</span>
+          );
+        },
+      },
+      {
+        title: t('tenant.agentBindings.trace.status', 'Status'),
+        key: 'status',
+        render: (_: unknown, record: BindingTraceEntry) => {
+          if (record.selected) {
+            return <Tag color="success" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800">{t('common.selected', 'Selected')}</Tag>;
+          }
+          if (record.eliminated) {
+            return (
+              <Tooltip title={record.elimination_reason}>
+                <Tag color="error" className="cursor-help">{t('common.eliminated', 'Eliminated')}</Tag>
+              </Tooltip>
+            );
+          }
+          return <Tag>{t('common.evaluated', 'Evaluated')}</Tag>;
+        },
+      },
+    ],
+    [t]
+  );
+
   const columns: ColumnsType<AgentBinding> = useMemo(
     () => [
       {
@@ -133,6 +261,34 @@ export const AgentBindings: React.FC = () => {
         key: 'channel_id',
         render: (val: string | null) => (
           <span className="text-xs text-slate-500 dark:text-slate-400">{val ?? '-'}</span>
+        ),
+      },
+      {
+        title: t('tenant.agentBindings.columns.accountId', 'Account ID'),
+        dataIndex: 'account_id',
+        key: 'account_id',
+        render: (val: string | null) => (
+          <span className="text-xs text-slate-500 dark:text-slate-400">{val ?? '-'}</span>
+        ),
+      },
+      {
+        title: t('tenant.agentBindings.columns.peerId', 'Peer ID'),
+        dataIndex: 'peer_id',
+        key: 'peer_id',
+        render: (val: string | null) => (
+          <span className="text-xs text-slate-500 dark:text-slate-400">{val ?? '-'}</span>
+        ),
+      },
+      {
+        title: t('tenant.agentBindings.columns.specificity', 'Specificity'),
+        dataIndex: 'specificity_score',
+        key: 'specificity_score',
+        width: 100,
+        align: 'center' as const,
+        sorter: (a: AgentBinding, b: AgentBinding) =>
+          (b.specificity_score ?? 0) - (a.specificity_score ?? 0),
+        render: (val: number) => (
+          <Tag color={val >= 6 ? 'green' : val >= 3 ? 'gold' : 'default'}>{val}</Tag>
         ),
       },
       {
@@ -195,14 +351,24 @@ export const AgentBindings: React.FC = () => {
             )}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => { setIsModalOpen(true); }}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
-        >
-          <Plus size={16} />
-          {t('tenant.agentBindings.createNew', 'Create Binding')}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleTestModalOpen}
+            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-sm font-medium rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+          >
+            <Route size={16} />
+            {t('tenant.agentBindings.testRouting', 'Test Routing')}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setIsModalOpen(true); }}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={16} />
+            {t('tenant.agentBindings.createNew', 'Create Binding')}
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
@@ -272,6 +438,174 @@ export const AgentBindings: React.FC = () => {
         onClose={handleModalClose}
         onSuccess={handleModalSuccess}
       />
+
+      {/* Test Routing Modal */}
+      <Modal
+        title={t('tenant.agentBindings.testRouting.title', 'Test Routing Resolution')}
+        open={isTestModalOpen}
+        onCancel={handleTestModalClose}
+        onOk={handleTestSubmit}
+        okText={t('tenant.agentBindings.testRouting.test', 'Test')}
+        cancelText={t('common.cancel', 'Cancel')}
+        confirmLoading={isTestLoading}
+        width={500}
+        destroyOnHidden
+      >
+        <Form form={testForm} layout="vertical" className="mt-4">
+          <Form.Item
+            name="channel_type"
+            label={t('tenant.agentBindings.testRouting.channelType', 'Channel Type')}
+            rules={[
+              {
+                required: true,
+                message: t(
+                  'tenant.agentBindings.testRouting.channelTypeRequired',
+                  'Please select a channel type'
+                ),
+              },
+            ]}
+          >
+            <select
+              className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+            >
+              <option value="">
+                {t('tenant.agentBindings.testRouting.selectChannelType', 'Select channel type')}
+              </option>
+              {CHANNEL_TYPES.map((ct) => (
+                <option key={ct.value} value={ct.value}>
+                  {ct.label}
+                </option>
+              ))}
+            </select>
+          </Form.Item>
+
+          <Form.Item
+            name="channel_id"
+            label={t('tenant.agentBindings.testRouting.channelId', 'Channel ID')}
+          >
+            <Input
+              placeholder={t(
+                'tenant.agentBindings.testRouting.channelIdPlaceholder',
+                'Optional: specific channel identifier'
+              )}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="account_id"
+            label={t('tenant.agentBindings.testRouting.accountId', 'Account ID')}
+          >
+            <Input
+              placeholder={t(
+                'tenant.agentBindings.testRouting.accountIdPlaceholder',
+                'Optional: user account identifier'
+              )}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="peer_id"
+            label={t('tenant.agentBindings.testRouting.peerId', 'Peer ID')}
+          >
+            <Input
+              placeholder={t(
+                'tenant.agentBindings.testRouting.peerIdPlaceholder',
+                'Optional: peer identifier'
+              )}
+            />
+          </Form.Item>
+        </Form>
+
+        {/* Test Result Display */}
+        {testResult && (
+          <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+            <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+              {t('tenant.agentBindings.testRouting.result', 'Routing Result')}
+            </h4>
+            {testResult.matched ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-600 dark:text-slate-400">
+                    {t('tenant.agentBindings.testRouting.matchedAgent', 'Matched Agent')}
+                  </span>
+                  <Tag color="green">{testResult.agent_name ?? testResult.agent_id}</Tag>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-600 dark:text-slate-400">
+                    {t('tenant.agentBindings.testRouting.specificity', 'Specificity Score')}
+                  </span>
+                  <span className="text-sm font-mono">{testResult.specificity_score}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-600 dark:text-slate-400">
+                    {t('tenant.agentBindings.testRouting.confidence', 'Confidence')}
+                  </span>
+                  <Progress
+                    percent={testResult.confidence * 100}
+                    size="small"
+                    className="flex-1"
+                    strokeColor={{
+                      '0%': '#ff7a45',
+                      '50%': '#52c41a',
+                      '100%': '#1890ff',
+                    }}
+                    format={(percent) => `${percent?.toFixed(0)}%`}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center py-4 text-slate-500 dark:text-slate-400">
+                <Route size={32} className="mb-2 text-slate-300 dark:text-slate-600" />
+                <p className="text-sm">
+                  {t(
+                    'tenant.agentBindings.testRouting.noMatch',
+                    'No matching binding found for this context'
+                  )}
+                </p>
+              </div>
+            )}
+
+            <div className="mt-6 border-t border-slate-200 dark:border-slate-700 pt-4">
+              <button
+                type="button"
+                className="text-sm font-medium text-primary hover:underline flex items-center gap-1"
+                onClick={() => { setShowTrace(!showTrace); }}
+              >
+                {showTrace 
+                  ? t('tenant.agentBindings.trace.hide', 'Hide Decision Trace')
+                  : t('tenant.agentBindings.trace.show', 'Show Decision Trace')}
+                {testResult.trace && (
+                  <span className="text-slate-500 text-xs font-normal ml-1">
+                    ({t('tenant.agentBindings.trace.candidatesCount', '{{count}} candidates', { count: testResult.trace.length })})
+                  </span>
+                )}
+              </button>
+              
+              {showTrace && testResult.trace && (
+                <div className="mt-3 overflow-x-auto">
+                  <Table<BindingTraceEntry>
+                    dataSource={testResult.trace}
+                    columns={traceColumns}
+                    rowKey="binding_id"
+                    size="small"
+                    pagination={false}
+                    className="dark:[&_.ant-table]:bg-slate-800"
+                    rowClassName={(record) => {
+                      if (record.selected) {
+                        return 'bg-green-50 dark:bg-green-900/20';
+                      }
+                      if (record.eliminated) {
+                        return 'opacity-60 grayscale';
+                      }
+                      return '';
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

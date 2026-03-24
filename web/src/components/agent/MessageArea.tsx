@@ -77,8 +77,10 @@ import { MessageBubble } from './MessageBubble';
 import { MARKDOWN_PROSE_CLASSES } from './styles';
 import { ExecutionTimeline } from './timeline/ExecutionTimeline';
 import { MemoryRecalledStep, MemoryCapturedStep } from './timeline/MemoryRecalledStep';
+import { SubAgentCostSummary } from './timeline/SubAgentCostSummary';
 import { SubAgentTimeline } from './timeline/SubAgentTimeline';
 
+import type { SubAgentGroup } from './timeline/SubAgentTimeline';
 import type { TimelineEvent } from '../../types/agent';
 
 // Import and re-export types from separate file
@@ -256,6 +258,17 @@ const MessageAreaInner: React.FC<_MessageAreaRootProps> = memo(
 
     // Memoize grouped timeline items to avoid re-grouping on every render
     const groupedItems = useMemo(() => groupTimelineEvents(timeline), [timeline]);
+
+    const subagentGroups = useMemo(
+      () =>
+        groupedItems
+          .filter(
+            (item): item is { kind: 'subagent'; group: SubAgentGroup; startIndex: number } =>
+              item.kind === 'subagent'
+          )
+          .map((item) => item.group),
+      [groupedItems]
+    );
 
     const lastTimelineGroupIndex = useMemo(() => {
       for (let i = groupedItems.length - 1; i >= 0; i--) {
@@ -708,6 +721,18 @@ const MessageAreaInner: React.FC<_MessageAreaRootProps> = memo(
                   );
                 })}
               </div>
+
+              {subagentGroups.length >= 2 && !isStreaming && (
+                <div
+                  className="flex items-start gap-3 pb-4"
+                  style={{ marginTop: virtualizer.getTotalSize() ? 8 : 0 }}
+                >
+                  <div className="w-8 shrink-0" />
+                  <div className="flex-1 min-w-0 max-w-[85%] md:max-w-[75%] lg:max-w-[70%]">
+                    <SubAgentCostSummary groups={subagentGroups} />
+                  </div>
+                </div>
+              )}
 
               {/* Non-virtualized streaming/footer content */}
               <div className="space-y-1.5">

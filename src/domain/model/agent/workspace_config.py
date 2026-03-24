@@ -10,6 +10,12 @@ from typing import Any
 
 from src.domain.model.agent.sandbox_scope import SandboxScope
 
+_FRONTEND_TYPE_TO_SCOPE: dict[str, str] = {
+    "shared": SandboxScope.SHARED.value,
+    "isolated": SandboxScope.AGENT.value,
+    "inherited": SandboxScope.SESSION.value,
+}
+
 
 @dataclass
 class WorkspaceConfig:
@@ -58,11 +64,29 @@ class WorkspaceConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WorkspaceConfig":
-        """Create from dictionary."""
-        raw_scope = data.get("sandbox_scope", SandboxScope.AGENT.value)
+        """Create from dictionary.
+
+        Accepts both backend-native keys and frontend alias keys:
+        - ``sandbox_scope`` (backend) or ``type`` (frontend) for sandbox scope
+        - ``base_path`` (backend) or ``base_dir`` (frontend) for workspace root
+
+        Backend-native keys take precedence when both are present.
+        """
+        # Resolve sandbox scope: prefer backend key, fall back to frontend alias
+        if "sandbox_scope" in data:
+            raw_scope = data["sandbox_scope"]
+        elif "type" in data and data["type"] in _FRONTEND_TYPE_TO_SCOPE:
+            raw_scope = _FRONTEND_TYPE_TO_SCOPE[data["type"]]
+        else:
+            raw_scope = SandboxScope.AGENT.value
+
         scope = SandboxScope(raw_scope) if isinstance(raw_scope, str) else raw_scope
+
+        # Resolve base path: prefer backend key, fall back to frontend alias
+        base_path = data.get("base_path") or data.get("base_dir", "")
+
         return cls(
-            base_path=data.get("base_path", ""),
+            base_path=base_path,
             max_size_mb=data.get("max_size_mb", 100),
             persona_files=data.get("persona_files", []),
             shared_files=data.get("shared_files", []),

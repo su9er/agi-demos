@@ -40,6 +40,37 @@ router = APIRouter(prefix="/api/v1/subagents", tags=["SubAgents"])
 # === Pydantic Models ===
 
 
+class SpawnPolicySchema(BaseModel):
+    """Schema for spawn policy configuration."""
+
+    max_depth: int = Field(2, ge=0, le=32, description="Maximum nesting depth")
+    max_active_runs: int = Field(16, ge=1, le=32, description="Global cap on concurrent runs")
+    max_children_per_requester: int = Field(
+        8, ge=1, le=16, description="Per-parent cap on active children"
+    )
+    allowed_subagents: list[str] | None = Field(
+        None, description="SubAgent IDs that can spawn this one (None = all)"
+    )
+
+
+class ToolPolicySchema(BaseModel):
+    """Schema for tool policy configuration."""
+
+    allow: list[str] = Field(default_factory=list, description="Tools to explicitly allow")
+    deny: list[str] = Field(default_factory=list, description="Tools to explicitly deny")
+    precedence: str = Field(
+        "deny_first", pattern="^(allow_first|deny_first)$", description="Conflict resolution mode"
+    )
+
+
+class AgentIdentitySchema(BaseModel):
+    """Schema for agent identity configuration."""
+
+    name: str | None = Field(None, description="Identity name")
+    description: str | None = Field(None, description="Identity description")
+    metadata: dict[str, str] | None = Field(None, description="Identity metadata")
+
+
 class SubAgentCreate(BaseModel):
     """Schema for creating a new subagent."""
 
@@ -59,6 +90,10 @@ class SubAgentCreate(BaseModel):
     max_iterations: int = Field(10, ge=1, le=50, description="Max ReAct iterations")
     project_id: str | None = Field(None, description="Optional project ID")
     metadata: dict[str, Any] | None = Field(None, description="Optional metadata")
+    # Multi-agent policy fields
+    spawn_policy: SpawnPolicySchema | None = Field(None, description="Spawn policy configuration")
+    tool_policy: ToolPolicySchema | None = Field(None, description="Tool policy configuration")
+    identity: AgentIdentitySchema | None = Field(None, description="Agent identity configuration")
 
 
 class SubAgentUpdate(BaseModel):
@@ -79,6 +114,10 @@ class SubAgentUpdate(BaseModel):
     temperature: float | None = Field(None, ge=0.0, le=2.0)
     max_iterations: int | None = Field(None, ge=1, le=50)
     metadata: dict[str, Any] | None = Field(None)
+    # Multi-agent policy fields
+    spawn_policy: SpawnPolicySchema | None = Field(None, description="Spawn policy configuration")
+    tool_policy: ToolPolicySchema | None = Field(None, description="Tool policy configuration")
+    identity: AgentIdentitySchema | None = Field(None, description="Agent identity configuration")
 
 
 class SubAgentResponse(BaseModel):
@@ -108,6 +147,10 @@ class SubAgentResponse(BaseModel):
     metadata: dict[str, Any] | None
     source: str = "database"
     file_path: str | None = None
+    # Multi-agent policy fields
+    spawn_policy: SpawnPolicySchema | None = None
+    tool_policy: ToolPolicySchema | None = None
+    identity: AgentIdentitySchema | None = None
 
 
 class SubAgentListResponse(BaseModel):
@@ -442,8 +485,8 @@ async def list_filesystem_subagents(
     return FilesystemSubAgentListResponse(
         subagents=subagents,
         total=len(subagents),
-        scanned_dirs=[str(d) for d in result.scanned_dirs]
-        if hasattr(result, "scanned_dirs")
+        scanned_dirs=[str(d) for d in getattr(result, "scanned_dirs", [])]
+        if getattr(result, "scanned_dirs", None)
         else [],
         errors=result.errors,
     )

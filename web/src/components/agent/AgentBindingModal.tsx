@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Modal, Form, Input, InputNumber, Select, message } from 'antd';
+import { Modal, Form, Input, InputNumber, Progress, Select, Tag, message } from 'antd';
 
 import {
   useCreateBinding,
@@ -30,6 +30,43 @@ const CHANNEL_TYPES = [
   { value: 'api', label: 'API' },
 ];
 
+interface FormValues {
+  agent_id?: string;
+  channel_type?: string;
+  channel_id?: string;
+  account_id?: string;
+  peer_id?: string;
+  group_id?: string;
+  priority?: number;
+}
+
+/**
+ * Calculate specificity score client-side based on field presence.
+ * Matches backend AgentBinding.specificity_score logic:
+ * - peer_id: +8
+ * - account_id: +4
+ * - channel_id: +2
+ * - channel_type: +1
+ * - plus priority
+ */
+function calculateSpecificityScore(values: FormValues): number {
+  let score = 0;
+  if (values.peer_id) score += 8;
+  if (values.account_id) score += 4;
+  if (values.channel_id) score += 2;
+  if (values.channel_type && values.channel_type !== 'default') score += 1;
+  score += values.priority ?? 0;
+  return score;
+}
+
+function getSpecificityLabel(score: number): { label: string; color: string } {
+  if (score >= 10) return { label: 'Very High', color: 'green' };
+  if (score >= 6) return { label: 'High', color: 'lime' };
+  if (score >= 3) return { label: 'Medium', color: 'gold' };
+  if (score >= 1) return { label: 'Low', color: 'orange' };
+  return { label: 'Minimal', color: 'default' };
+}
+
 export const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
   isOpen,
   onClose,
@@ -43,6 +80,15 @@ export const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
   const createBinding = useCreateBinding();
   const definitions = useDefinitions();
   const listDefinitions = useListDefinitions();
+
+  // Watch form values for specificity score calculation
+  const formValues = Form.useWatch([], form) as FormValues | undefined;
+  const specificityScore = useMemo(() => {
+    if (!formValues) return 0;
+    return calculateSpecificityScore(formValues);
+  }, [formValues]);
+
+  const specificityInfo = useMemo(() => getSpecificityLabel(specificityScore), [specificityScore]);
 
   useEffect(() => {
     if (isOpen && !definitionsLoaded) {
@@ -67,6 +113,9 @@ export const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
         agent_id: values.agent_id,
         channel_type: values.channel_type === 'default' ? undefined : values.channel_type,
         channel_id: values.channel_id || undefined,
+        account_id: values.account_id || undefined,
+        peer_id: values.peer_id || undefined,
+        group_id: values.group_id || undefined,
         priority: values.priority,
       };
       await createBinding(data);
@@ -93,7 +142,7 @@ export const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
       okText={t('common.create', 'Create')}
       cancelText={t('common.cancel', 'Cancel')}
       confirmLoading={isSubmitting}
-      width={520}
+      width={560}
       destroyOnHidden
     >
       <Form form={form} layout="vertical" className="mt-4">
@@ -157,6 +206,54 @@ export const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
         </Form.Item>
 
         <Form.Item
+          name="account_id"
+          label={t('tenant.agentBindings.modal.accountId', 'Account ID')}
+          tooltip={t(
+            'tenant.agentBindings.modal.accountIdTooltip',
+            'Optional: bind to a specific user account'
+          )}
+        >
+          <Input
+            placeholder={t(
+              'tenant.agentBindings.modal.accountIdPlaceholder',
+              'Optional: user account identifier'
+            )}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="peer_id"
+          label={t('tenant.agentBindings.modal.peerId', 'Peer ID')}
+          tooltip={t(
+            'tenant.agentBindings.modal.peerIdTooltip',
+            'Optional: bind to a specific peer identity (highest specificity)'
+          )}
+        >
+          <Input
+            placeholder={t(
+              'tenant.agentBindings.modal.peerIdPlaceholder',
+              'Optional: peer identifier'
+            )}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="group_id"
+          label={t('tenant.agentBindings.modal.groupId', 'Group ID')}
+          tooltip={t(
+            'tenant.agentBindings.modal.groupIdTooltip',
+            'Optional: group bindings for broadcast routing (all agents in group receive messages)'
+          )}
+        >
+          <Input
+            placeholder={t(
+              'tenant.agentBindings.modal.groupIdPlaceholder',
+              'Optional: broadcast group identifier'
+            )}
+          />
+        </Form.Item>
+
+        <Form.Item
           name="priority"
           label={t('tenant.agentBindings.modal.priority', 'Priority')}
           tooltip={t(
@@ -167,6 +264,38 @@ export const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
         >
           <InputNumber min={-100} max={100} className="w-full" />
         </Form.Item>
+
+        {/* Specificity Score Preview */}
+        <div className="mt-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              {t('tenant.agentBindings.modal.specificityPreview', 'Specificity Preview')}
+            </span>
+            <Tag color={specificityInfo.color}>{specificityInfo.label}</Tag>
+          </div>
+          <div className="flex items-center gap-3">
+            <Progress
+              percent={Math.min(100, (specificityScore / 15) * 100)}
+              showInfo={false}
+              size="small"
+              className="flex-1"
+              strokeColor={{
+                '0%': '#ff7a45',
+                '50%': '#52c41a',
+                '100%': '#1890ff',
+              }}
+            />
+            <span className="text-sm font-mono text-slate-600 dark:text-slate-400 w-8 text-right">
+              {specificityScore}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+            {t(
+              'tenant.agentBindings.modal.specificityHint',
+              'Higher specificity = higher routing priority. Add more specific fields to increase score.'
+            )}
+          </p>
+        </div>
       </Form>
     </Modal>
   );

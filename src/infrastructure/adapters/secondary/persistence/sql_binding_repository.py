@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, override
 
 from sqlalchemy import delete, select
 from sqlalchemy.engine import CursorResult
@@ -33,6 +33,7 @@ class SqlAgentBindingRepository(
         super().__init__(session)
         self._session = session
 
+    @override
     async def create(self, binding: AgentBinding) -> AgentBinding:
         from src.infrastructure.adapters.secondary.persistence.models import (
             AgentBindingModel,
@@ -57,6 +58,7 @@ class SqlAgentBindingRepository(
 
         return binding
 
+    @override
     async def get_by_id(self, binding_id: str) -> AgentBinding | None:
         from src.infrastructure.adapters.secondary.persistence.models import (
             AgentBindingModel,
@@ -68,19 +70,21 @@ class SqlAgentBindingRepository(
         db_binding = result.scalar_one_or_none()
         return self._to_domain(db_binding) if db_binding else None
 
-    async def delete(self, binding_id: str) -> bool:
+    @override
+    async def delete(self, entity_id: str) -> bool:  # type: ignore[override]
         from src.infrastructure.adapters.secondary.persistence.models import (
             AgentBindingModel,
         )
 
         result = await self._session.execute(
-            delete(AgentBindingModel).where(AgentBindingModel.id == binding_id)
+            delete(AgentBindingModel).where(AgentBindingModel.id == entity_id)
         )
 
         if cast(CursorResult[Any], result).rowcount == 0:
-            raise ValueError(f"AgentBinding not found: {binding_id}")
+            raise ValueError(f"AgentBinding not found: {entity_id}")
         return True
 
+    @override
     async def list_by_agent(
         self,
         agent_id: str,
@@ -102,6 +106,7 @@ class SqlAgentBindingRepository(
 
         return [d for b in db_bindings if (d := self._to_domain(b)) is not None]
 
+    @override
     async def list_by_tenant(
         self,
         tenant_id: str,
@@ -123,6 +128,7 @@ class SqlAgentBindingRepository(
 
         return [d for b in db_bindings if (d := self._to_domain(b)) is not None]
 
+    @override
     async def resolve_binding(
         self,
         tenant_id: str,
@@ -167,6 +173,7 @@ class SqlAgentBindingRepository(
 
         return best
 
+    @override
     async def set_enabled(
         self,
         binding_id: str,
@@ -192,6 +199,100 @@ class SqlAgentBindingRepository(
         assert domain is not None
         return domain
 
+    @override
+    @override
+    async def resolve_binding_with_trace(
+        self,
+        tenant_id: str,
+        channel_type: str | None = None,
+        channel_id: str | None = None,
+        account_id: str | None = None,
+        peer_id: str | None = None,
+    ) -> tuple[AgentBinding | None, list[dict[str, object]]]:
+        from src.infrastructure.adapters.secondary.persistence.models import (
+            AgentBindingModel,
+        )
+
+        query = (
+            select(AgentBindingModel)
+            .where(AgentBindingModel.tenant_id == tenant_id)
+            .where(AgentBindingModel.enabled.is_(True))
+        )
+
+        if channel_type is not None:
+            query = query.where(AgentBindingModel.channel_type.in_([channel_type, None]))
+
+        result = await self._session.execute(query)
+        db_bindings = result.scalars().all()
+
+        candidates = [d for b in db_bindings if (d := self._to_domain(b)) is not None]
+
+        trace: list[dict[str, object]] = []
+        best: AgentBinding | None = None
+        best_score = -1
+
+        for candidate in candidates:
+            entry: dict[str, object] = {
+                "binding_id": candidate.id,
+                "agent_id": candidate.agent_id,
+                "specificity_score": candidate.specificity_score,
+                "channel_type": candidate.channel_type,
+                "channel_id": candidate.channel_id,
+                "account_id": candidate.account_id,
+                "peer_id": candidate.peer_id,
+                "priority": candidate.priority,
+                "eliminated": False,
+                "elimination_reason": None,
+                "selected": False,
+            }
+
+            if candidate.channel_id is not None and candidate.channel_id != channel_id:
+                entry["eliminated"] = True
+                entry["elimination_reason"] = (
+                    f"channel_id mismatch: binding={candidate.channel_id}, request={channel_id}"
+                )
+                trace.append(entry)
+                continue
+
+            if candidate.account_id is not None and candidate.account_id != account_id:
+                entry["eliminated"] = True
+                entry["elimination_reason"] = (
+                    f"account_id mismatch: binding={candidate.account_id}, request={account_id}"
+                )
+                trace.append(entry)
+                continue
+
+            if candidate.peer_id is not None and candidate.peer_id != peer_id:
+                entry["eliminated"] = True
+                entry["elimination_reason"] = (
+                    f"peer_id mismatch: binding={candidate.peer_id}, request={peer_id}"
+                )
+                trace.append(entry)
+                continue
+
+            entry["eliminated"] = False
+            score = candidate.specificity_score
+            if score > best_score:
+                best_score = score
+                best = candidate
+
+            trace.append(entry)
+
+        for entry in trace:
+            if not entry["eliminated"] and best is not None and entry["binding_id"] == best.id:
+                entry["selected"] = True
+
+        trace.sort(
+            key=lambda e: (
+                not bool(e["selected"]),
+                bool(e.get("eliminated", False)),
+                -(int(e.get("specificity_score", 0) or 0)),  # type: ignore[arg-type]
+            )
+        )
+
+        return best, trace
+
+    @override
     async def find_by_group(
         self,
         tenant_id: str,
@@ -213,20 +314,21 @@ class SqlAgentBindingRepository(
 
         return [d for b in db_bindings if (d := self._to_domain(b)) is not None]
 
-    def _to_domain(self, db_binding: AgentBindingModel | None) -> AgentBinding | None:
-        if db_binding is None:
+    @override
+    def _to_domain(self, db_model: AgentBindingModel | None) -> AgentBinding | None:  # type: ignore[override]
+        if db_model is None:
             return None
 
         return AgentBinding(
-            id=db_binding.id,
-            tenant_id=db_binding.tenant_id,
-            agent_id=db_binding.agent_id,
-            channel_type=db_binding.channel_type,
-            channel_id=db_binding.channel_id,
-            account_id=db_binding.account_id,
-            peer_id=db_binding.peer_id,
-            group_id=db_binding.group_id,
-            priority=db_binding.priority,
-            enabled=db_binding.enabled,
-            created_at=db_binding.created_at,
+            id=db_model.id,
+            tenant_id=db_model.tenant_id,
+            agent_id=db_model.agent_id,
+            channel_type=db_model.channel_type,
+            channel_id=db_model.channel_id,
+            account_id=db_model.account_id,
+            peer_id=db_model.peer_id,
+            group_id=db_model.group_id,
+            priority=db_model.priority,
+            enabled=db_model.enabled,
+            created_at=db_model.created_at,
         )

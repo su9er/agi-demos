@@ -1801,7 +1801,7 @@ export function createStreamEventHandlers(
       if (!convState) return;
       const updatedTimeline = appendSSEEventToTimeline(convState.timeline, event);
       const d = event.data;
-      useGraphStore.getState().runCompleted(d.graph_run_id, d.total_steps, d.duration_seconds);
+      useGraphStore.getState().runCompleted(d.graph_run_id, d.total_steps, d.duration_seconds ?? null);
       updateConversationState(handlerConversationId, { timeline: updatedTimeline });
     },
 
@@ -1811,7 +1811,7 @@ export function createStreamEventHandlers(
       if (!convState) return;
       const updatedTimeline = appendSSEEventToTimeline(convState.timeline, event);
       const d = event.data;
-      useGraphStore.getState().runFailed(d.graph_run_id, d.error_message, d.failed_node_id);
+      useGraphStore.getState().runFailed(d.graph_run_id, d.error_message, d.failed_node_id ?? null);
       updateConversationState(handlerConversationId, { timeline: updatedTimeline });
     },
 
@@ -1838,7 +1838,7 @@ export function createStreamEventHandlers(
           d.node_id,
           d.node_label,
           d.agent_definition_id,
-          d.agent_session_id
+          d.agent_session_id ?? null
         );
       updateConversationState(handlerConversationId, { timeline: updatedTimeline });
     },
@@ -1851,7 +1851,7 @@ export function createStreamEventHandlers(
       const d = event.data;
       useGraphStore
         .getState()
-        .nodeCompleted(d.graph_run_id, d.node_id, d.output_keys, d.duration_seconds);
+        .nodeCompleted(d.graph_run_id, d.node_id, d.output_keys, d.duration_seconds ?? null);
       updateConversationState(handlerConversationId, { timeline: updatedTimeline });
     },
 

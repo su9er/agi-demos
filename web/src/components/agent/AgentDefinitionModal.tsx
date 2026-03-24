@@ -136,6 +136,12 @@ export const AgentDefinitionModal: React.FC<AgentDefinitionModalProps> = ({
           agent_to_agent_enabled: definition.agent_to_agent_enabled,
           discoverable: definition.discoverable,
           max_retries: definition.max_retries,
+          workspace_config: definition.workspace_config ?? { type: 'shared' },
+          spawn_policy_max_active_runs: definition.metadata?.spawn_policy_max_active_runs,
+          spawn_policy_max_children_per_requester: definition.metadata?.spawn_policy_max_children_per_requester,
+          spawn_policy_allowed_subagents: definition.metadata?.spawn_policy_allowed_subagents,
+          tool_policy_allow: definition.metadata?.tool_policy_allow,
+          tool_policy_deny: definition.metadata?.tool_policy_deny,
         });
         setKeywords(definition.trigger?.keywords ?? []);
       } else {
@@ -176,6 +182,15 @@ export const AgentDefinitionModal: React.FC<AgentDefinitionModalProps> = ({
           agent_to_agent_enabled: values.agent_to_agent_enabled,
           discoverable: values.discoverable,
           max_retries: values.max_retries,
+          workspace_config: values.workspace_config,
+          metadata: {
+            ...(definition.metadata || {}),
+            spawn_policy_max_active_runs: values.spawn_policy_max_active_runs,
+            spawn_policy_max_children_per_requester: values.spawn_policy_max_children_per_requester,
+            spawn_policy_allowed_subagents: values.spawn_policy_allowed_subagents,
+            tool_policy_allow: values.tool_policy_allow,
+            tool_policy_deny: values.tool_policy_deny,
+          },
         };
         await updateDefinition(definition.id, data);
         message.success(t('tenant.agentDefinitions.messages.updateSuccess', 'Agent definition updated'));
@@ -197,6 +212,14 @@ export const AgentDefinitionModal: React.FC<AgentDefinitionModalProps> = ({
           agent_to_agent_enabled: values.agent_to_agent_enabled,
           discoverable: values.discoverable,
           max_retries: values.max_retries,
+          workspace_config: values.workspace_config,
+          metadata: {
+            spawn_policy_max_active_runs: values.spawn_policy_max_active_runs,
+            spawn_policy_max_children_per_requester: values.spawn_policy_max_children_per_requester,
+            spawn_policy_allowed_subagents: values.spawn_policy_allowed_subagents,
+            tool_policy_allow: values.tool_policy_allow,
+            tool_policy_deny: values.tool_policy_deny,
+          },
         };
         await createDefinition(data);
         message.success(t('tenant.agentDefinitions.messages.createSuccess', 'Agent definition created'));
@@ -472,6 +495,90 @@ export const AgentDefinitionModal: React.FC<AgentDefinitionModalProps> = ({
             >
               <InputNumber min={1} max={50} className="w-full" />
             </Form.Item>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'sandbox',
+      label: t('tenant.agentDefinitions.modal.sandboxIsolation', 'Sandbox & Isolation'),
+      children: (
+        <div className="space-y-6">
+          <div>
+            <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+              {t('tenant.agentDefinitions.modal.spawnPolicy', 'Spawn Policy')}
+            </h4>
+            <div className="grid grid-cols-2 gap-4">
+              <Form.Item
+                name="spawn_policy_max_active_runs"
+                label={t('tenant.agentDefinitions.modal.maxActiveRuns', 'Max Active Runs')}
+                tooltip={t('tenant.agentDefinitions.modal.maxActiveRunsTooltip', 'Maximum number of active subagent runs')}
+              >
+                <InputNumber min={0} className="w-full" />
+              </Form.Item>
+              <Form.Item
+                name="spawn_policy_max_children_per_requester"
+                label={t('tenant.agentDefinitions.modal.maxChildrenPerRequester', 'Max Children Per Requester')}
+                tooltip={t('tenant.agentDefinitions.modal.maxChildrenPerRequesterTooltip', 'Maximum subagents allowed per requester')}
+              >
+                <InputNumber min={0} className="w-full" />
+              </Form.Item>
+            </div>
+            <Form.Item
+              name="spawn_policy_allowed_subagents"
+              label={t('tenant.agentDefinitions.modal.allowedSubagents', 'Allowed Subagents')}
+              tooltip={t('tenant.agentDefinitions.modal.allowedSubagentsTooltip', 'Allowed subagent names or IDs')}
+            >
+              <Select mode="tags" placeholder={t('common.add', 'Add...')} />
+            </Form.Item>
+          </div>
+
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+            <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+              {t('tenant.agentDefinitions.modal.workspaceConfig', 'Workspace Config')}
+            </h4>
+            <div className="grid grid-cols-2 gap-4">
+              <Form.Item
+                name={['workspace_config', 'type']}
+                label={t('tenant.agentDefinitions.modal.workspaceType', 'Workspace Type')}
+                initialValue="shared"
+              >
+                <Select>
+                  <Option value="shared">Shared</Option>
+                  <Option value="isolated">Isolated</Option>
+                  <Option value="inherited">Inherited</Option>
+                </Select>
+              </Form.Item>
+              <Form.Item
+                name={['workspace_config', 'base_dir']}
+                label={t('tenant.agentDefinitions.modal.workspaceBaseDir', 'Base Directory')}
+                tooltip={t('tenant.agentDefinitions.modal.workspaceBaseDirTooltip', 'Custom workspace directory path')}
+              >
+                <Input placeholder="/path/to/dir" />
+              </Form.Item>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+            <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+              {t('tenant.agentDefinitions.modal.toolPolicy', 'Tool Policy')}
+            </h4>
+            <div className="grid grid-cols-2 gap-4">
+              <Form.Item
+                name="tool_policy_allow"
+                label={t('tenant.agentDefinitions.modal.toolPolicyAllow', 'Allow List')}
+                tooltip={t('tenant.agentDefinitions.modal.toolPolicyAllowTooltip', 'Allowed tool patterns')}
+              >
+                <Select mode="tags" placeholder={t('common.add', 'Add...')} />
+              </Form.Item>
+              <Form.Item
+                name="tool_policy_deny"
+                label={t('tenant.agentDefinitions.modal.toolPolicyDeny', 'Deny List')}
+                tooltip={t('tenant.agentDefinitions.modal.toolPolicyDenyTooltip', 'Denied tool patterns')}
+              >
+                <Select mode="tags" placeholder={t('common.add', 'Add...')} />
+              </Form.Item>
+            </div>
           </div>
         </div>
       ),

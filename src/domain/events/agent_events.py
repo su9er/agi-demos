@@ -64,6 +64,7 @@ __all__ = [
     "SubAgentAnnounceRetryEvent",
     "SubAgentAnnounceSentEvent",
     "SubAgentCompletedEvent",
+    "SubAgentDelegationEvent",
     "SubAgentDepthLimitedEvent",
     "SubAgentDoomLoopEvent",
     "SubAgentFailedEvent",
@@ -1266,6 +1267,22 @@ class ToolPolicyDeniedEvent(AgentDomainEvent):
     tool_name: str
     policy_layer: str = ""
     denial_reason: str = ""
+
+
+class SubAgentDelegationEvent(AgentDomainEvent):
+    """Event: Main agent delegates a task to a SubAgent.
+
+    Emitted when the main agent decides to delegate a task to a specialized
+    SubAgent. This provides UX visibility into the delegation flow.
+    """
+
+    event_type: AgentEventType = AgentEventType.SUBAGENT_DELEGATION
+    conversation_id: str
+    from_agent_id: str | None  # None = main agent
+    to_subagent_id: str
+    to_subagent_name: str
+    trigger_type: str  # 'keyword' | 'semantic' | 'explicit'
+    task_description: str
 
 
 class AgentSpawnedEvent(AgentDomainEvent):

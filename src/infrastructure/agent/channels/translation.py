@@ -43,6 +43,8 @@ def domain_to_channel_message(
     metadata["chat_type"] = msg.chat_type.value
     if msg.sender.name:
         metadata["sender_name"] = msg.sender.name
+    if msg.chat_type == ChatType.P2P and msg.sender.id:
+        metadata["peer_id"] = msg.sender.id
 
     conversation_id: str | None = None
     if msg.raw_data and "conversation_id" in msg.raw_data:

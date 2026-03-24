@@ -322,6 +322,76 @@ async def _handle_context(
     return ReplyResult(text="\n".join(lines))
 
 
+async def _handle_spawn(
+    invocation: CommandInvocation,
+    context: dict[str, Any],
+) -> CommandResult:
+    """Spawn a task on a sub-agent via /spawn <agent> <task>."""
+    raw = invocation.raw_args_text.strip()
+    if not raw:
+        return ReplyResult(
+            text="Usage: /spawn <subagent_name> <task description>",
+            level="warning",
+        )
+
+    parts = raw.split(maxsplit=1)
+    if len(parts) < 2:
+        return ReplyResult(
+            text="Usage: /spawn <subagent_name> <task description>",
+            level="warning",
+        )
+
+    agent_name, task = parts
+    return ToolCallResult(
+        tool_name="delegate_to_subagent",
+        args={"subagent_name": agent_name, "task": task},
+    )
+
+
+async def _handle_kill(
+    invocation: CommandInvocation,
+    context: dict[str, Any],
+) -> CommandResult:
+    """Kill a running sub-agent via /kill <target>."""
+    target = invocation.raw_args_text.strip()
+    if not target:
+        return ReplyResult(
+            text="Usage: /kill <run_id | #index | label:tag | all>",
+            level="warning",
+        )
+
+    return ToolCallResult(
+        tool_name="subagents_v2",
+        args={"action": "kill", "target": target},
+    )
+
+
+async def _handle_steer(
+    invocation: CommandInvocation,
+    context: dict[str, Any],
+) -> CommandResult:
+    """Steer a running sub-agent via /steer <target> <instruction>."""
+    raw = invocation.raw_args_text.strip()
+    if not raw:
+        return ReplyResult(
+            text="Usage: /steer <run_id | #index | label:tag> <instruction>",
+            level="warning",
+        )
+
+    parts = raw.split(maxsplit=1)
+    if len(parts) < 2:
+        return ReplyResult(
+            text="Usage: /steer <target> <instruction>",
+            level="warning",
+        )
+
+    target, instruction = parts
+    return ToolCallResult(
+        tool_name="subagents_v2",
+        args={"action": "steer", "target": target, "instruction": instruction},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -555,5 +625,36 @@ def register_builtin_commands(registry: CommandRegistry) -> None:
             category=CommandCategory.AGENT,
             scope=CommandScope.BOTH,
             handler=_handle_context,
+        )
+    )
+
+    registry.register(
+        CommandDefinition(
+            name="spawn",
+            description="Delegate a task to a sub-agent",
+            category=CommandCategory.AGENT,
+            scope=CommandScope.CHAT,
+            aliases=["delegate"],
+            handler=_handle_spawn,
+        )
+    )
+
+    registry.register(
+        CommandDefinition(
+            name="kill",
+            description="Kill a running sub-agent",
+            category=CommandCategory.AGENT,
+            scope=CommandScope.CHAT,
+            handler=_handle_kill,
+        )
+    )
+
+    registry.register(
+        CommandDefinition(
+            name="steer",
+            description="Send steering instruction to a running sub-agent",
+            category=CommandCategory.AGENT,
+            scope=CommandScope.CHAT,
+            handler=_handle_steer,
         )
     )

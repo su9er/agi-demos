@@ -133,6 +133,7 @@ export function TenantAgentConfigEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [multiAgentEnabled, setMultiAgentEnabled] = useState(false);
 
   // Load initial config if not provided
   useEffect(() => {
@@ -143,6 +144,7 @@ export function TenantAgentConfigEditor({
       setError(null);
       try {
         const config = initialConfig || (await agentConfigService.getConfig(tenantId));
+        setMultiAgentEnabled(config.multi_agent_enabled ?? false);
         form.setFieldsValue({
           llm_model: config.llm_model,
           llm_temperature: config.llm_temperature,
@@ -336,6 +338,18 @@ export function TenantAgentConfigEditor({
             tooltip="Enable work-level and task-level thinking for complex queries"
           >
             <Checkbox>Enable Multi-Level Thinking</Checkbox>
+          </Form.Item>
+
+          <Form.Item
+            label="Multi-Agent Routing"
+            tooltip="System-level setting controlled by MULTI_AGENT_ENABLED environment variable"
+          >
+            <Space>
+              <Tag color={multiAgentEnabled ? 'green' : 'default'}>
+                {multiAgentEnabled ? 'Enabled' : 'Disabled'}
+              </Tag>
+              <Text type="secondary">System-level setting (MULTI_AGENT_ENABLED env var)</Text>
+            </Space>
           </Form.Item>
 
           {/* Limits Section */}

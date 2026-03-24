@@ -133,7 +133,12 @@ export const useSubAgentStore = create<SubAgentState>()(
           const { filters } = get();
           const queryParams = {
             ...params,
-            enabled_only: filters.enabled === true ? true : undefined,
+            enabled_only:
+              params.enabled_only !== undefined
+                ? params.enabled_only
+                : filters.enabled === true
+                  ? true
+                  : undefined,
           };
           const response = await subagentAPI.list(queryParams);
           set({

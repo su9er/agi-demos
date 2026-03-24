@@ -529,6 +529,7 @@ class AgentServiceImpl implements AgentService {
       forced_skill_name,
       app_model_context,
       image_attachments,
+      agent_id,
     } = request;
 
     if (!this.isConnected()) {
@@ -547,6 +548,7 @@ class AgentServiceImpl implements AgentService {
       forced_skill_name,
       app_model_context,
       image_attachments,
+      agent_id,
     });
 
     if (!sent) {

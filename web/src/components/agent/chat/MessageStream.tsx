@@ -157,7 +157,7 @@ export function UserMessage({ content, forcedSkillName, fileMetadata }: UserMess
  */
 export interface AgentSectionProps {
   /** Icon type */
-  icon?: 'psychology' | 'construction' | 'auto_awesome' | undefined;
+  icon?: 'psychology' | 'construction' | 'auto_awesome' | 'smart_toy' | undefined;
   /** Icon background color */
   iconBg?: string | undefined;
   /** Icon color */

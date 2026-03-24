@@ -9,10 +9,11 @@
  * - Plan mode toggle
  */
 
-import { useState, useRef, useCallback, useEffect, memo } from 'react';
+import { useState, useRef, useCallback, useEffect, memo, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { Popover } from 'antd';
 import {
   Send,
   Square,
@@ -34,9 +35,13 @@ import {
   Terminal,
   ListChecks,
   Workflow,
+  Bot,
+  CheckCircle2,
 } from 'lucide-react';
 
+
 import { useAgentV3Store } from '@/stores/agentV3';
+import { useSubAgentStore } from '@/stores/subagent';
 import { useVoiceCallStore } from '@/stores/voiceCallStore';
 
 import type { MentionItem } from '@/services/mentionService';
@@ -56,6 +61,7 @@ import { VoiceCallPanel } from './chat/VoiceCallPanel';
 import { VoiceWaveform } from './chat/VoiceWaveform';
 import { useFileUpload, type PendingAttachment } from './FileUploader';
 import { SlashCommandDropdown } from './SlashCommandDropdown';
+import { AgentSwitcher } from './AgentSwitcher';
 
 import type { SkillResponse, SlashItem } from '@/types/agent';
 
@@ -77,6 +83,8 @@ interface InputBarProps {
   projectId?: string | undefined;
   onTogglePlanMode?: (() => void) | undefined;
   isPlanMode?: boolean | undefined;
+  activeAgentId?: string | undefined;
+  onAgentSelect?: ((agentId: string) => void) | undefined;
 }
 
 const getFileIcon = (mimeType: string) => {
@@ -93,7 +101,7 @@ const formatSize = (bytes: number) => {
 };
 
 export const InputBar = memo<InputBarProps>(
-  ({ onSend, onAbort, isStreaming, disabled, projectId, onTogglePlanMode, isPlanMode }) => {
+  ({ onSend, onAbort, isStreaming, disabled, projectId, onTogglePlanMode, isPlanMode, activeAgentId, onAgentSelect }) => {
     const { t } = useTranslation();
     const [content, setContent] = useState('');
     const [inputMode, setInputMode] = useState<'chat' | 'command'>('chat');
@@ -105,6 +113,7 @@ export const InputBar = memo<InputBarProps>(
     const [slashQuery, setSlashQuery] = useState('');
     const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
     const [templateLibraryVisible, setTemplateLibraryVisible] = useState(false);
+    const [subagentPickerOpen, setSubagentPickerOpen] = useState(false);
     const [mentionVisible, setMentionVisible] = useState(false);
     const [mentionQuery, setMentionQuery] = useState('');
     const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
@@ -114,7 +123,9 @@ export const InputBar = memo<InputBarProps>(
     const slashDropdownRef = useRef<SlashCommandDropdownHandle>(null);
     const dragCounter = useRef(0);
     const contentRef = useRef(content);
-    contentRef.current = content;
+    useEffect(() => {
+      contentRef.current = content;
+    }, [content]);
 
     const activeConversationId = useAgentV3Store((state) => state.activeConversationId);
     const activeModelOverride = useAgentV3Store((state) => {
@@ -127,6 +138,14 @@ export const InputBar = memo<InputBarProps>(
       const trimmed = raw.trim();
       return trimmed.length > 0 ? trimmed : null;
     });
+
+    const subagents = useSubAgentStore((s) => s.subagents);
+    const listSubAgents = useSubAgentStore((s) => s.listSubAgents);
+
+    useEffect(() => {
+      void listSubAgents({ enabled_only: true });
+    }, [listSubAgents]);
+
     const voiceCallStatus = useVoiceCallStore((state) => state.status);
 
     const isCameraOn = useVoiceCallStore((state) => state.isCameraOn);
@@ -554,6 +573,55 @@ export const InputBar = memo<InputBarProps>(
 
     const charCount = content.length;
 
+    const subagentPickerContent = useMemo(
+      () => (
+        <div className="w-56 max-h-64 overflow-y-auto py-1">
+          {subagents.length === 0 ? (
+            <div className="px-3 py-4 text-center text-xs text-slate-400">
+              No SubAgents available
+            </div>
+          ) : (
+            subagents.map((sa) => (
+              <button
+                key={sa.id}
+                type="button"
+                onClick={() => {
+                  if (selectedSubAgent === sa.name) {
+                    setSelectedSubAgent(null);
+                  } else {
+                    setSelectedSubAgent(sa.name);
+                  }
+                  setSubagentPickerOpen(false);
+                }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors flex items-center gap-2 ${
+                  selectedSubAgent === sa.name
+                    ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+                    : 'text-slate-700 dark:text-slate-300'
+                }`}
+              >
+                <Bot
+                  size={14}
+                  className={selectedSubAgent === sa.name ? 'text-purple-500' : 'text-slate-400'}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{sa.display_name || sa.name}</div>
+                  {sa.trigger?.description && (
+                    <div className="text-[10px] text-slate-400 truncate">
+                      {sa.trigger.description}
+                    </div>
+                  )}
+                </div>
+                {selectedSubAgent === sa.name && (
+                  <CheckCircle2 size={14} className="text-purple-500 shrink-0" />
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      ),
+      [subagents, selectedSubAgent]
+    );
+
     return (
       <div className="h-full flex flex-col p-4">
         {/* Plan Mode indicator */}
@@ -836,6 +904,40 @@ export const InputBar = memo<InputBarProps>(
                 projectId={projectId}
                 disabled={!!(isStreaming || disabled)}
               />
+
+              {onAgentSelect && (
+                <AgentSwitcher
+                  activeAgentId={activeAgentId}
+                  onSelect={onAgentSelect}
+                  className="h-8"
+                />
+              )}
+
+              <Popover
+                content={subagentPickerContent}
+                trigger="click"
+                open={subagentPickerOpen}
+                onOpenChange={setSubagentPickerOpen}
+                placement="topLeft"
+                arrow={false}
+                styles={{ content: { padding: 0 } }}
+              >
+                <LazyTooltip title={selectedSubAgent ? `SubAgent: ${selectedSubAgent}` : 'Choose SubAgent'}>
+                  <button
+                    type="button"
+                    disabled={!!(isStreaming || disabled)}
+                    className={`
+                      flex items-center justify-center h-8 w-8 rounded-lg transition-all
+                      ${selectedSubAgent
+                        ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-900/50'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 disabled:opacity-40'
+                      }
+                    `}
+                  >
+                    <Bot size={16} />
+                  </button>
+                </LazyTooltip>
+              </Popover>
 
               <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1.5" />
 

@@ -19,6 +19,7 @@ import {
   Tag,
   message,
   Slider,
+  Radio,
 } from 'antd';
 import { X } from 'lucide-react';
 
@@ -34,6 +35,9 @@ import type {
   SkillResponse,
   MCPServerResponse,
   ToolInfo,
+  SpawnPolicyConfig,
+  ToolPolicyConfig,
+  AgentIdentityConfig,
 } from '../../types/agent';
 import type { Color } from 'antd/es/color-picker';
 
@@ -45,6 +49,7 @@ interface SubAgentModalProps {
   onClose: () => void;
   onSuccess: () => void;
   subagent: SubAgentResponse | null;
+  subagents?: SubAgentResponse[];
 }
 
 // Available LLM models
@@ -79,6 +84,7 @@ export const SubAgentModal: React.FC<SubAgentModalProps> = ({
   onClose,
   onSuccess,
   subagent,
+  subagents = [],
 }) => {
   const { t } = useTranslation();
   const [form] = Form.useForm();
@@ -88,6 +94,25 @@ export const SubAgentModal: React.FC<SubAgentModalProps> = ({
   const [keywordInput, setKeywordInput] = useState('');
   const [exampleInput, setExampleInput] = useState('');
   const [selectedColor, setSelectedColor] = useState('#3B82F6');
+
+  // Spawn Policy state
+  const [spawnPolicy, setSpawnPolicy] = useState<SpawnPolicyConfig>({
+    max_depth: 2,
+    max_active_runs: 16,
+    max_children_per_requester: 8,
+    allowed_subagents: null,
+  });
+
+  // Tool Policy state
+  const [toolPolicy, setToolPolicy] = useState<ToolPolicyConfig>({
+    allow: [],
+    deny: [],
+    precedence: 'deny_first',
+  });
+
+  // Identity state
+  const [identityDescription, setIdentityDescription] = useState('');
+  const [identityMetadata, setIdentityMetadata] = useState<[string, string][]>([]);
 
   // Available resources state
   const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
@@ -180,12 +205,55 @@ export const SubAgentModal: React.FC<SubAgentModalProps> = ({
         setKeywords(subagent.trigger.keywords);
         setExamples(subagent.trigger.examples);
         setSelectedColor(subagent.color);
+        // Load spawn policy
+        if (subagent.spawn_policy) {
+          setSpawnPolicy(subagent.spawn_policy);
+        } else {
+          setSpawnPolicy({
+            max_depth: 2,
+            max_active_runs: 16,
+            max_children_per_requester: 8,
+            allowed_subagents: null,
+          });
+        }
+        // Load tool policy
+        if (subagent.tool_policy) {
+          setToolPolicy(subagent.tool_policy);
+        } else {
+          setToolPolicy({
+            allow: [],
+            deny: [],
+            precedence: 'deny_first',
+          });
+        }
+        // Load identity
+        if (subagent.identity) {
+          setIdentityDescription(subagent.identity.description || '');
+          const meta = subagent.identity.metadata || {};
+          setIdentityMetadata(Object.entries(meta));
+        } else {
+          setIdentityDescription('');
+          setIdentityMetadata([]);
+        }
       }, 0);
     } else if (isOpen && !subagent && subagentChanged) {
       setTimeout(() => {
         setKeywords([]);
         setExamples([]);
         setSelectedColor('#3B82F6');
+        setSpawnPolicy({
+          max_depth: 2,
+          max_active_runs: 16,
+          max_children_per_requester: 8,
+          allowed_subagents: null,
+        });
+        setToolPolicy({
+          allow: [],
+          deny: [],
+          precedence: 'deny_first',
+        });
+        setIdentityDescription('');
+        setIdentityMetadata([]);
       }, 0);
     }
   }, [isOpen, subagent]);
@@ -194,6 +262,15 @@ export const SubAgentModal: React.FC<SubAgentModalProps> = ({
   const handleSubmit = useCallback(async () => {
     try {
       const values = await form.validateFields();
+
+      // Build identity config if description is provided
+      const identityConfig: Partial<AgentIdentityConfig> | undefined = identityDescription
+        ? {
+            name: values.display_name || values.name,
+            description: identityDescription,
+            metadata: Object.fromEntries(identityMetadata.filter(([k]) => k.trim())),
+          }
+        : undefined;
 
       const data: SubAgentCreate | SubAgentUpdate = {
         name: values.name,
@@ -210,6 +287,10 @@ export const SubAgentModal: React.FC<SubAgentModalProps> = ({
         allowed_tools: values.allowed_tools || ['*'],
         allowed_skills: values.allowed_skills || [],
         allowed_mcp_servers: values.allowed_mcp_servers || [],
+        // Add policy fields
+        spawn_policy: spawnPolicy,
+        tool_policy: toolPolicy,
+        identity: identityConfig,
       };
 
       if (isEditMode && subagent) {
@@ -243,6 +324,10 @@ export const SubAgentModal: React.FC<SubAgentModalProps> = ({
     keywords,
     examples,
     selectedColor,
+    spawnPolicy,
+    toolPolicy,
+    identityDescription,
+    identityMetadata,
     createSubAgent,
     updateSubAgent,
     onSuccess,
@@ -642,6 +727,282 @@ export const SubAgentModal: React.FC<SubAgentModalProps> = ({
               <InputNumber min={1} max={50} className="w-full" />
             </Form.Item>
           </div>
+        </div>
+      ),
+    },
+    {
+      key: 'spawn_policy',
+      label: t('tenant.subagents.modal.spawnPolicy', 'Spawn Policy'),
+      children: (
+        <div className="space-y-4">
+          <div className="mb-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              {t(
+                'tenant.subagents.modal.spawnPolicyDescription',
+                'Configure how this SubAgent can spawn and be spawned by other agents.'
+              )}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <Form.Item label={t('tenant.subagents.modal.maxDepth', 'Max Depth')}>
+              <InputNumber
+                min={0}
+                max={32}
+                value={spawnPolicy.max_depth}
+                onChange={(v) => { setSpawnPolicy({ ...spawnPolicy, max_depth: v ?? 2 }); }}
+                className="w-full"
+              />
+              <span className="text-xs text-slate-500">
+                {t('tenant.subagents.modal.maxDepthHint', 'Maximum nesting depth (0 = no nesting)')}
+              </span>
+            </Form.Item>
+
+            <Form.Item label={t('tenant.subagents.modal.maxActiveRuns', 'Max Active Runs')}>
+              <InputNumber
+                min={1}
+                max={32}
+                value={spawnPolicy.max_active_runs}
+                onChange={(v) => { setSpawnPolicy({ ...spawnPolicy, max_active_runs: v ?? 16 }); }}
+                className="w-full"
+              />
+              <span className="text-xs text-slate-500">
+                {t(
+                  'tenant.subagents.modal.maxActiveRunsHint',
+                  'Global cap on concurrent SubAgent runs'
+                )}
+              </span>
+            </Form.Item>
+
+            <Form.Item
+              label={t('tenant.subagents.modal.maxChildren', 'Max Children per Requester')}
+            >
+              <InputNumber
+                min={1}
+                max={16}
+                value={spawnPolicy.max_children_per_requester}
+                onChange={(v) =>
+                  { setSpawnPolicy({ ...spawnPolicy, max_children_per_requester: v ?? 8 }); }
+                }
+                className="w-full"
+              />
+              <span className="text-xs text-slate-500">
+                {t(
+                  'tenant.subagents.modal.maxChildrenHint',
+                  'Per-parent cap on active children'
+                )}
+              </span>
+            </Form.Item>
+          </div>
+
+          <Form.Item label={t('tenant.subagents.modal.allowedSubagents', 'Allowed SubAgents')}>
+            <Select
+              mode="multiple"
+              placeholder={t(
+                'tenant.subagents.modal.allowedSubagentsPlaceholder',
+                'Select SubAgents that can spawn this one (empty = all)'
+              )}
+              value={spawnPolicy.allowed_subagents || []}
+              onChange={(v) =>
+                { setSpawnPolicy({ ...spawnPolicy, allowed_subagents: v.length > 0 ? v : null }); }
+              }
+              filterOption={(input, option) =>
+                (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+              }
+              options={subagents
+                .filter((sa) => sa.id !== subagent?.id)
+                .map((sa) => ({
+                  label: sa.display_name || sa.name,
+                  value: sa.id,
+                }))}
+            />
+          </Form.Item>
+        </div>
+      ),
+    },
+    {
+      key: 'tool_policy',
+      label: t('tenant.subagents.modal.toolPolicy', 'Tool Policy'),
+      children: (
+        <div className="space-y-4">
+          <div className="mb-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              {t(
+                'tenant.subagents.modal.toolPolicyDescription',
+                'Configure which tools this SubAgent can use. Precedence determines how conflicts are resolved.'
+              )}
+            </p>
+          </div>
+
+          <Form.Item label={t('tenant.subagents.modal.precedence', 'Precedence')}>
+            <Radio.Group
+              value={toolPolicy.precedence}
+              onChange={(e) => { setToolPolicy({ ...toolPolicy, precedence: e.target.value }); }}
+            >
+              <Radio.Button value="deny_first">
+                {t('tenant.subagents.modal.denyFirst', 'Deny First')}
+              </Radio.Button>
+              <Radio.Button value="allow_first">
+                {t('tenant.subagents.modal.allowFirst', 'Allow First')}
+              </Radio.Button>
+            </Radio.Group>
+            <div className="mt-2 text-xs text-slate-500">
+              {toolPolicy.precedence === 'deny_first'
+                ? t(
+                    'tenant.subagents.modal.denyFirstHint',
+                    'Deny wins on conflict; unlisted tools are allowed.'
+                  )
+                : t(
+                    'tenant.subagents.modal.allowFirstHint',
+                    'Allow wins on conflict; unlisted tools are allowed unless in deny.'
+                  )}
+            </div>
+          </Form.Item>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Form.Item label={t('tenant.subagents.modal.allowList', 'Allow List')}>
+              <Select
+                mode="multiple"
+                placeholder={t(
+                  'tenant.subagents.modal.allowListPlaceholder',
+                  'Tools to explicitly allow'
+                )}
+                value={toolPolicy.allow}
+                onChange={(v) => { setToolPolicy({ ...toolPolicy, allow: v }); }}
+                filterOption={(input, option) =>
+                  (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+                }
+                options={[
+                  { label: 'All Tools (*)', value: '*' },
+                  ...(availableTools || []).map((t) => ({
+                    label: t.name,
+                    value: t.name,
+                    title: t.description,
+                  })),
+                ]}
+              />
+            </Form.Item>
+
+            <Form.Item label={t('tenant.subagents.modal.denyList', 'Deny List')}>
+              <Select
+                mode="multiple"
+                placeholder={t(
+                  'tenant.subagents.modal.denyListPlaceholder',
+                  'Tools to explicitly deny'
+                )}
+                value={toolPolicy.deny}
+                onChange={(v) => { setToolPolicy({ ...toolPolicy, deny: v }); }}
+                filterOption={(input, option) =>
+                  (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+                }
+                options={(availableTools || []).map((t) => ({
+                  label: t.name,
+                  value: t.name,
+                  title: t.description,
+                }))}
+              />
+            </Form.Item>
+          </div>
+
+          {/* Tool Policy Preview */}
+          <div className="mt-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+            <div className="text-sm font-medium mb-2">
+              {t('tenant.subagents.modal.policyPreview', 'Policy Preview')}
+            </div>
+            <div className="text-xs text-slate-600 dark:text-slate-400">
+              {(() => {
+                const allowedCount = availableTools.filter((t) => {
+                  if (toolPolicy.precedence === 'deny_first') {
+                    return !toolPolicy.deny.includes(t.name);
+                  }
+                  if (toolPolicy.allow.length > 0 && !toolPolicy.allow.includes('*')) {
+                    return toolPolicy.allow.includes(t.name) && !toolPolicy.deny.includes(t.name);
+                  }
+                  return !toolPolicy.deny.includes(t.name);
+                }).length;
+                return t('tenant.subagents.modal.toolsAllowed', {
+                  count: allowedCount,
+                  total: availableTools.length,
+                  defaultValue: `${allowedCount} of ${availableTools.length} tools allowed`,
+                });
+              })()}
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'identity',
+      label: t('tenant.subagents.modal.identity', 'Identity'),
+      children: (
+        <div className="space-y-4">
+          <div className="mb-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              {t(
+                'tenant.subagents.modal.identityDescription',
+                'Configure the identity this SubAgent uses when spawning child agents. Leave empty to use defaults.'
+              )}
+            </p>
+          </div>
+
+          <Form.Item label={t('tenant.subagents.modal.identityDescription', 'Identity Description')}>
+            <TextArea
+              rows={3}
+              placeholder={t(
+                'tenant.subagents.modal.identityDescriptionPlaceholder',
+                'Describe this SubAgent\'s role and personality when spawning child agents...'
+              )}
+              value={identityDescription}
+              onChange={(e) => { setIdentityDescription(e.target.value); }}
+            />
+          </Form.Item>
+
+          <Form.Item label={t('tenant.subagents.modal.metadata', 'Metadata')}>
+            <div className="space-y-2">
+              {identityMetadata.map(([key, value], index) => (
+                <div key={index} className="flex gap-2 items-center">
+                  <Input
+                    placeholder={t('tenant.subagents.modal.metadataKey', 'Key')}
+                    value={key}
+                    onChange={(e) => {
+                      const newMeta = [...identityMetadata];
+                      newMeta[index] = [e.target.value, value];
+                      setIdentityMetadata(newMeta);
+                    }}
+                    className="flex-1"
+                  />
+                  <Input
+                    placeholder={t('tenant.subagents.modal.metadataValue', 'Value')}
+                    value={value}
+                    onChange={(e) => {
+                      const newMeta = [...identityMetadata];
+                      newMeta[index] = [key, e.target.value];
+                      setIdentityMetadata(newMeta);
+                    }}
+                    className="flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIdentityMetadata(identityMetadata.filter((_, i) => i !== index));
+                    }}
+                    className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setIdentityMetadata([...identityMetadata, ['', '']]);
+                }}
+                className="text-sm text-primary-600 hover:text-primary-700"
+              >
+                + {t('tenant.subagents.modal.addMetadata', 'Add Metadata')}
+              </button>
+            </div>
+          </Form.Item>
         </div>
       ),
     },

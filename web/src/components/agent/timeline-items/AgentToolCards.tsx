@@ -22,8 +22,8 @@ export function isAgentTool(toolName: string): boolean {
 
 interface StatusBadgeProps {
   status: 'running' | 'success' | 'error';
-  label?: string;
-  duration?: number;
+  label?: string | undefined;
+  duration?: number | undefined;
 }
 
 function StatusBadge({ status, label, duration }: StatusBadgeProps) {
@@ -82,8 +82,8 @@ interface AgentSpawnCardProps {
   params: Record<string, unknown>;
   result: Record<string, unknown> | null;
   status: 'running' | 'success' | 'error';
-  error?: string;
-  duration?: number;
+  error?: string | undefined;
+  duration?: number | undefined;
 }
 
 function AgentSpawnCard({ params, result, status, error, duration }: AgentSpawnCardProps) {
@@ -150,8 +150,8 @@ interface AgentStopCardProps {
   params: Record<string, unknown>;
   result: Record<string, unknown> | null;
   status: 'running' | 'success' | 'error';
-  error?: string;
-  duration?: number;
+  error?: string | undefined;
+  duration?: number | undefined;
 }
 
 function AgentStopCard({ params, result, status, error, duration }: AgentStopCardProps) {
@@ -213,8 +213,8 @@ interface AgentSendCardProps {
   params: Record<string, unknown>;
   result: Record<string, unknown> | null;
   status: 'running' | 'success' | 'error';
-  error?: string;
-  duration?: number;
+  error?: string | undefined;
+  duration?: number | undefined;
 }
 
 function AgentSendCard({ params, result, status, error, duration }: AgentSendCardProps) {
@@ -279,8 +279,8 @@ function AgentSendCard({ params, result, status, error, duration }: AgentSendCar
 interface AgentListCardProps {
   result: unknown[] | Record<string, unknown> | null;
   status: 'running' | 'success' | 'error';
-  error?: string;
-  duration?: number;
+  error?: string | undefined;
+  duration?: number | undefined;
 }
 
 function AgentListCard({ result, status, error, duration }: AgentListCardProps) {
@@ -346,8 +346,8 @@ function AgentListCard({ result, status, error, duration }: AgentListCardProps) 
 interface AgentSessionsCardProps {
   result: unknown[] | Record<string, unknown> | null;
   status: 'running' | 'success' | 'error';
-  error?: string;
-  duration?: number;
+  error?: string | undefined;
+  duration?: number | undefined;
 }
 
 function AgentSessionsCard({ result, status, error, duration }: AgentSessionsCardProps) {
@@ -441,8 +441,8 @@ interface AgentHistoryCardProps {
   params: Record<string, unknown>;
   result: unknown[] | Record<string, unknown> | null;
   status: 'running' | 'success' | 'error';
-  error?: string;
-  duration?: number;
+  error?: string | undefined;
+  duration?: number | undefined;
 }
 
 function AgentHistoryCard({ params, result, status, error, duration }: AgentHistoryCardProps) {
@@ -627,7 +627,7 @@ export const AgentToolStepCard = memo(function AgentToolStepCard({
 
 interface AgentToolCardProps {
   event: ActEvent;
-  observeEvent?: ObserveEvent;
+  observeEvent?: ObserveEvent | undefined;
 }
 
 export const AgentToolCard = memo(function AgentToolCard({

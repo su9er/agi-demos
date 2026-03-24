@@ -36,6 +36,8 @@ export interface AdditionalAgentHandlers {
   forcedSkillName?: string | undefined;
   /** Base64 data URL image attachments from video frame capture */
   imageAttachments?: string[] | undefined;
+  /** Target agent ID for multi-agent routing */
+  agentId?: string | undefined;
 }
 
 export interface AgentV3State {

@@ -20,7 +20,7 @@ import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
 
-import { GripHorizontal, Download, ChevronDown, GitCompareArrows } from 'lucide-react';
+import { GripHorizontal, Download, ChevronDown, GitCompareArrows, Bot } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useAgentV3Store } from '@/stores/agentV3';
@@ -187,6 +187,8 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
     } = useSandboxStore();
     const { onAct, onObserve } = useSandboxAgentHandlers(activeSandboxId);
 
+    const [activeAgentId, setActiveAgentId] = useState<string | undefined>(undefined);
+
     // Set projectId to sandbox store and subscribe to SSE events
     useEffect(() => {
       if (projectId) {
@@ -239,6 +241,16 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
       if (!convId) return undefined;
       return state.conversationStates.get(convId)?.agentNodes;
     });
+
+    const activeAgentNode = useMemo(() => {
+      if (!rawAgentNodes) return null;
+      for (const node of rawAgentNodes.values()) {
+        if (node.status === 'running' && node.name !== null) {
+          return node;
+        }
+      }
+      return null;
+    }, [rawAgentNodes]);
     const {
       executionPathDecision,
       selectionTrace,
@@ -447,6 +459,7 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
           fileMetadata,
           forcedSkillName,
           imageAttachments,
+          agentId: activeAgentId,
         });
         if (!conversationId && newId) {
           if (customBasePath) {
@@ -468,6 +481,7 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
         basePath,
         customBasePath,
         queryProjectId,
+        activeAgentId,
       ]
     );
 
@@ -618,8 +632,16 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
     const chatColumn = (
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         {headerExtra && (
-          <div className="flex-shrink-0 border-b border-slate-200/60 dark:border-slate-700/50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm px-4 py-2">
+          <div className="flex-shrink-0 border-b border-slate-200/60 dark:border-slate-700/50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm px-4 py-2 flex items-center gap-2">
             {headerExtra}
+          </div>
+        )}
+        {activeAgentNode?.name && (
+          <div className="flex-shrink-0 border-b border-slate-200/60 dark:border-slate-700/50 bg-blue-50/50 dark:bg-blue-900/20 px-4 py-1.5 flex items-center gap-2">
+            <span className="flex items-center gap-1.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-xs font-medium px-2 py-0.5 rounded-full">
+              <Bot size={12} />
+              {activeAgentNode.name}
+            </span>
           </div>
         )}
         <div className="flex-1 overflow-hidden relative min-h-0">
@@ -664,6 +686,8 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
               void handleTogglePlanMode();
             }}
             isPlanMode={isPlanMode}
+            activeAgentId={activeAgentId}
+            onAgentSelect={setActiveAgentId}
           />
         </div>
       </div>

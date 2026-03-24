@@ -268,6 +268,20 @@ export type AgentEventType =
   | 'task_complete' // Agent finished a task
   | 'model_switch_requested' // Agent scheduled model switch for next turn
   | 'model_override_rejected' // Backend rejected user model override
+  | 'tool_policy_denied' // Tool policy denied a tool
+  | 'permission_granted' // Permission granted
+  // Graph events
+  | 'graph_run_started' // Graph run started
+  | 'graph_run_completed' // Graph run completed
+  | 'graph_run_failed' // Graph run failed
+  | 'graph_run_cancelled' // Graph run cancelled
+  | 'graph_node_started' // Graph node started
+  | 'graph_node_completed' // Graph node completed
+  | 'graph_node_failed' // Graph node failed
+  | 'graph_node_skipped' // Graph node skipped
+  | 'graph_handoff' // Graph handoff
+  // SubAgent delegation events
+  | 'subagent_delegation' // Task delegated to SubAgent
   // MCP App events
   | 'mcp_app_result' // MCP tool with UI returned result + HTML
   | 'mcp_app_registered' // New MCP App auto-detected

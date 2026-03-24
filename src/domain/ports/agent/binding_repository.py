@@ -141,6 +141,34 @@ class AgentBindingRepositoryPort(ABC):
         """
 
     @abstractmethod
+    async def resolve_binding_with_trace(
+        self,
+        tenant_id: str,
+        channel_type: str | None = None,
+        channel_id: str | None = None,
+        account_id: str | None = None,
+        peer_id: str | None = None,
+    ) -> tuple[AgentBinding | None, list[dict[str, object]]]:
+        """
+        Resolve binding with full decision trace.
+
+        Like resolve_binding but returns every candidate evaluated,
+        its score, and why it was selected or eliminated.
+
+        Args:
+            tenant_id: Tenant ID
+            channel_type: Channel type filter
+            channel_id: Channel instance filter
+            account_id: User account filter
+            peer_id: Peer identity filter
+
+        Returns:
+            Tuple of (best matching binding or None, trace entries list).
+            Each trace entry dict contains: binding_id, agent_id,
+            specificity_score, matched, eliminated, elimination_reason.
+        """
+
+    @abstractmethod
     async def find_by_group(
         self,
         tenant_id: str,

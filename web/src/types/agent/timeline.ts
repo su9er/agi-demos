@@ -132,7 +132,9 @@ export type TimelineEventType =
   // Multi-Agent events (L4 layer)
   | 'agent_spawned'
   | 'agent_completed'
-  | 'agent_stopped';
+  | 'agent_stopped'
+  | 'agent_message_sent'
+  | 'agent_message_received';
 
 /**
  * Base timeline event (all events share these fields)
@@ -492,7 +494,9 @@ export type TimelineEvent =
   // Multi-Agent events (L4 layer)
   | AgentSpawnedTimelineEvent
   | AgentCompletedTimelineEvent
-  | AgentStoppedTimelineEvent;
+  | AgentStoppedTimelineEvent
+  | AgentMessageSentTimelineEvent
+  | AgentMessageReceivedTimelineEvent;
 
 // ============================================
 // SubAgent Timeline Event Interfaces (L3 layer)
@@ -646,6 +650,24 @@ export interface AgentStoppedTimelineEvent extends BaseTimelineEvent {
   agentName: string | null;
   reason: string | null;
   stoppedBy: string | null;
+}
+
+export interface AgentMessageSentTimelineEvent extends BaseTimelineEvent {
+  type: 'agent_message_sent';
+  fromAgentId: string;
+  toAgentId: string;
+  fromAgentName: string;
+  toAgentName: string;
+  messagePreview: string;
+}
+
+export interface AgentMessageReceivedTimelineEvent extends BaseTimelineEvent {
+  type: 'agent_message_received';
+  agentId: string;
+  agentName: string;
+  fromAgentId: string;
+  fromAgentName: string;
+  messagePreview: string;
 }
 
 /**

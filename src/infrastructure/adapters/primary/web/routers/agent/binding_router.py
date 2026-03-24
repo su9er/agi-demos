@@ -41,6 +41,37 @@ class SetEnabledRequest(BaseModel):
     enabled: bool
 
 
+class TestBindingRequest(BaseModel):
+    channel_type: str
+    channel_id: str | None = None
+    account_id: str | None = None
+    peer_id: str | None = None
+
+
+class BindingTraceEntry(BaseModel):
+    binding_id: str
+    agent_id: str
+    specificity_score: int
+    channel_type: str | None
+    channel_id: str | None
+    account_id: str | None
+    peer_id: str | None
+    priority: int
+    eliminated: bool
+    elimination_reason: str | None
+    selected: bool
+
+
+class TestBindingResponse(BaseModel):
+    agent_id: str | None
+    agent_name: str | None
+    binding_id: str | None
+    specificity_score: int
+    confidence: float
+    matched: bool
+    trace: list[BindingTraceEntry]
+
+
 @router.post("/bindings")
 async def create_binding(
     body: CreateBindingRequest,
@@ -208,4 +239,77 @@ async def list_group_bindings(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to list group bindings: {e!s}",
+        ) from e
+
+
+@router.post("/bindings/test", response_model=TestBindingResponse)
+async def test_binding_match(
+    body: TestBindingRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_current_user_tenant),
+    db: AsyncSession = Depends(get_db),
+) -> TestBindingResponse:
+    """Test which SubAgent would handle a message with given context.
+
+    Returns the matching SubAgent and confidence score.
+    Uses specificity-based resolution (most-specific wins).
+
+    Args:
+        body: Test context with channel_type, channel_id, account_id, peer_id
+
+    Returns:
+        TestBindingResponse with matched agent info and confidence score
+    """
+    try:
+        container = get_container_with_db(request, db)
+        binding_repo = container.agent_binding_repository()
+        agent_registry = container.agent_registry()
+
+        # Resolve binding using specificity-based matching (with trace)
+        binding, raw_trace = await binding_repo.resolve_binding_with_trace(
+            tenant_id=tenant_id,
+            channel_type=body.channel_type,
+            channel_id=body.channel_id,
+            account_id=body.account_id,
+            peer_id=body.peer_id,
+        )
+        trace_entries = [BindingTraceEntry(**entry) for entry in raw_trace]
+
+        if binding is None:
+            return TestBindingResponse(
+                agent_id=None,
+                agent_name=None,
+                binding_id=None,
+                specificity_score=0,
+                confidence=0.0,
+                matched=False,
+                trace=trace_entries,
+            )
+
+        # Get agent details
+        agent = await agent_registry.get_by_id(binding.agent_id)
+        agent_name = agent.name if agent else None
+
+        # Calculate confidence based on specificity score
+        # Max theoretical score: 15 (1+2+4+8 + priority)
+        # Normalized to 0-1 range
+        max_score = 15
+        confidence = min(1.0, binding.specificity_score / max_score)
+
+        return TestBindingResponse(
+            agent_id=binding.agent_id,
+            agent_name=agent_name,
+            binding_id=binding.id,
+            specificity_score=binding.specificity_score,
+            confidence=round(confidence, 2),
+            matched=True,
+            trace=trace_entries,
+        )
+
+    except Exception as e:
+        logger.error("Error testing binding match: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to test binding: {e!s}",
         ) from e

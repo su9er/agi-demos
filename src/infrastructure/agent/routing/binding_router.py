@@ -135,6 +135,7 @@ class BindingRouter:
             channel_type=message.channel_type,
             channel_id=message.channel_id,
             account_id=message.sender_id,
+            peer_id=message.metadata.get("peer_id"),
         )
 
         # Resolve conversation via existing ChannelRouter

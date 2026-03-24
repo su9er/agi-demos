@@ -13,6 +13,13 @@ export interface AgentTrigger {
 export interface WorkspaceConfig {
   type?: 'shared' | 'isolated' | 'inherited' | undefined;
   base_dir?: string | undefined;
+  base_path?: string | undefined;
+  sandbox_scope?: 'session' | 'agent' | 'shared' | undefined;
+  max_size_mb?: number | undefined;
+  persona_files?: string[] | undefined;
+  shared_files?: string[] | undefined;
+  auto_cleanup?: boolean | undefined;
+  retention_days?: number | undefined;
 }
 
 export interface AgentBinding {
@@ -23,6 +30,7 @@ export interface AgentBinding {
   channel_id: string | null;
   account_id: string | null;
   peer_id: string | null;
+  group_id: string | null;
   priority: number;
   enabled: boolean;
   created_at: string;
@@ -82,7 +90,39 @@ export interface CreateBindingRequest {
   channel_id?: string | undefined;
   account_id?: string | undefined;
   peer_id?: string | undefined;
+  group_id?: string | undefined;
   priority?: number | undefined;
+}
+
+export interface TestBindingRequest {
+  channel_type: string;
+  channel_id?: string | undefined;
+  account_id?: string | undefined;
+  peer_id?: string | undefined;
+}
+
+export interface BindingTraceEntry {
+  binding_id: string;
+  agent_id: string;
+  specificity_score: number;
+  channel_type: string | null;
+  channel_id: string | null;
+  account_id: string | null;
+  peer_id: string | null;
+  priority: number;
+  eliminated: boolean;
+  elimination_reason: string | null;
+  selected: boolean;
+}
+
+export interface TestBindingResponse {
+  agent_id: string | null;
+  agent_name: string | null;
+  binding_id: string | null;
+  specificity_score: number;
+  confidence: number;
+  matched: boolean;
+  trace: BindingTraceEntry[];
 }
 
 export interface SetEnabledRequest {

@@ -30,6 +30,8 @@ export interface TenantAgentConfig {
   tool_timeout_seconds: number;
   enabled_tools: string[];
   disabled_tools: string[];
+  /** Read-only system-level flag from MULTI_AGENT_ENABLED env var */
+  multi_agent_enabled: boolean;
   created_at: string;
   updated_at: string;
 }

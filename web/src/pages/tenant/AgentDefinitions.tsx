@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Badge, Card, Dropdown, message, Popconfirm, Spin, Switch, Tag, Tooltip } from 'antd';
+import { Badge, Card, Dropdown, message, Spin, Switch, Tag, Tooltip } from 'antd';
 import {
   Bot,
   Edit2,
@@ -298,7 +298,7 @@ export const AgentDefinitions: React.FC = () => {
                     onChange={(checked) => handleToggle(def.id, checked)}
                   />
                   <Dropdown
-                    menu={{ items: getCardMenuItems(def) }}
+                    menu={{ items: getCardMenuItems(def) ?? [] }}
                     trigger={['click']}
                   >
                     <button

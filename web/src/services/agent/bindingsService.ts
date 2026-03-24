@@ -4,6 +4,8 @@ import type {
   AgentBinding,
   CreateBindingRequest,
   DeleteBindingResponse,
+  TestBindingRequest,
+  TestBindingResponse,
 } from '../../types/multiAgent';
 
 const api = httpClient;
@@ -28,5 +30,9 @@ export const bindingsService = {
 
   setEnabled: async (bindingId: string, enabled: boolean): Promise<AgentBinding> => {
     return await api.patch<AgentBinding>(`/agent/bindings/${bindingId}/enabled`, { enabled });
+  },
+
+  test: async (data: TestBindingRequest): Promise<TestBindingResponse> => {
+    return await api.post<TestBindingResponse>('/agent/bindings/test', data);
   },
 };

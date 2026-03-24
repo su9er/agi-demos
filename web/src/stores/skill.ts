@@ -400,6 +400,11 @@ export const useSkillStore = create<SkillState>()(
 export const useSkills = () => useSkillStore((state) => state.skills);
 
 /**
+ * Get listSkills action
+ */
+export const useListSkills = () => useSkillStore((state) => state.listSkills);
+
+/**
  * Get filtered skills based on search and filters
  */
 export const useFilteredSkills = () =>

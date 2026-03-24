@@ -175,15 +175,19 @@ class AgentOrchestrator:
         session_id: str | None = None,
         project_id: str | None = None,
     ) -> SendResult:
-        """Send a message from one agent to another."""
+        """Send a message from one agent to another.
+
+        The sender may be a registered agent or the root/main agent.
+        If the sender is not found in the registry it is treated as the
+        root agent and allowed to send without further validation.
+        """
         from_agent = await self._agent_registry.get_by_id(from_agent_id)
-        if from_agent is None:
-            raise ValueError(f"Sender agent not found: {from_agent_id}")
+        # Root/main agent may not be in the registry -- allow it.
 
         to_agent = await self._agent_registry.get_by_id(to_agent_id)
         if to_agent is None:
             raise ValueError(f"Target agent not found: {to_agent_id}")
-        if not to_agent.accepts_messages_from(from_agent_id):
+        if from_agent is not None and not to_agent.accepts_messages_from(from_agent_id):
             raise ValueError(
                 f"Target agent {to_agent_id} does not accept messages from sender: {from_agent_id}"
             )

@@ -1238,6 +1238,7 @@ export const useAgentV3Store = create<AgentV3State>()(
                   forced_skill_name: additionalHandlers?.forcedSkillName,
                   app_model_context: appCtx ?? undefined,
                   image_attachments: additionalHandlers?.imageAttachments,
+                  agent_id: additionalHandlers?.agentId,
                 },
                 handler
               )
@@ -1272,6 +1273,7 @@ export const useAgentV3Store = create<AgentV3State>()(
                 forced_skill_name: additionalHandlers?.forcedSkillName,
                 app_model_context: appCtx2 ?? undefined,
                 image_attachments: additionalHandlers?.imageAttachments,
+                agent_id: additionalHandlers?.agentId,
               },
               handler
             );

@@ -258,6 +258,11 @@ class AgentEventType(str, Enum):
     AGENT_STOPPED = "agent_stopped"
 
     # =========================================================================
+    # SubAgent delegation events (explicit delegation flow for UX)
+    # =========================================================================
+    SUBAGENT_DELEGATION = "subagent_delegation"
+
+    # =========================================================================
     # Context engine & session lifecycle events (Phase 3)
     # =========================================================================
     CONTEXT_COMPACTED = "context_compacted"
@@ -412,6 +417,8 @@ EVENT_CATEGORIES: dict[AgentEventType, EventCategory] = {
     AgentEventType.SUBAGENT_ANNOUNCE_RECEIVED: EventCategory.AGENT,
     AgentEventType.SUBAGENT_ANNOUNCE_EXPIRED: EventCategory.AGENT,
     AgentEventType.TOOL_POLICY_DENIED: EventCategory.AGENT,
+    # SubAgent delegation events (UX indicator)
+    AgentEventType.SUBAGENT_DELEGATION: EventCategory.AGENT,
     # Multi-agent inter-agent communication
     AgentEventType.AGENT_SPAWNED: EventCategory.AGENT,
     AgentEventType.AGENT_COMPLETED: EventCategory.AGENT,

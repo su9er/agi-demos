@@ -232,6 +232,7 @@ class TenantAgentConfigResponse(BaseModel):
     tool_timeout_seconds: int
     enabled_tools: list[str]
     disabled_tools: list[str]
+    multi_agent_enabled: bool = False
     created_at: str
     updated_at: str
 

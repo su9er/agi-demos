@@ -81,6 +81,12 @@ async def agent_stop_tool(
             "stopped_sessions": stopped,
             "count": len(stopped),
         }
+        if not stopped:
+            result["status"] = "already_completed"
+            result["detail"] = (
+                f"Session {session_id} has no running tasks to stop. "
+                "It may have already completed or been stopped previously."
+            )
         return ToolResult(output=json.dumps(result, indent=2))
     except ValueError as exc:
         return ToolResult(

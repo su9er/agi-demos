@@ -17,14 +17,19 @@ import {
   Plus,
   Activity,
   Loader2,
+  X,
 } from 'lucide-react';
 
+import { TraceChainView } from '../../components/agent/multiAgent/TraceChainView';
 import { TraceTimeline } from '../../components/agent/multiAgent/TraceTimeline';
 import {
   useTraceRuns,
   useActiveRunCount,
   useTraceLoading,
   useTraceStore,
+  useTraceChain,
+  useTraceChainLoading,
+  useGetTraceChain,
 } from '../../stores/traceStore';
 
 import type { SubAgentRunDTO } from '../../types/multiAgent';
@@ -219,6 +224,10 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = memo(() => {
   const activeRunCount = useActiveRunCount();
   const isTraceLoading = useTraceLoading();
 
+  const traceChain = useTraceChain();
+  const isChainLoading = useTraceChainLoading();
+  const getTraceChain = useGetTraceChain();
+
   const [selectedRun, setSelectedRun] = useState<SubAgentRunDTO | null>(null);
 
   useEffect(() => {
@@ -231,9 +240,15 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = memo(() => {
     );
   }, []);
 
-  const handleSelectRun = useCallback((run: SubAgentRunDTO) => {
-    setSelectedRun(run);
-  }, []);
+  const handleSelectRun = useCallback(
+    (run: SubAgentRunDTO) => {
+      setSelectedRun(run);
+      if (run.trace_id) {
+        void getTraceChain(run.conversation_id, run.trace_id);
+      }
+    },
+    [getTraceChain]
+  );
 
   return (
     <div className="max-w-full mx-auto pb-24">
@@ -298,6 +313,30 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = memo(() => {
               />
             </div>
           </section>
+
+          {selectedRun && (
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+                  Trace Chain Details
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedRun(null); }}
+                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                <TraceChainView
+                  data={traceChain}
+                  isLoading={isChainLoading}
+                  onSelectRun={handleSelectRun}
+                />
+              </div>
+            </section>
+          )}
 
           <section className="space-y-4">
             <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">

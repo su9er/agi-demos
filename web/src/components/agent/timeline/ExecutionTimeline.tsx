@@ -198,11 +198,11 @@ const TimelineStepItem = memo<{
         <div className="flex-1 pb-1.5 min-w-0">
           <AgentToolStepCard
             toolName={step.toolName}
-            input={step.input}
-            output={step.output}
+            {...(step.input !== undefined ? { input: step.input } : {})}
+            {...(step.output !== undefined ? { output: step.output } : {})}
             status={step.status}
-            isError={step.isError}
-            duration={step.duration}
+            {...(step.isError !== undefined ? { isError: step.isError } : {})}
+            {...(step.duration !== undefined ? { duration: step.duration } : {})}
           />
         </div>
       </div>

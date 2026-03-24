@@ -10,8 +10,10 @@
 
 import { memo } from 'react';
 
+import { AgentMessageIndicator } from './chat/AgentMessageIndicator';
 import { AssistantMessage } from './chat/AssistantMessage';
 import { UserMessage } from './chat/MessageStream';
+import { SubAgentDelegationIndicator } from './chat/SubAgentDelegationIndicator';
 import {
   TimeBadge,
   ThoughtItem,
@@ -28,7 +30,15 @@ import {
   TaskCompleteItem,
 } from './timeline-items';
 
-import type { ArtifactCreatedEvent, TimelineEvent } from '../../types/agent';
+import type {
+  AgentCompletedTimelineEvent,
+  AgentMessageReceivedTimelineEvent,
+  AgentMessageSentTimelineEvent,
+  AgentSpawnedTimelineEvent,
+  AgentStoppedTimelineEvent,
+  ArtifactCreatedEvent,
+  TimelineEvent,
+} from '../../types/agent';
 
 export interface TimelineEventItemProps {
   /** The timeline event to render */
@@ -202,12 +212,73 @@ export const TimelineEventItem: React.FC<TimelineEventItemProps> = memo(
           </div>
         );
 
-      case 'agent_spawned':
-      case 'agent_completed':
-      case 'agent_stopped':
-      case 'agent_message_sent':
-      case 'agent_message_received':
-        return null;
+      case 'agent_spawned': {
+        const spawned = event as AgentSpawnedTimelineEvent;
+        return (
+          <div className="my-2 animate-slide-up" style={delayStyle}>
+            <SubAgentDelegationIndicator
+              subagentName={spawned.agentName ?? spawned.agentId}
+              triggerType={spawned.mode === 'session' ? 'keyword' : 'explicit'}
+              taskDescription={spawned.taskSummary ?? undefined}
+              status="started"
+            />
+          </div>
+        );
+      }
+
+      case 'agent_completed': {
+        const completed = event as AgentCompletedTimelineEvent;
+        return (
+          <div className="my-2 animate-slide-up" style={delayStyle}>
+            <SubAgentDelegationIndicator
+              subagentName={completed.agentName ?? completed.agentId}
+              triggerType="explicit"
+              taskDescription={completed.result ?? undefined}
+              status={completed.success ? 'completed' : 'failed'}
+            />
+          </div>
+        );
+      }
+
+      case 'agent_stopped': {
+        const stopped = event as AgentStoppedTimelineEvent;
+        return (
+          <div className="my-2 animate-slide-up" style={delayStyle}>
+            <SubAgentDelegationIndicator
+              subagentName={stopped.agentName ?? stopped.agentId}
+              triggerType="explicit"
+              taskDescription={stopped.reason ?? 'Stopped'}
+              status="failed"
+            />
+          </div>
+        );
+      }
+
+      case 'agent_message_sent': {
+        const sent = event as AgentMessageSentTimelineEvent;
+        return (
+          <div className="my-2 animate-slide-up" style={delayStyle}>
+            <AgentMessageIndicator
+              direction="sent"
+              fromAgentName={sent.fromAgentName}
+              toAgentName={sent.toAgentName}
+              messagePreview={sent.messagePreview}
+            />
+          </div>
+        );
+      }
+      case 'agent_message_received': {
+        const received = event as AgentMessageReceivedTimelineEvent;
+        return (
+          <div className="my-2 animate-slide-up" style={delayStyle}>
+            <AgentMessageIndicator
+              direction="received"
+              fromAgentName={received.fromAgentName}
+              messagePreview={received.messagePreview}
+            />
+          </div>
+        );
+      }
 
       default:
         console.warn('Unknown event type in TimelineEventItem:', (event as { type: string }).type);

@@ -762,9 +762,9 @@ class TestBuiltinCommands:
     """Tests for built-in command registration and handler behavior."""
 
     def test_register_builtin_commands_count(self, registry_with_builtins: CommandRegistry) -> None:
-        """register_builtin_commands() registers all 12 commands."""
+        """register_builtin_commands() registers all built-in commands."""
         all_cmds = registry_with_builtins.list_commands(include_hidden=True)
-        assert len(all_cmds) == 19
+        assert len(all_cmds) == 22
 
     def test_all_builtin_names_present(self, registry_with_builtins: CommandRegistry) -> None:
         """All expected built-in command names are registered."""
@@ -788,6 +788,9 @@ class TestBuiltinCommands:
             "send",
             "reset",
             "context",
+            "spawn",
+            "kill",
+            "steer",
         }
         names = {c.name for c in registry_with_builtins.list_commands(include_hidden=True)}
         assert expected == names
@@ -933,6 +936,97 @@ class TestBuiltinCommands:
         result = await invocation.definition.handler(invocation, {"skills": []})
         assert isinstance(result, ReplyResult)
         assert "No skills available" in result.text
+
+    async def test_spawn_delegates_to_subagent(
+        self, registry_with_builtins: CommandRegistry
+    ) -> None:
+        invocation = registry_with_builtins.parse_and_resolve("/spawn researcher find docs")
+        assert invocation is not None
+        result = await invocation.definition.handler(invocation, {})
+        assert isinstance(result, ToolCallResult)
+        assert result.tool_name == "delegate_to_subagent"
+        assert result.args["subagent_name"] == "researcher"
+        assert result.args["task"] == "find docs"
+
+    async def test_spawn_no_args_returns_usage(
+        self, registry_with_builtins: CommandRegistry
+    ) -> None:
+        invocation = registry_with_builtins.parse_and_resolve("/spawn")
+        assert invocation is not None
+        result = await invocation.definition.handler(invocation, {})
+        assert isinstance(result, ReplyResult)
+        assert result.level == "warning"
+        assert "Usage" in result.text
+
+    async def test_spawn_agent_only_returns_usage(
+        self, registry_with_builtins: CommandRegistry
+    ) -> None:
+        invocation = registry_with_builtins.parse_and_resolve("/spawn researcher")
+        assert invocation is not None
+        result = await invocation.definition.handler(invocation, {})
+        assert isinstance(result, ReplyResult)
+        assert result.level == "warning"
+
+    async def test_spawn_alias_delegate(self, registry_with_builtins: CommandRegistry) -> None:
+        invocation = registry_with_builtins.parse_and_resolve("/delegate coder write tests")
+        assert invocation is not None
+        assert invocation.definition.name == "spawn"
+        result = await invocation.definition.handler(invocation, {})
+        assert isinstance(result, ToolCallResult)
+        assert result.args["subagent_name"] == "coder"
+        assert result.args["task"] == "write tests"
+
+    async def test_kill_delegates_to_subagents_v2(
+        self, registry_with_builtins: CommandRegistry
+    ) -> None:
+        invocation = registry_with_builtins.parse_and_resolve("/kill run-abc123")
+        assert invocation is not None
+        result = await invocation.definition.handler(invocation, {})
+        assert isinstance(result, ToolCallResult)
+        assert result.tool_name == "subagents_v2"
+        assert result.args["action"] == "kill"
+        assert result.args["target"] == "run-abc123"
+
+    async def test_kill_no_args_returns_usage(
+        self, registry_with_builtins: CommandRegistry
+    ) -> None:
+        invocation = registry_with_builtins.parse_and_resolve("/kill")
+        assert invocation is not None
+        result = await invocation.definition.handler(invocation, {})
+        assert isinstance(result, ReplyResult)
+        assert result.level == "warning"
+        assert "Usage" in result.text
+
+    async def test_steer_delegates_to_subagents_v2(
+        self, registry_with_builtins: CommandRegistry
+    ) -> None:
+        invocation = registry_with_builtins.parse_and_resolve("/steer #1 focus on security")
+        assert invocation is not None
+        result = await invocation.definition.handler(invocation, {})
+        assert isinstance(result, ToolCallResult)
+        assert result.tool_name == "subagents_v2"
+        assert result.args["action"] == "steer"
+        assert result.args["target"] == "#1"
+        assert result.args["instruction"] == "focus on security"
+
+    async def test_steer_no_args_returns_usage(
+        self, registry_with_builtins: CommandRegistry
+    ) -> None:
+        invocation = registry_with_builtins.parse_and_resolve("/steer")
+        assert invocation is not None
+        result = await invocation.definition.handler(invocation, {})
+        assert isinstance(result, ReplyResult)
+        assert result.level == "warning"
+        assert "Usage" in result.text
+
+    async def test_steer_target_only_returns_usage(
+        self, registry_with_builtins: CommandRegistry
+    ) -> None:
+        invocation = registry_with_builtins.parse_and_resolve("/steer #1")
+        assert invocation is not None
+        result = await invocation.definition.handler(invocation, {})
+        assert isinstance(result, ReplyResult)
+        assert result.level == "warning"
 
 
 # ============================================================================

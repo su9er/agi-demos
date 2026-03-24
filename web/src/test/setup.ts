@@ -532,7 +532,9 @@ const commonTranslations: Record<string, string> = {
   'nav.administration': 'Administration',
   'nav.billing': 'Billing',
   'nav.profile': 'Profile',
-  'nav.mcpServers': 'MCP Servers',
+   'nav.mcpServers': 'MCP Servers',
+  'nav.agentDefinitions': 'Agent Definitions',
+  'nav.agentBindings': 'Agent Bindings',
 
   // Login
   'login.title': 'Welcome Back',

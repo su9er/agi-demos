@@ -12,6 +12,45 @@ export interface SubAgentTrigger {
 }
 
 /**
+ * Spawn policy configuration for SubAgent delegation control.
+ * Governs when and how SubAgents may be spawned.
+ */
+export interface SpawnPolicyConfig {
+  max_depth: number;
+  max_active_runs: number;
+  max_children_per_requester: number;
+  allowed_subagents: string[] | null;
+}
+
+/**
+ * Tool policy configuration for SubAgent tool access control.
+ * DENY_FIRST: deny wins on conflict; unlisted tools are allowed.
+ * ALLOW_FIRST: allow wins on conflict; unlisted tools are allowed unless in deny.
+ */
+export interface ToolPolicyConfig {
+  allow: string[];
+  deny: string[];
+  precedence: 'allow_first' | 'deny_first';
+}
+
+/**
+ * Agent identity configuration for nested agent spawning.
+ * Defines the identity of a SubAgent when it spawns child agents.
+ */
+export interface AgentIdentityConfig {
+  agent_id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  model: string;
+  allowed_tools: string[];
+  allowed_skills: string[];
+  spawn_policy: SpawnPolicyConfig | null;
+  tool_policy: ToolPolicyConfig | null;
+  metadata: Record<string, string>;
+}
+
+/**
  * SubAgent response from API
  */
 export interface SubAgentResponse {
@@ -39,6 +78,12 @@ export interface SubAgentResponse {
   metadata?: Record<string, unknown> | undefined;
   source?: 'filesystem' | 'database' | undefined;
   file_path?: string | null | undefined;
+  // Multi-agent policy fields
+  spawn_policy?: SpawnPolicyConfig | null | undefined;
+  tool_policy?: ToolPolicyConfig | null | undefined;
+  identity?: AgentIdentityConfig | null | undefined;
+  max_retries?: number | undefined;
+  fallback_models?: string[] | undefined;
 }
 
 /**
@@ -61,6 +106,12 @@ export interface SubAgentCreate {
   max_iterations?: number | undefined;
   project_id?: string | undefined;
   metadata?: Record<string, unknown> | undefined;
+  // Multi-agent policy fields
+  spawn_policy?: SpawnPolicyConfig | undefined;
+  tool_policy?: ToolPolicyConfig | undefined;
+  identity?: Partial<AgentIdentityConfig> | undefined;
+  max_retries?: number | undefined;
+  fallback_models?: string[] | undefined;
 }
 
 /**
@@ -82,6 +133,12 @@ export interface SubAgentUpdate {
   temperature?: number | undefined;
   max_iterations?: number | undefined;
   metadata?: Record<string, unknown> | undefined;
+  // Multi-agent policy fields
+  spawn_policy?: SpawnPolicyConfig | null | undefined;
+  tool_policy?: ToolPolicyConfig | null | undefined;
+  identity?: Partial<AgentIdentityConfig> | null | undefined;
+  max_retries?: number | undefined;
+  fallback_models?: string[] | undefined;
 }
 
 /**

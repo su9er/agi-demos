@@ -25,6 +25,7 @@ from src.domain.events.agent_events import (
     AgentTaskCompleteEvent,
     AgentTaskStartEvent,
     AgentThoughtEvent,
+    SubAgentDelegationEvent,
 )
 from src.domain.events.event_dicts import SSEEventDict
 
@@ -184,6 +185,19 @@ class EventConverter:
                 "status": domain_event.status,
                 "order_index": domain_event.order_index,
                 "total_tasks": domain_event.total_tasks,
+            }
+
+        # SUBAGENT_DELEGATION: normalize for SubAgent delegation indicator
+        if event_type == AgentEventType.SUBAGENT_DELEGATION and isinstance(
+            domain_event, SubAgentDelegationEvent
+        ):
+            event_dict["data"] = {
+                "conversation_id": domain_event.conversation_id,
+                "from_agent_id": domain_event.from_agent_id,
+                "to_subagent_id": domain_event.to_subagent_id,
+                "to_subagent_name": domain_event.to_subagent_name,
+                "trigger_type": domain_event.trigger_type,
+                "task_description": domain_event.task_description,
             }
 
         # Lifecycle hardening events (SUBAGENT_SPAWN_REJECTED,
