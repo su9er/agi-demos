@@ -35,6 +35,7 @@ import type {
   LifecycleStateData,
   SandboxStateData,
   PendingHITLResponse,
+  SubscribeOptions,
 } from '../types/agent';
 
 function generateSessionId(): string {
@@ -53,6 +54,7 @@ class AgentServiceImpl implements AgentService {
 
   // Pending subscriptions (to restore after reconnect)
   private subscriptions: Set<string> = new Set();
+  private subscriptionOptions: Map<string, SubscribeOptions> = new Map();
 
   // Status subscription for Agent session monitoring
   private statusSubscriber: { projectId: string; callback: (status: unknown) => void } | null =
@@ -189,9 +191,13 @@ class AgentServiceImpl implements AgentService {
 
   private resubscribe(): void {
     this.subscriptions.forEach((conversationId) => {
+      const options = this.subscriptionOptions.get(conversationId);
       this.send({
         type: 'subscribe',
         conversation_id: conversationId,
+        ...(options?.message_id ? { message_id: options.message_id } : {}),
+        ...(options?.from_time_us !== undefined ? { from_time_us: options.from_time_us } : {}),
+        ...(options?.from_counter !== undefined ? { from_counter: options.from_counter } : {}),
       });
     });
 
@@ -563,15 +569,37 @@ class AgentServiceImpl implements AgentService {
     }
   }
 
-  subscribe(conversationId: string, handler: AgentStreamHandler): void {
+  subscribe(
+    conversationId: string,
+    handler: AgentStreamHandler,
+    options?: SubscribeOptions
+  ): void {
     const alreadySubscribed = this.subscriptions.has(conversationId);
+    const previousOptions = this.subscriptionOptions.get(conversationId);
     this.handlers.set(conversationId, handler);
     this.subscriptions.add(conversationId);
+    if (options) {
+      this.subscriptionOptions.set(conversationId, options);
+    } else if (!this.subscriptionOptions.has(conversationId)) {
+      this.subscriptionOptions.set(conversationId, {});
+    }
+    const effectiveOptions = this.subscriptionOptions.get(conversationId) ?? {};
+    const optionsChanged =
+      (previousOptions?.message_id ?? null) !== (effectiveOptions.message_id ?? null) ||
+      (previousOptions?.from_time_us ?? null) !== (effectiveOptions.from_time_us ?? null) ||
+      (previousOptions?.from_counter ?? null) !== (effectiveOptions.from_counter ?? null);
 
-    if (this.isConnected() && !alreadySubscribed) {
+    if (this.isConnected() && (!alreadySubscribed || optionsChanged)) {
       this.send({
         type: 'subscribe',
         conversation_id: conversationId,
+        ...(effectiveOptions.message_id ? { message_id: effectiveOptions.message_id } : {}),
+        ...(effectiveOptions.from_time_us !== undefined
+          ? { from_time_us: effectiveOptions.from_time_us }
+          : {}),
+        ...(effectiveOptions.from_counter !== undefined
+          ? { from_counter: effectiveOptions.from_counter }
+          : {}),
       });
     }
   }
@@ -579,6 +607,7 @@ class AgentServiceImpl implements AgentService {
   unsubscribe(conversationId: string): void {
     this.handlers.delete(conversationId);
     this.subscriptions.delete(conversationId);
+    this.subscriptionOptions.delete(conversationId);
 
     if (this.isConnected()) {
       this.send({

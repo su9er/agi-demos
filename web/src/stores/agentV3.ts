@@ -986,7 +986,20 @@ export const useAgentV3Store = create<AgentV3State>()(
                 }
               );
 
-              agentService.subscribe(conversationId, streamHandler);
+              agentService.subscribe(conversationId, streamHandler, {
+                message_id:
+                  typeof execStatus?.current_message_id === 'string'
+                    ? execStatus.current_message_id
+                    : undefined,
+                from_time_us:
+                  typeof execStatus?.last_event_time_us === 'number'
+                    ? execStatus.last_event_time_us
+                    : lastTimeUs ?? undefined,
+                from_counter:
+                  typeof execStatus?.last_event_counter === 'number'
+                    ? execStatus.last_event_counter
+                    : response.last_counter ?? undefined,
+              });
               logger.debug(`[AgentV3] Subscribed to conversation ${conversationId}`);
             }
           } catch (error) {

@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from src.infrastructure.adapters.primary.web.websocket.handlers.base_handler import (
     WebSocketMessageHandler,
@@ -26,9 +26,11 @@ class SendMessageHandler(WebSocketMessageHandler):
     """Handle send_message: Start agent execution."""
 
     @property
+    @override
     def message_type(self) -> str:
         return "send_message"
 
+    @override
     async def handle(self, context: MessageContext, message: dict[str, Any]) -> None:
         """Handle send_message: Start agent execution."""
         conversation_id = message.get("conversation_id")
@@ -140,9 +142,11 @@ class StopSessionHandler(WebSocketMessageHandler):
     """Handle stop_session: Cancel ongoing agent execution."""
 
     @property
+    @override
     def message_type(self) -> str:
         return "stop_session"
 
+    @override
     async def handle(self, context: MessageContext, message: dict[str, Any]) -> None:
         """Handle stop_session: Cancel ongoing agent execution."""
         conversation_id = message.get("conversation_id")
@@ -326,6 +330,10 @@ async def stream_hitl_response_to_websocket(
     session_id: str,
     conversation_id: str,
     message_id: str | None = None,
+    *,
+    replay_from_db: bool = True,
+    from_time_us: int | None = None,
+    from_counter: int | None = None,
 ) -> None:
     """
     Stream agent events after HITL response to WebSocket.
@@ -343,12 +351,16 @@ async def stream_hitl_response_to_websocket(
     try:
         logger.info(
             f"[WS HITL Bridge] Starting stream for conversation {conversation_id}, "
-            f"message_id={message_id or 'ALL'}"
+            f"message_id={message_id or 'ALL'}, replay_from_db={replay_from_db}, "
+            f"from_time_us={from_time_us}, from_counter={from_counter}"
         )
 
         async for event in agent_service.connect_chat_stream(
             conversation_id=conversation_id,
             message_id=message_id,
+            replay_from_db=replay_from_db,
+            from_time_us=from_time_us,
+            from_counter=from_counter,
         ):
             event_count += 1
             event_type = event.get("type", "unknown")

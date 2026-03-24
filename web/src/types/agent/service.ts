@@ -12,6 +12,12 @@ import type {
   ToolsListResponse,
 } from './core';
 import type { AgentStreamHandler } from './streaming';
+
+export interface SubscribeOptions {
+  message_id?: string;
+  from_time_us?: number;
+  from_counter?: number;
+}
 /**
  * Agent service interface (extended for multi-level thinking)
  */
@@ -25,7 +31,16 @@ export interface AgentService {
   ): Promise<PaginatedConversationsResponse>;
   getConversation(conversationId: string, projectId: string): Promise<Conversation | null>;
   chat(request: ChatRequest, handler: AgentStreamHandler): Promise<void>;
+  subscribe(
+    conversationId: string,
+    handler: AgentStreamHandler,
+    options?: SubscribeOptions
+  ): void;
+  unsubscribe(conversationId: string): void;
   stopChat(conversationId: string): boolean;
+  connect(): Promise<void>;
+  disconnect(): void;
+  isConnected(): boolean;
   deleteConversation(conversationId: string, projectId: string): Promise<void>;
   getConversationMessages(
     conversationId: string,

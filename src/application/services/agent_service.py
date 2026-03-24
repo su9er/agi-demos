@@ -776,10 +776,14 @@ class AgentService(AgentServicePort):
 
         return (event_type, event_data, evt_time_us, evt_counter)
 
-    async def connect_chat_stream(
+    async def connect_chat_stream(  # noqa: PLR0912
         self,
         conversation_id: str,
         message_id: str | None = None,
+        *,
+        replay_from_db: bool = True,
+        from_time_us: int | None = None,
+        from_counter: int | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Connect to a chat stream, handling replay and real-time events.
@@ -791,6 +795,9 @@ class AgentService(AgentServicePort):
         Args:
             conversation_id: Conversation ID to connect to
             message_id: Optional message ID to filter events for a specific message
+            replay_from_db: Whether to replay persisted DB events before streaming
+            from_time_us: Optional event time cursor to skip already-consumed events
+            from_counter: Optional event counter cursor paired with from_time_us
 
         Yields:
             SSE event dictionaries with keys: type, data, event_time_us, event_counter, timestamp
@@ -802,27 +809,38 @@ class AgentService(AgentServicePort):
 
         logger.info(
             f"[AgentService] connect_chat_stream start: conversation_id={conversation_id}, "
-            f"message_id={message_id}"
+            f"message_id={message_id}, replay_from_db={replay_from_db}, "
+            f"from_time_us={from_time_us}, from_counter={from_counter}"
         )
 
-        # 1. Replay from DB
-        try:
-            (
-                db_events,
-                last_event_time_us,
-                last_event_counter,
-                saw_complete,
-            ) = await self._replay_db_events(conversation_id, message_id)
-            for ev in db_events:
-                yield ev
-        except Exception as e:
-            logger.warning(f"[AgentService] Failed to replay events: {e}")
-            last_event_time_us = 0
-            last_event_counter = 0
-            saw_complete = False
+        # Cursor baseline from caller (e.g. page refresh recovery)
+        last_event_time_us = max(from_time_us or 0, 0)
+        last_event_counter = max(from_counter or 0, 0)
+        saw_complete = False
+
+        # 1. Replay from DB (optional)
+        if replay_from_db:
+            try:
+                (
+                    db_events,
+                    replay_last_event_time_us,
+                    replay_last_event_counter,
+                    saw_complete,
+                ) = await self._replay_db_events(conversation_id, message_id)
+                for ev in db_events:
+                    yield ev
+                if replay_last_event_time_us > last_event_time_us or (
+                    replay_last_event_time_us == last_event_time_us
+                    and replay_last_event_counter > last_event_counter
+                ):
+                    last_event_time_us = replay_last_event_time_us
+                    last_event_counter = replay_last_event_counter
+            except Exception as e:
+                logger.warning(f"[AgentService] Failed to replay events: {e}")
+                saw_complete = False
 
         # If completion already happened, replay text_delta from Redis Stream once
-        if message_id and saw_complete:
+        if replay_from_db and message_id and saw_complete:
             for ev in await self._replay_completed_stream(
                 conversation_id, message_id, last_event_time_us
             ):

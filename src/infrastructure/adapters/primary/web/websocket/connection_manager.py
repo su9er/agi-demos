@@ -11,6 +11,7 @@ Manages WebSocket connections for agent chat with support for:
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -383,6 +384,60 @@ class ConnectionManager:
             existing_task.cancel()
 
         self.bridge_tasks[session_id][conversation_id] = task
+
+    async def try_start_bridge_task(
+        self,
+        session_id: str,
+        conversation_id: str,
+        task_factory: Callable[[], asyncio.Task[None]],
+        *,
+        bridge_message_id: str | None = None,
+    ) -> bool:
+        """Atomically start/register bridge task when no compatible active bridge exists."""
+        async with self._lock:
+            # Session may have disconnected between subscribe and recovery bridge startup.
+            if session_id not in self.active_connections:
+                return False
+            if conversation_id not in self.subscriptions.get(session_id, set()):
+                return False
+
+            for existing_session_id, task_map in self.bridge_tasks.items():
+                task = task_map.get(conversation_id)
+                if not task or task.done():
+                    continue
+                existing_message_id = getattr(task, "_bridge_message_id", None)
+                if (
+                    bridge_message_id
+                    and isinstance(existing_message_id, str)
+                    and existing_message_id != bridge_message_id
+                ):
+                    logger.info(
+                        f"[WS] Replacing stale bridge task for conversation {conversation_id}: "
+                        f"old_session={existing_session_id[:8]}..., "
+                        f"old_message_id={existing_message_id}, "
+                        f"new_message_id={bridge_message_id}"
+                    )
+                    task.cancel()
+                    del task_map[conversation_id]
+                    continue
+                return False
+
+            if session_id not in self.bridge_tasks:
+                self.bridge_tasks[session_id] = {}
+
+            existing_task = self.bridge_tasks[session_id].get(conversation_id)
+            if existing_task and not existing_task.done():
+                logger.info(
+                    f"[WS] Cancelling existing bridge task for session {session_id[:8]}... "
+                    f"conversation {conversation_id}"
+                )
+                existing_task.cancel()
+
+            new_task = task_factory()
+            if bridge_message_id:
+                new_task._bridge_message_id = bridge_message_id  # type: ignore[attr-defined]
+            self.bridge_tasks[session_id][conversation_id] = new_task
+            return True
 
     def get_user_id(self, session_id: str) -> str | None:
         """Get the user_id for a session."""
