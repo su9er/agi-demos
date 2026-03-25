@@ -11,9 +11,9 @@ import logging
 import os
 import socket
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast, override
 
 import docker
@@ -180,7 +180,8 @@ class MCPSandboxAdapter(SandboxPort):
         # Old entries auto-expire after rebuild_ttl_seconds
         from src.infrastructure.adapters.secondary.sandbox.health_monitor import TTLCache
 
-        self._rebuild_cooldown_seconds = 5.0  # Minimum seconds between rebuilds
+        self._rebuild_cooldown_seconds = 60.0  # Minimum seconds between rebuild attempts
+        self._reconnect_grace_seconds = 3.0  # Wait briefly before rebuild on transient failures
         self._rebuild_ttl_seconds = 300.0  # Entries expire after 5 minutes
         self._last_rebuild_at: TTLCache = TTLCache(
             default_ttl_seconds=self._rebuild_ttl_seconds,
@@ -194,6 +195,11 @@ class MCPSandboxAdapter(SandboxPort):
             default_ttl_seconds=self._health_check_ttl_seconds,
             max_size=1000,
         )
+        # Persist sandbox access activity to DB with throttling.
+        # This keeps idle-reaper's DB-based stale detection aligned with real activity.
+        self._db_access_persist_interval_seconds = 20.0
+        self._last_db_access_persisted_at: dict[str, float] = {}
+        self._db_access_persist_lock = asyncio.Lock()
 
         # Periodic cleanup task management
         self._cleanup_task: asyncio.Task[None] | None = None
@@ -238,6 +244,9 @@ class MCPSandboxAdapter(SandboxPort):
 
         # Optional workspace sync service (set after construction)
         self._workspace_sync_service: WorkspaceSyncService | None = None
+        # Optional callback for persisting sandbox access activity.
+        # Signature: (sandbox_id, accessed_at) -> awaitable
+        self._access_persist_callback: Callable[[str, datetime], Awaitable[None]] | None = None
 
     def set_workspace_sync_service(self, service: WorkspaceSyncService) -> None:
         """Attach the workspace sync service for lifecycle hooks.
@@ -249,6 +258,81 @@ class MCPSandboxAdapter(SandboxPort):
             service: WorkspaceSyncService instance to use in hooks.
         """
         self._workspace_sync_service = service
+
+    def set_access_persist_callback(
+        self,
+        callback: Callable[[str, datetime], Awaitable[None]] | None,
+    ) -> None:
+        """Attach callback used to persist sandbox access activity to DB."""
+        self._access_persist_callback = callback
+
+    @staticmethod
+    def _normalize_utc(dt: datetime) -> datetime:
+        """Normalize datetime to UTC-aware for persistence boundaries."""
+        if dt.tzinfo is None:
+            return dt.astimezone(UTC)
+        return dt.astimezone(UTC)
+
+    @staticmethod
+    def _to_epoch_seconds(dt: datetime) -> float:
+        """Convert datetime to unix epoch seconds (supports naive and aware values)."""
+        return dt.timestamp()
+
+    async def is_recently_active(self, sandbox_id: str, within_seconds: int = 300) -> bool:
+        """Check whether sandbox has in-memory activity within a time window."""
+        if within_seconds <= 0:
+            return False
+
+        async with self._instance_lock:
+            instance = self._active_sandboxes.get(sandbox_id)
+            if not instance or not instance.last_activity_at:
+                return False
+            last_activity = instance.last_activity_at
+
+        idle_seconds = datetime.now().timestamp() - self._to_epoch_seconds(last_activity)
+        if idle_seconds < 0:
+            return True
+        return idle_seconds <= within_seconds
+
+    async def _persist_access_activity(self, sandbox_id: str, accessed_at: datetime) -> None:
+        """Persist access activity with throttle to avoid excessive DB writes."""
+        callback = self._access_persist_callback
+        if callback is None:
+            return
+
+        import time as time_module
+
+        now = time_module.time()
+        async with self._db_access_persist_lock:
+            last_persist = self._last_db_access_persisted_at.get(sandbox_id)
+            if (
+                last_persist is not None
+                and now - last_persist < self._db_access_persist_interval_seconds
+            ):
+                return
+            self._last_db_access_persisted_at[sandbox_id] = now
+
+        try:
+            await callback(sandbox_id, self._normalize_utc(accessed_at))
+        except Exception:
+            async with self._db_access_persist_lock:
+                self._last_db_access_persisted_at.pop(sandbox_id, None)
+            logger.warning(
+                "Failed to persist sandbox access activity (sandbox=%s)",
+                sandbox_id,
+                exc_info=True,
+            )
+
+    async def _record_activity(self, sandbox_id: str) -> None:
+        """Record both in-memory and (throttled) persisted activity."""
+        now = datetime.now()
+
+        async with self._instance_lock:
+            instance = self._active_sandboxes.get(sandbox_id)
+            if instance:
+                instance.last_activity_at = now
+
+        await self._persist_access_activity(sandbox_id, now)
 
     def _is_port_available(self, port: int) -> bool:
         """Check if a port is available on the host.
@@ -1011,6 +1095,9 @@ class MCPSandboxAdapter(SandboxPort):
             self._release_ports_unsafe(ports_to_release)
         # Invalidate health check cache
         await self._last_healthy_at.delete(sandbox_id)
+        # Invalidate DB access persist throttle cache for terminated instance
+        async with self._db_access_persist_lock:
+            self._last_db_access_persisted_at.pop(sandbox_id, None)
 
         # Persist terminated state for crash recovery
         project_id = (
@@ -2084,6 +2171,10 @@ class MCPSandboxAdapter(SandboxPort):
             if instance:
                 instance.last_activity_at = datetime.now()
 
+    async def persist_activity(self, sandbox_id: str) -> None:
+        """Persist access activity for current sandbox time."""
+        await self._persist_access_activity(sandbox_id, datetime.now())
+
     def get_idle_time(self, sandbox_id: str) -> timedelta:
         """
         Get the idle time for a sandbox.
@@ -2098,7 +2189,8 @@ class MCPSandboxAdapter(SandboxPort):
         if not instance or not instance.last_activity_at:
             return timedelta(0)
 
-        return datetime.now() - instance.last_activity_at
+        idle_seconds = datetime.now().timestamp() - self._to_epoch_seconds(instance.last_activity_at)
+        return timedelta(seconds=max(0.0, idle_seconds))
 
     # === Enhanced Cleanup ===
 
@@ -2606,8 +2698,174 @@ class MCPSandboxAdapter(SandboxPort):
         if is_healthy:
             await self._last_healthy_at.set(sandbox_id, True)
             return True
+        # Skip reconnect grace when container is not running/not found.
+        # In that case rebuilding is the correct next step.
+        container_running = await self.container_exists(sandbox_id)
+        # Give transient reconnect failures a short grace window before rebuilding.
+        if self._reconnect_grace_seconds > 0 and container_running:
+            logger.info(
+                "Sandbox %s failed health check, waiting %.1fs before rebuild attempt",
+                sandbox_id,
+                self._reconnect_grace_seconds,
+            )
+            await asyncio.sleep(self._reconnect_grace_seconds)
+            try:
+                if await self.connect_mcp(sandbox_id, timeout=10.0):
+                    await self._last_healthy_at.set(sandbox_id, True)
+                    logger.info("Sandbox %s recovered during reconnect grace window", sandbox_id)
+                    return True
+            except Exception as e:
+                logger.warning("Reconnect grace check failed for sandbox %s: %s", sandbox_id, e)
         # Container is unhealthy - attempt rebuild
         return await self._attempt_sandbox_rebuild(sandbox_id, instance)
+
+    def _build_tool_error_result(self, message: str) -> dict[str, Any]:
+        """Build a standardized MCP tool error response payload."""
+        return {
+            "content": [{"type": "text", "text": message}],
+            "is_error": True,
+        }
+
+    @staticmethod
+    def _build_tool_success_result(result: Any) -> dict[str, Any]:
+        """Build MCP tool success payload, preserving provider-specific extra fields."""
+        base_result: dict[str, Any] = {
+            "content": result.content,
+            "is_error": result.isError,
+            "artifact": getattr(result, "artifact", None),
+        }
+
+        # Preserve extra fields from MCP result
+        # (e.g., "results" and "errors" for batch_export_artifacts)
+        # MCPToolResult may be a Pydantic model (with model_extra) or
+        # a dataclass (with extra fields stored in .metadata).
+        extra = getattr(result, "model_extra", None)
+        if extra:
+            base_result.update(extra)
+
+        # The websocket client stores extra MCP response fields
+        # (results, errors) inside MCPToolResult.metadata when the
+        # result type is a dataclass without model_extra support.
+        result_metadata = getattr(result, "metadata", None)
+        if isinstance(result_metadata, dict):
+            for key in ("results", "errors"):
+                if key in result_metadata and key not in base_result:
+                    base_result[key] = result_metadata[key]
+
+        return base_result
+
+    async def _get_instance_for_tool_call(self, sandbox_id: str) -> MCPSandboxInstance:
+        """Load active sandbox instance under lock or raise not-found."""
+        async with self._instance_lock:
+            instance = self._active_sandboxes.get(sandbox_id)
+
+        if not instance:
+            raise SandboxNotFoundError(
+                message=f"Sandbox not found: {sandbox_id}",
+                sandbox_id=sandbox_id,
+                operation="call_tool",
+            )
+
+        return instance
+
+    async def _call_tool_once(
+        self,
+        *,
+        sandbox_id: str,
+        instance: MCPSandboxInstance,
+        tool_name: str,
+        arguments: dict[str, Any],
+        timeout: float,
+    ) -> dict[str, Any]:
+        """Execute a single MCP tool call attempt."""
+        if not instance.mcp_client or not instance.mcp_client.is_connected:
+            connected = await self.connect_mcp(sandbox_id)
+            if not connected:
+                raise SandboxConnectionError(
+                    message="Failed to connect MCP client",
+                    sandbox_id=sandbox_id,
+                    operation="call_tool",
+                )
+
+        assert instance.mcp_client is not None
+        result = await instance.mcp_client.call_tool(
+            tool_name,
+            arguments,
+            timeout=timeout,
+        )
+
+        await self._record_activity(sandbox_id)
+        return self._build_tool_success_result(result)
+
+    async def _handle_tool_call_connection_error(
+        self,
+        *,
+        instance: MCPSandboxInstance,
+        sandbox_id: str,
+        attempt: int,
+        max_retries: int,
+        error: Exception,
+    ) -> bool:
+        """Handle a connection failure and prepare retry state.
+
+        Returns:
+            True when caller should retry, False when retries are exhausted.
+        """
+        if attempt >= max_retries - 1:
+            logger.error("Tool call failed after %s attempts: %s", max_retries, error)
+            return False
+
+        logger.warning(
+            "Tool call connection error (attempt %s/%s): %s. Retrying...",
+            attempt + 1,
+            max_retries,
+            error,
+        )
+        if instance.mcp_client:
+            await instance.mcp_client.disconnect()
+            instance.mcp_client = None
+        await asyncio.sleep(1.0 * (attempt + 1))
+        return True
+
+    async def _call_tool_with_retries(
+        self,
+        *,
+        sandbox_id: str,
+        instance: MCPSandboxInstance,
+        tool_name: str,
+        arguments: dict[str, Any],
+        timeout: float,
+        max_retries: int,
+    ) -> dict[str, Any]:
+        """Execute tool call with retry policy for connection failures."""
+        for attempt in range(max_retries):
+            try:
+                return await self._call_tool_once(
+                    sandbox_id=sandbox_id,
+                    instance=instance,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    timeout=timeout,
+                )
+            except (SandboxConnectionError, ConnectionError) as e:
+                await self._last_healthy_at.delete(sandbox_id)
+                should_retry = await self._handle_tool_call_connection_error(
+                    instance=instance,
+                    sandbox_id=sandbox_id,
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    error=e,
+                )
+                if should_retry:
+                    continue
+                return self._build_tool_error_result(
+                    f"Connection error after {max_retries} attempts: {e!s}"
+                )
+            except Exception as e:
+                logger.error("Tool call error: %s", e)
+                return self._build_tool_error_result(f"Error: {e!s}")
+
+        return self._build_tool_error_result("Tool call failed: no attempts made")
 
     @override
     async def call_tool(
@@ -2636,111 +2894,24 @@ class MCPSandboxAdapter(SandboxPort):
         # Ensure sandbox is healthy before proceeding
         is_healthy = await self._ensure_sandbox_healthy(sandbox_id)
         if not is_healthy:
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"Sandbox {sandbox_id} is unavailable and could not be rebuilt",
-                    }
-                ],
-                "is_error": True,
-            }
-
-        # Update activity before tool call
-        await self.update_activity(sandbox_id)
-
-        # Refresh instance reference after potential rebuild (under lock for safety)
-        async with self._instance_lock:
-            instance = self._active_sandboxes.get(sandbox_id)
-        if not instance:
-            raise SandboxNotFoundError(
-                message=f"Sandbox not found: {sandbox_id}",
-                sandbox_id=sandbox_id,
-                operation="call_tool",
+            return self._build_tool_error_result(
+                f"Sandbox {sandbox_id} is unavailable and could not be rebuilt"
             )
 
-        for attempt in range(max_retries):
-            try:
-                # Auto-connect if needed
-                if not instance.mcp_client or not instance.mcp_client.is_connected:
-                    connected = await self.connect_mcp(sandbox_id)
-                    if not connected:
-                        raise SandboxConnectionError(
-                            message="Failed to connect MCP client",
-                            sandbox_id=sandbox_id,
-                            operation="call_tool",
-                        )
+        # Update activity before tool call
+        await self._record_activity(sandbox_id)
 
-                assert instance.mcp_client is not None
-                result = await instance.mcp_client.call_tool(
-                    tool_name,
-                    arguments,
-                    timeout=timeout,
-                )
+        # Refresh instance reference after potential rebuild (under lock for safety)
+        instance = await self._get_instance_for_tool_call(sandbox_id)
 
-                # Update activity after successful call
-                await self.update_activity(sandbox_id)
-
-                base_result: dict[str, Any] = {
-                    "content": result.content,
-                    "is_error": result.isError,
-                    "artifact": getattr(result, "artifact", None),
-                }
-                # Preserve extra fields from MCP result
-                # (e.g., "results" and "errors" for batch_export_artifacts)
-                # MCPToolResult may be a Pydantic model (with model_extra) or
-                # a dataclass (with extra fields stored in .metadata).
-                extra = getattr(result, "model_extra", None)
-                if extra:
-                    base_result.update(extra)
-                # The websocket client stores extra MCP response fields
-                # (results, errors) inside MCPToolResult.metadata when the
-                # result type is a dataclass without model_extra support.
-                result_metadata = getattr(result, "metadata", None)
-                if isinstance(result_metadata, dict):
-                    for key in ("results", "errors"):
-                        if key in result_metadata and key not in base_result:
-                            base_result[key] = result_metadata[key]
-                return base_result
-
-            except (SandboxConnectionError, ConnectionError) as e:
-                # Invalidate health cache so next call_tool does a full check
-                await self._last_healthy_at.delete(sandbox_id)
-                if attempt < max_retries - 1:
-                    logger.warning(
-                        f"Tool call connection error (attempt {attempt + 1}/{max_retries}): {e}. "
-                        f"Retrying..."
-                    )
-                    # Force reconnect on next attempt
-                    if instance.mcp_client:
-                        await instance.mcp_client.disconnect()
-                        instance.mcp_client = None
-                    await asyncio.sleep(1.0 * (attempt + 1))
-                else:
-                    # Final attempt failed, return error
-                    logger.error(f"Tool call failed after {max_retries} attempts: {e}")
-                    return {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": f"Connection error after {max_retries} attempts: {e!s}",
-                            }
-                        ],
-                        "is_error": True,
-                    }
-            except Exception as e:
-                # Non-retryable error
-                logger.error(f"Tool call error: {e}")
-                return {
-                    "content": [{"type": "text", "text": f"Error: {e!s}"}],
-                    "is_error": True,
-                }
-
-        # Should not reach here, but satisfy mypy
-        return {
-            "content": [{"type": "text", "text": "Tool call failed: no attempts made"}],
-            "is_error": True,
-        }
+        return await self._call_tool_with_retries(
+            sandbox_id=sandbox_id,
+            instance=instance,
+            tool_name=tool_name,
+            arguments=arguments,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
 
     # === Enhanced Orphan Cleanup ===
 

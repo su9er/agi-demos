@@ -9,6 +9,7 @@ The test verifies that when a sandbox container is killed (e.g., via docker kill
 the adapter automatically rebuilds it on the next tool call.
 """
 
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -70,6 +71,48 @@ def mock_mcp_client():
 
 class TestSandboxAutoRebuild:
     """Test sandbox auto-rebuild when container is killed."""
+
+    @pytest.mark.asyncio
+    async def test_is_recently_active_handles_naive_last_activity(self, adapter):
+        """Should tolerate legacy naive timestamps when checking recent activity."""
+        sandbox_id = "mcp-sandbox-naive-activity"
+        instance = MCPSandboxInstance(
+            id=sandbox_id,
+            status=SandboxStatus.RUNNING,
+            config=SandboxConfig(image="sandbox-mcp-server:latest"),
+            project_path="/tmp/test_project",
+            endpoint="ws://localhost:18765",
+            websocket_url="ws://localhost:18765",
+            mcp_port=18765,
+            last_activity_at=datetime.now() - timedelta(seconds=30),
+        )
+        adapter._active_sandboxes[sandbox_id] = instance
+
+        is_recent = await adapter.is_recently_active(sandbox_id, within_seconds=300)
+        assert is_recent is True
+
+    @pytest.mark.asyncio
+    async def test_update_activity_sets_utc_timestamp(self, adapter):
+        """update_activity should write a newer timestamp."""
+        sandbox_id = "mcp-sandbox-update-activity"
+        instance = MCPSandboxInstance(
+            id=sandbox_id,
+            status=SandboxStatus.RUNNING,
+            config=SandboxConfig(image="sandbox-mcp-server:latest"),
+            project_path="/tmp/test_project",
+            endpoint="ws://localhost:18765",
+            websocket_url="ws://localhost:18765",
+            mcp_port=18765,
+            last_activity_at=datetime.now() - timedelta(hours=1),
+        )
+        adapter._active_sandboxes[sandbox_id] = instance
+
+        before = instance.last_activity_at
+        await adapter.update_activity(sandbox_id)
+        updated = adapter._active_sandboxes[sandbox_id].last_activity_at
+        assert updated is not None
+        assert before is not None
+        assert updated > before
 
     @pytest.mark.asyncio
     async def test_call_tool_detects_dead_container_and_rebuilds(
@@ -344,6 +387,63 @@ class TestSandboxAutoRebuild:
         assert result.get("is_error") is False
         assert result.get("content")[0]["text"] == "Success"
 
+    @pytest.mark.asyncio
+    async def test_call_tool_uses_reconnect_grace_before_rebuild(
+        self, adapter, mock_docker, mock_mcp_client
+    ):
+        """Should recover via reconnect grace and avoid immediate rebuild."""
+        sandbox_id = "mcp-sandbox-grace"
+        project_path = "/tmp/test_project"
+
+        # Existing running container (healthy at Docker layer)
+        mock_container = MagicMock()
+        mock_container.status = "running"
+        mock_docker.containers.get.return_value = mock_container
+
+        instance = MCPSandboxInstance(
+            id=sandbox_id,
+            status=SandboxStatus.RUNNING,
+            config=SandboxConfig(image="sandbox-mcp-server:latest"),
+            project_path=project_path,
+            endpoint="ws://localhost:18765",
+            websocket_url="ws://localhost:18765",
+            mcp_port=18765,
+            desktop_port=16080,
+            terminal_port=17681,
+            mcp_client=None,
+        )
+        adapter._active_sandboxes[sandbox_id] = instance
+
+        # First health check fails, reconnect grace succeeds
+        with (
+            patch.object(adapter, "health_check", AsyncMock(return_value=False)),
+            patch.object(adapter, "container_exists", AsyncMock(return_value=True)),
+            patch.object(adapter, "_attempt_sandbox_rebuild", AsyncMock(return_value=False)) as rebuild,
+            patch.object(adapter, "connect_mcp", AsyncMock(return_value=True)) as reconnect,
+            patch("asyncio.sleep", AsyncMock()) as sleep_mock,
+        ):
+            # Reconnect sets client so call_tool can proceed
+            async def _reconnect(*_args, **_kwargs):
+                instance.mcp_client = mock_mcp_client
+                return True
+
+            reconnect.side_effect = _reconnect
+            mock_mcp_client.call_tool.return_value = MagicMock(
+                content=[{"type": "text", "text": "Recovered with grace"}],
+                isError=False,
+            )
+
+            result = await adapter.call_tool(
+                sandbox_id=sandbox_id,
+                tool_name="read",
+                arguments={"file_path": "/workspace/test.txt"},
+            )
+
+        rebuild.assert_not_called()
+        sleep_mock.assert_awaited()
+        assert result.get("is_error") is False
+        assert result.get("content")[0]["text"] == "Recovered with grace"
+
 
 class TestSandboxAutoRebuildIntegration:
     """Integration-style tests for auto-rebuild functionality."""
@@ -401,7 +501,10 @@ class TestSandboxAutoRebuildIntegration:
         adapter._active_sandboxes[sandbox_id] = instance
 
         # Mock connect_mcp to succeed after rebuild
-        with patch.object(adapter, "connect_mcp", return_value=True) as mock_connect:
+        with (
+            patch.object(adapter, "connect_mcp", return_value=True) as mock_connect,
+            patch.object(adapter, "container_exists", AsyncMock(return_value=False)),
+        ):
             # After connection, set the mock client
             async def connect_side_effect(sandbox_id, timeout=30.0):
                 instance = adapter._active_sandboxes.get(sandbox_id)

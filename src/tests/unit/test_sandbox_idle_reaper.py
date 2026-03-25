@@ -189,6 +189,34 @@ class TestSweep:
 
         assert assoc.status == ProjectSandboxStatus.TERMINATED
 
+    async def test_sweep_skips_recently_active_stale_sandbox(self) -> None:
+        session = AsyncMock()
+        adapter = AsyncMock()
+        assoc = _make_association(sandbox_id="sb-recent", project_id="p-recent")
+
+        reaper = SandboxIdleReaper(
+            idle_timeout_seconds=1800,
+            check_interval_seconds=60,
+            session_factory=_make_session_factory(session),
+            sandbox_adapter=adapter,
+            is_recently_active=AsyncMock(return_value=True),
+            recent_activity_window_seconds=300,
+        )
+
+        with patch(
+            "src.application.services.sandbox_idle_reaper.SqlProjectSandboxRepository"
+        ) as mock_repo_cls:
+            mock_repo = AsyncMock()
+            mock_repo.find_stale.return_value = [assoc]
+            mock_repo_cls.return_value = mock_repo
+
+            terminated = await reaper._sweep()  # type: ignore[reportPrivateUsage]
+
+        assert terminated == []
+        adapter.terminate_sandbox.assert_not_called()
+        mock_repo.save.assert_awaited_once()
+        session.commit.assert_not_called()
+
 
 
 @pytest.mark.unit

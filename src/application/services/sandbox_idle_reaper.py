@@ -16,7 +16,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from inspect import isawaitable
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,12 +63,16 @@ class SandboxIdleReaper:
         session_factory: Callable[[], AsyncSession],
         sandbox_adapter: MCPSandboxAdapter,
         workspace_sync: WorkspaceSyncService | None = None,
+        is_recently_active: Callable[[str, int], Awaitable[bool] | bool] | None = None,
+        recent_activity_window_seconds: int = 300,
     ) -> None:
         self._idle_timeout_seconds = idle_timeout_seconds
         self._check_interval_seconds = check_interval_seconds
         self._session_factory = session_factory
         self._sandbox_adapter = sandbox_adapter
         self._workspace_sync = workspace_sync
+        self._is_recently_active = is_recently_active
+        self._recent_activity_window_seconds = recent_activity_window_seconds
         self._task: asyncio.Task[None] | None = None
         self._running = False
 
@@ -151,6 +157,8 @@ class SandboxIdleReaper:
 
             for association in stale:
                 try:
+                    if await self._should_skip_stale_termination(association, session):
+                        continue
                     await self._terminate_one(association, session)
                     terminated.append(association.sandbox_id)
                 except Exception:
@@ -170,6 +178,48 @@ class SandboxIdleReaper:
                 )
 
         return terminated
+
+    async def _should_skip_stale_termination(
+        self,
+        association: ProjectSandbox,
+        session: AsyncSession,
+    ) -> bool:
+        """Return True when stale DB record has recent in-memory adapter activity."""
+        checker = self._is_recently_active
+        if checker is None:
+            return False
+
+        try:
+            maybe_result = checker(
+                association.sandbox_id,
+                self._recent_activity_window_seconds,
+            )
+            if isawaitable(maybe_result):
+                is_recent = bool(await maybe_result)
+            else:
+                is_recent = bool(maybe_result)
+        except Exception:
+            logger.warning(
+                "SandboxIdleReaper recent-activity check failed for sandbox %s; "
+                "continuing with termination path",
+                association.sandbox_id,
+                exc_info=True,
+            )
+            return False
+
+        if not is_recent:
+            return False
+
+        logger.info(
+            "SandboxIdleReaper skipping stale sandbox %s due to recent adapter activity "
+            "(window=%ss)",
+            association.sandbox_id,
+            self._recent_activity_window_seconds,
+        )
+        association.last_accessed_at = datetime.now(UTC)
+        repo = SqlProjectSandboxRepository(session)
+        await repo.save(association)
+        return True
 
     async def _terminate_one(
         self,

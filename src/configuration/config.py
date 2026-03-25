@@ -335,6 +335,9 @@ class Settings(BaseSettings):
     workspace_s3_bucket: str = Field(default="memstack-workspaces", alias="WORKSPACE_S3_BUCKET")
     sandbox_pip_cache_enabled: bool = Field(default=True, alias="SANDBOX_PIP_CACHE_ENABLED")
     sandbox_pip_cache_path: str = Field(default="", alias="SANDBOX_PIP_CACHE_PATH")
+    sandbox_idle_reaper_enabled: bool = Field(
+        default=False, alias="SANDBOX_IDLE_REAPER_ENABLED"
+    )  # Disable reaper by default to prevent long-run rebuild churn; opt-in via env
     sandbox_idle_timeout_seconds: int = Field(
         default=1800, alias="SANDBOX_IDLE_TIMEOUT_SECONDS"
     )  # Auto-destroy idle sandboxes after this many seconds (0 to disable)

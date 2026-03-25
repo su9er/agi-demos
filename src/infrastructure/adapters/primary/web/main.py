@@ -162,8 +162,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
     # Initialize Docker services (sandbox sync and event monitor)
     await initialize_docker_services(container)
 
-    # Initialize sandbox idle reaper (auto-destroy idle sandboxes)
-    await initialize_sandbox_idle_reaper()
+    # Initialize sandbox idle reaper (opt-in; disabled by default)
+    await initialize_sandbox_idle_reaper(container)
 
     # Initialize Channel Connection Manager for IM integrations
     channel_manager = await initialize_channel_manager()
