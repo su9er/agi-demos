@@ -7,6 +7,36 @@ import type { WorkspaceMessage } from '@/types/workspace';
 
 const { Text } = Typography;
 
+const MENTION_RE = /@"([^"]{1,64})"|@([\w][\w\-.]{0,62}[\w]|[\w])/g;
+
+function renderContentWithMentions(content: string, isOwn: boolean): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of content.matchAll(MENTION_RE)) {
+    const matchIndex = match.index;
+    if (matchIndex > lastIndex) {
+      parts.push(content.slice(lastIndex, matchIndex));
+    }
+    const mentionName = match[1] || match[2];
+    parts.push(
+      <span
+        key={matchIndex}
+        className={`font-medium ${isOwn ? 'text-blue-200' : 'text-blue-600'}`}
+      >
+        @{mentionName}
+      </span>,
+    );
+    lastIndex = matchIndex + match[0].length;
+  }
+
+  if (lastIndex < content.length) {
+    parts.push(content.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : content;
+}
+
 export interface ChatMessageProps {
   message: WorkspaceMessage;
   isOwn: boolean;
@@ -51,7 +81,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isOwn }) => {
                 : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm'
             }`}
           >
-            {message.content}
+            {renderContentWithMentions(message.content, isOwn)}
           </div>
         </div>
       </div>

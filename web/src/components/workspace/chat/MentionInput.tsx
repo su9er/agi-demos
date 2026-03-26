@@ -24,6 +24,7 @@ export const MentionInput: React.FC<MentionInputProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const allMentions = [
+    { id: 'all', type: 'broadcast', name: 'all' },
     ...members.map((m) => ({ id: m.id, type: 'human', name: m.user_email || m.user_id })),
     ...agents.map((a) => ({ id: a.id, type: 'agent', name: a.display_name || a.agent_id })),
   ];

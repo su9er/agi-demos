@@ -112,6 +112,10 @@ class WorkspaceMessageService:
         members = await self._member_repo.find_by_workspace(workspace_id)
         agents = await self._agent_repo.find_by_workspace(workspace_id)
 
+        # @all broadcasts to every agent in the workspace
+        if any(name.strip().lower() == "all" for name in raw_names):
+            return [a.agent_id for a in agents]
+
         name_to_id: dict[str, str] = {}
         for agent in agents:
             if agent.display_name:
