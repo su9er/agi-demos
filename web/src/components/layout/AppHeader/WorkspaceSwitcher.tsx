@@ -8,9 +8,13 @@ import * as React from 'react';
 
 import { WorkspaceSwitcher as BaseWorkspaceSwitcher } from '@/components/shared/ui/WorkspaceSwitcher';
 
+interface BaseWorkspaceSwitcherProps {
+  mode: 'tenant' | 'project';
+}
+
 export interface WorkspaceSwitcherProps {
   mode: 'tenant' | 'project';
-  as?: React.ElementType | undefined;
+  as?: React.ComponentType<BaseWorkspaceSwitcherProps> | undefined;
 }
 
 export const WorkspaceSwitcher = React.memo(function WorkspaceSwitcher({

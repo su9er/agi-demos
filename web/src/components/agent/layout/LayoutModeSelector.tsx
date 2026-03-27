@@ -15,9 +15,11 @@ import { useLayoutModeStore, type LayoutMode } from '@/stores/layoutMode';
 
 import { LazyTooltip } from '@/components/ui/lazyAntd';
 
+import type { LucideIcon } from 'lucide-react';
+
 const modes: Array<{
   key: LayoutMode;
-  icon: React.ElementType;
+  icon: LucideIcon;
   label: string;
   shortcut: string;
   description: string;
@@ -93,7 +95,7 @@ export const LayoutModeSelector: FC = () => {
                 <div className="font-medium">
                   {m.label} Mode{' '}
                   <span className="opacity-60 ml-1">
-                    {navigator.platform.includes('Mac') ? 'Cmd' : 'Ctrl'}+{m.shortcut}
+                    {/(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent) ? 'Cmd' : 'Ctrl'}+{m.shortcut}
                   </span>
                 </div>
                 <div className="text-xs opacity-80">{m.description}</div>

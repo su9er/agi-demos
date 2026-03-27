@@ -28,6 +28,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+
 import { useThemeColors } from '@/hooks/useThemeColor';
 
 import {
@@ -41,6 +42,7 @@ import { logger } from '../../../utils/logger';
 
 import type { SandboxStateData } from '../../../types/agent';
 import type { TFunction } from 'i18next';
+import type { LucideIcon } from 'lucide-react';
 
 interface SandboxStatusIndicatorProps {
   /** Project ID */
@@ -53,7 +55,7 @@ interface SandboxStatusIndicatorProps {
 
 interface StatusConfigEntry {
   label: string;
-  icon: React.ElementType;
+  icon: LucideIcon;
   color: string;
   bgColor: string;
   description: string;
@@ -146,9 +148,10 @@ const SANDBOX_SYNC_THROTTLE_MS = 1500;
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  const sizes = ['B', 'KB', 'MB', 'GB'] as const;
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
+  const size = sizes[i] as (typeof sizes)[number];
+  return `${String(parseFloat((bytes / Math.pow(k, i)).toFixed(1)))} ${size}`;
 }
 
 /**
@@ -158,11 +161,11 @@ function formatDuration(seconds: number, t: TFunction): string {
   const s = t('agent.sandbox.duration.seconds', 's');
   const m = t('agent.sandbox.duration.minutes', 'm');
   const h = t('agent.sandbox.duration.hours', 'h');
-  if (seconds < 60) return `${seconds}${s}`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}${m}${seconds % 60}${s}`;
+  if (seconds < 60) return `${String(seconds)}${s}`;
+  if (seconds < 3600) return `${String(Math.floor(seconds / 60))}${m}${String(seconds % 60)}${s}`;
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
-  return `${hrs}${h}${mins}${m}`;
+  return `${String(hrs)}${h}${String(mins)}${m}`;
 }
 
 /**
@@ -180,7 +183,7 @@ const SmoothProgressBar: FC<{
       <div
         className="h-full rounded-full"
         style={{
-          width: `${Math.min(percent, 100)}%`,
+          width: `${String(Math.min(percent, 100))}%`,
           backgroundColor: barColor,
           transition: 'width 600ms ease-out, background-color 400ms ease',
         }}
@@ -209,9 +212,9 @@ const MetricsPopover: FC<{
   sandbox: ProjectSandbox | null;
   stats: SandboxStats | null;
   loading: boolean;
-  onRefresh: () => void;
-  onRestart: () => void;
-  onStop: () => void;
+  onRefresh: () => Promise<void>;
+  onRestart: () => Promise<void>;
+  onStop: () => Promise<void>;
 }> = memo(({ sandbox, stats, loading, onRefresh, onRestart, onStop }) => {
   const { t } = useTranslation();
   const statusCfg = getStatusConfig(t);
@@ -233,7 +236,7 @@ const MetricsPopover: FC<{
     );
   }
 
-  const config = statusCfg[sandbox.status] || statusCfg.none;
+  const config = statusCfg[sandbox.status];
 
   return (
     <div className="p-3 min-w-70">
@@ -343,7 +346,9 @@ const MetricsPopover: FC<{
       <div className="flex gap-2 mt-3 pt-2 border-t border-slate-200 dark:border-slate-700">
         <button
           type="button"
-          onClick={onRefresh}
+          onClick={() => {
+            void onRefresh();
+          }}
           disabled={loading}
           className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
         >
@@ -357,14 +362,18 @@ const MetricsPopover: FC<{
           <>
             <button
               type="button"
-              onClick={onRestart}
+              onClick={() => {
+                void onRestart();
+              }}
               className="px-2.5 py-1 text-xs rounded-md border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
             >
               {t('agent.sandbox.action.restart', 'Restart')}
             </button>
             <button
               type="button"
-              onClick={onStop}
+              onClick={() => {
+                void onStop();
+              }}
               className="px-2.5 py-1 text-xs rounded-md border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors cursor-pointer"
             >
               {t('agent.sandbox.action.stop', 'Stop')}
@@ -406,7 +415,7 @@ export const SandboxStatusIndicator: FC<SandboxStatusIndicatorProps> = ({
 
   // Determine current status
   const currentStatus: ProjectSandboxStatus | 'none' = sandbox?.status || 'none';
-  const config = statusConfig[currentStatus] || statusConfig.none;
+  const config = statusConfig[currentStatus];
 
   /**
    * Fetch sandbox info
@@ -463,7 +472,7 @@ export const SandboxStatusIndicator: FC<SandboxStatusIndicatorProps> = ({
         }
         // 404 means no sandbox exists - handle silently
         const apiError = error as { statusCode?: number | undefined };
-        if (apiError?.statusCode !== 404) {
+        if (apiError.statusCode !== 404) {
           logger.error('[SandboxStatusIndicator] Failed to fetch sandbox:', error);
         }
         setSandbox(null);
@@ -580,9 +589,9 @@ export const SandboxStatusIndicator: FC<SandboxStatusIndicatorProps> = ({
         currentStatus === 'stopped' ||
         currentStatus === 'terminated'
       ) {
-        handleStartSandbox();
+        void handleStartSandbox();
       } else if (currentStatus === 'unhealthy' || currentStatus === 'error') {
-        handleRestart();
+        void handleRestart();
       }
     }
   }, [config.clickable, starting, loading, currentStatus, handleStartSandbox, handleRestart]);
@@ -617,7 +626,7 @@ export const SandboxStatusIndicator: FC<SandboxStatusIndicatorProps> = ({
   // Fetch stats when popover opens and sandbox is running
   useEffect(() => {
     if (popoverOpen && sandbox?.status === 'running') {
-      fetchStats();
+      void fetchStats();
     }
   }, [popoverOpen, sandbox?.status, fetchStats]);
 
@@ -725,7 +734,9 @@ export const SandboxStatusIndicator: FC<SandboxStatusIndicatorProps> = ({
   useEffect(() => {
     if (!popoverOpen || sandbox?.status !== 'running') return;
 
-    const interval = setInterval(fetchStats, 5000);
+    const interval = setInterval(() => {
+      void fetchStats();
+    }, 5000);
     return () => {
       clearInterval(interval);
     };
@@ -756,9 +767,9 @@ export const SandboxStatusIndicator: FC<SandboxStatusIndicatorProps> = ({
           sandbox={sandbox}
           stats={stats}
           loading={statsLoading}
-          onRefresh={fetchStats}
-          onRestart={handleRestart}
-          onStop={handleStop}
+          onRefresh={() => { void fetchStats(); }}
+          onRestart={() => { void handleRestart(); }}
+          onStop={() => { void handleStop(); }}
         />
       }
       trigger="hover"

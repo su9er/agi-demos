@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Activity, Brain, Cpu, Play, Plus, TrendingUp, Zap } from 'lucide-react';
 
+
 import {
   useEnabledSubAgentsCount,
   useListSubAgents,
@@ -28,6 +29,7 @@ import {
 } from '../../../stores/traceStore';
 
 import type { SubAgentRunDTO } from '../../../types/multiAgent';
+import type { LucideIcon } from 'lucide-react';
 
 // ============================================================================
 // Stat Card Component
@@ -36,7 +38,7 @@ import type { SubAgentRunDTO } from '../../../types/multiAgent';
 interface StatCardProps {
   title: string;
   value: string | number;
-  icon: React.ElementType;
+  icon: LucideIcon;
   iconClass: string;
   bgClass: string;
   trend?: {
@@ -105,7 +107,7 @@ const RecentRunItem: FC<RecentRunItemProps> = memo(({ run }) => {
         <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{run.task}</p>
       </div>
       <span className="text-xs text-slate-400 dark:text-slate-500">
-        {run.execution_time_ms !== null ? `${Math.round(run.execution_time_ms / 1000)}s` : '-'}
+        {run.execution_time_ms !== null ? `${String(Math.round(run.execution_time_ms / 1000))}s` : '-'}
       </span>
     </div>
   );
@@ -117,7 +119,7 @@ RecentRunItem.displayName = 'RecentRunItem';
 // ============================================================================
 
 interface QuickActionProps {
-  icon: React.ElementType;
+  icon: LucideIcon;
   label: string;
   onClick?: () => void;
 }
@@ -154,8 +156,8 @@ export const DashboardOverview: FC = memo(() => {
   const fetchActiveRunCount = useFetchActiveRunCount();
 
   useEffect(() => {
-    listSubAgents();
-    fetchActiveRunCount();
+    void listSubAgents();
+    void fetchActiveRunCount();
   }, [listSubAgents, fetchActiveRunCount]);
 
   const recentRuns = useMemo(() => {

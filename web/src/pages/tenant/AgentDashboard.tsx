@@ -33,6 +33,7 @@ import {
 } from '../../stores/traceStore';
 
 import type { SubAgentRunDTO } from '../../types/multiAgent';
+import type { LucideIcon } from 'lucide-react';
 
 interface SubAgent {
   id: string;
@@ -40,7 +41,7 @@ interface SubAgent {
   description: string;
   tags: string[];
   active: boolean;
-  icon: React.ElementType;
+  icon: LucideIcon;
   colorClass: string;
   iconBgClass: string;
 }
@@ -49,7 +50,7 @@ interface Skill {
   id: string;
   name: string;
   version: string;
-  icon: React.ElementType;
+  icon: LucideIcon;
 }
 
 const DEFAULT_SUB_AGENTS: SubAgent[] = [

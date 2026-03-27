@@ -73,6 +73,8 @@ import {
 import { ContextStatusIndicator } from './context/ContextStatusIndicator';
 import { SandboxStatusIndicator } from './sandbox/SandboxStatusIndicator';
 
+import type { LucideIcon } from 'lucide-react';
+
 interface ProjectAgentStatusBarProps {
   /** Project ID */
   projectId: string;
@@ -120,7 +122,7 @@ const lifecycleConfig: Record<
   ProjectAgentLifecycleState,
   {
     label: string;
-    icon: React.ElementType;
+    icon: LucideIcon;
     color: string;
     bgColor: string;
     description: string;
@@ -188,7 +190,7 @@ const tierConfig: Record<
   ProjectTier,
   {
     label: string;
-    icon: React.ElementType;
+    icon: LucideIcon;
     color: string;
     bgColor: string;
     description: string;
@@ -230,7 +232,7 @@ type AgentExecState =
   | 'retrying';
 
 interface ExecStateConfig {
-  icon: React.ElementType;
+  icon: LucideIcon;
   iconAnimate: string;
   color: string;
   bgColor: string;
@@ -379,7 +381,7 @@ export const ProjectAgentStatusBar: FC<ProjectAgentStatusBarProps> = ({
   // Determine if we should show agent execution state (pill) vs lifecycle state
   const showExecState = (isStreaming || storeIsStreaming) && agentState !== 'idle';
   const execConfig = useMemo(
-    () => execStateConfig[agentState] ?? execStateConfig.idle,
+    () => execStateConfig[agentState],
     [agentState]
   );
   const currentTool =
@@ -965,7 +967,7 @@ export const ProjectAgentStatusBar: FC<ProjectAgentStatusBarProps> = ({
             <LazyTooltip title="暂停 Agent (停止接收新请求)">
               <button
                 type="button"
-                onClick={handlePauseAgent}
+                onClick={() => { void handlePauseAgent(); }}
                 disabled={isActionPending}
                 className={`
                   p-1 rounded transition-colors
@@ -990,7 +992,7 @@ export const ProjectAgentStatusBar: FC<ProjectAgentStatusBarProps> = ({
             <LazyTooltip title="恢复 Agent">
               <button
                 type="button"
-                onClick={handleResumeAgent}
+                onClick={() => { void handleResumeAgent(); }}
                 disabled={isActionPending}
                 className={`
                   p-1 rounded transition-colors
