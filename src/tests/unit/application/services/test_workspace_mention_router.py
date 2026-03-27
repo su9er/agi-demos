@@ -105,7 +105,7 @@ class TestRouterNoMentions:
         router, mocks = _build_router()
         msg = _make_message(mentions=[])
         await router.route_mentions(
-            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1"
+            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
         )
         mocks["agent_repo"].find_by_workspace.assert_not_called()
 
@@ -114,7 +114,7 @@ class TestRouterNoMentions:
         router, mocks = _build_router(agents=[agent])
         msg = _make_message(mentions=["agent-nonexistent"])
         await router.route_mentions(
-            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1"
+            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
         )
         mocks["conversation_repo"].find_by_id.assert_not_called()
 
@@ -134,7 +134,7 @@ class TestRouterTriggerAgent:
         msg = _make_message(mentions=["agent-1"])
 
         await router.route_mentions(
-            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1"
+            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
         )
 
         mocks["conversation_repo"].save.assert_called_once()
@@ -158,7 +158,7 @@ class TestRouterTriggerAgent:
         msg = _make_message(mentions=["agent-1"])
 
         await router.route_mentions(
-            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1"
+            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
         )
 
         mocks["conversation_repo"].save.assert_not_called()
@@ -177,7 +177,7 @@ class TestRouterTriggerAgent:
         msg = _make_message(mentions=["agent-1"])
 
         await router.route_mentions(
-            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1"
+            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
         )
 
         mocks["message_service"].send_message.assert_called_once()
@@ -196,7 +196,7 @@ class TestRouterTriggerAgent:
         msg = _make_message(mentions=["agent-1"])
 
         await router.route_mentions(
-            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1"
+            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
         )
 
         mocks["message_service"].send_message.assert_called_once()
@@ -210,7 +210,7 @@ class TestFireAndForget:
         router, _ = _build_router()
         msg = _make_message(mentions=[])
 
-        router.fire_and_forget(workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1")
+        router.fire_and_forget(workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1")
 
         # Give the background task time to complete (no-op since no mentions)
         await asyncio.sleep(0.05)
@@ -244,7 +244,7 @@ class TestMultipleAgentMentions:
         msg = _make_message(mentions=["agent-1", "agent-2"])
 
         await router.route_mentions(
-            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1"
+            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
         )
 
         assert mocks["message_service"].send_message.call_count == 2

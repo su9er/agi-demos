@@ -116,8 +116,9 @@ class TestSendMessage:
         assert call_args[0][0] == "ws-1"
         assert call_args[0][1] == "workspace_message_created"
         payload: dict[str, Any] = call_args[0][2]
-        assert payload["sender_id"] == "user-1"
-        assert payload["content"] == "Hello"
+        message = payload["message"]
+        assert message["sender_id"] == "user-1"
+        assert message["content"] == "Hello"
 
     async def test_no_publisher_does_not_raise(self) -> None:
         service, *_ = _build_service(publisher=None)

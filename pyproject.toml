@@ -54,6 +54,7 @@ dependencies = [
     # APScheduler 4.x for distributed scheduled tasks
     "apscheduler>=4.0.0a1",
     "python-socks[asyncio]>=2.4.0",
+    "email-validator>=2.3.0",
 ]
 
 [project.optional-dependencies]
