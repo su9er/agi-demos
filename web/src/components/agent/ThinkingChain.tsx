@@ -9,7 +9,8 @@
 
 import React, { memo, useMemo } from 'react';
 
-import { BulbOutlined, ToolOutlined } from '@ant-design/icons';
+import { Lightbulb, Wrench } from 'lucide-react';
+
 import { Collapse } from 'antd';
 
 import { formatTimeOnly } from '@/utils/date';
@@ -122,9 +123,9 @@ const TimelineNode: React.FC<TimelineNodeProps> = memo(
           {/* Header with icon, sequence, and timestamp */}
           <div className="flex items-center gap-2 mb-1">
             {isThought ? (
-              <BulbOutlined className="text-amber-500 text-sm" />
+              <Lightbulb className="text-amber-500 text-sm" size={16} />
             ) : (
-              <ToolOutlined className="text-blue-500 text-sm" />
+              <Wrench className="text-blue-500 text-sm" size={16} />
             )}
             <span className="text-xs font-semibold text-slate-600">
               {formatSequenceNumber(sequence)} {isThought ? 'Thought' : 'Tool Call'}
@@ -161,9 +162,7 @@ export const ThinkingChain: React.FC<ThinkingChainProps> = memo(
     const header = useMemo(
       () => (
         <div className="flex items-center gap-2 text-slate-500">
-          <BulbOutlined
-            className={isThinking ? 'animate-pulse motion-reduce:animate-none text-amber-500' : ''}
-          />
+          <Lightbulb className={isThinking ? 'animate-pulse motion-reduce:animate-none text-amber-500' : ''} size={16} />
           <span className="text-xs font-medium">
             {isThinking ? 'Thinking...' : 'Thought Process'}
           </span>

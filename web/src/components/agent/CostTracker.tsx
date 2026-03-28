@@ -7,7 +7,8 @@
 
 import React from 'react';
 
-import { DollarOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { DollarSign, Zap } from 'lucide-react';
+
 
 import { useThemeColors } from '@/hooks/useThemeColor';
 
@@ -80,11 +81,11 @@ export const CostTrackerCompact: React.FC<CostTrackerProps> = ({
       }
     >
       <Space size={4} style={{ cursor: 'help' }}>
-        <ThunderboltOutlined style={{ color: colors.warning, fontSize: 12 }} />
+        <Zap style={{ color: colors.warning}} size={12} />
         <Text type="secondary" style={{ fontSize: 12 }}>
           {formatTokenCount(costTracking.totalTokens)}
         </Text>
-        <DollarOutlined style={{ color: colors.success, fontSize: 12 }} />
+        <DollarSign style={{ color: colors.success}} size={12} />
         <Text type="secondary" style={{ fontSize: 12 }}>
           {formatCost(costTracking.costUsd)}
         </Text>

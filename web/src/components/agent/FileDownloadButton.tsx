@@ -7,7 +7,8 @@
 
 import React from 'react';
 
-import { DownloadOutlined, FileOutlined, FilePdfOutlined } from '@ant-design/icons';
+import { Download, File, FileText } from 'lucide-react';
+
 import { Button, Tooltip } from 'antd';
 
 interface FileDownloadButtonProps {
@@ -30,9 +31,9 @@ const getFileIcon = (filename: string) => {
   const ext = filename.toLowerCase().split('.').pop();
   switch (ext) {
     case 'pdf':
-      return <FilePdfOutlined />;
+      return <FileText size={16} />;
     default:
-      return <FileOutlined />;
+      return <File size={16} />;
   }
 };
 
@@ -49,7 +50,7 @@ export const FileDownloadButton: React.FC<FileDownloadButtonProps> = ({ filename
     <Tooltip title={tooltipText}>
       <Button
         type="primary"
-        icon={<DownloadOutlined />}
+        icon={<Download size={16} />}
         onClick={handleDownload}
         size="small"
         style={{ marginRight: 8, marginBottom: 4 }}

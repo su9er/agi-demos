@@ -9,13 +9,8 @@ import React, { useState } from 'react';
 
 import ReactMarkdown from 'react-markdown';
 
-import {
-  DownloadOutlined,
-  CopyOutlined,
-  FileTextOutlined,
-  TableOutlined,
-  CodeOutlined,
-} from '@ant-design/icons';
+import { Code, Copy, Download, FileText, Table } from 'lucide-react';
+
 
 import { LazyCard, LazyButton, Typography } from '@/components/ui/lazyAntd';
 
@@ -101,13 +96,13 @@ export const ReportViewer: React.FC<ReportViewerProps> = ({
   // Get icon based on format
   const getIcon = () => {
     const icons: Record<string, React.ReactNode> = {
-      markdown: <FileTextOutlined />,
-      table: <TableOutlined />,
-      code: <CodeOutlined />,
-      json: <CodeOutlined />,
-      yaml: <CodeOutlined />,
+      markdown: <FileText size={16} />,
+      table: <Table size={16} />,
+      code: <Code size={16} />,
+      json: <Code size={16} />,
+      yaml: <Code size={16} />,
     };
-    return icons[format] || <FileTextOutlined />;
+    return icons[format] || <FileText size={16} />;
   };
 
   // Parse content for table format
@@ -149,12 +144,12 @@ export const ReportViewer: React.FC<ReportViewerProps> = ({
       extra={
         showDownload && (
           <div style={{ display: 'flex', gap: 8 }}>
-            <LazyButton icon={<CopyOutlined />} size="small" onClick={handleCopy}>
+            <LazyButton icon={<Copy size={16} />} size="small" onClick={handleCopy}>
               {copied ? 'Copied!' : 'Copy'}
             </LazyButton>
             <LazyButton
               type="primary"
-              icon={<DownloadOutlined />}
+              icon={<Download size={16} />}
               size="small"
               onClick={handleDownload}
             >

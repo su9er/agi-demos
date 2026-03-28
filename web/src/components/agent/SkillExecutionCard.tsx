@@ -9,15 +9,8 @@
 
 import React, { memo } from 'react';
 
-import {
-  ThunderboltOutlined,
-  LoadingOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  WarningOutlined,
-  RocketOutlined,
-  EditOutlined,
-} from '@ant-design/icons';
+import { AlertTriangle, CheckCircle2, Edit, Loader2, Rocket, XCircle, Zap } from 'lucide-react';
+
 import { Card, Typography, Space, Tag, Progress, Steps, Tooltip } from 'antd';
 
 import { formatTimeOnly } from '@/utils/date';
@@ -38,35 +31,35 @@ const formatDuration = (ms: number): string => {
 const getStatusConfig = (status: SkillExecutionState['status']) => {
   const configs = {
     matched: {
-      icon: <ThunderboltOutlined />,
+      icon: <Zap size={16} />,
       label: 'Matched',
       color: 'blue',
       bgClass: 'bg-blue-50',
       borderClass: 'border-blue-300',
     },
     executing: {
-      icon: <LoadingOutlined spin />,
+      icon: <Loader2 className="animate-spin" size={16} />,
       label: 'Executing',
       color: 'processing',
       bgClass: 'bg-blue-50',
       borderClass: 'border-blue-300',
     },
     completed: {
-      icon: <CheckCircleOutlined />,
+      icon: <CheckCircle2 size={16} />,
       label: 'Completed',
       color: 'success',
       bgClass: 'bg-green-50',
       borderClass: 'border-green-300',
     },
     failed: {
-      icon: <CloseCircleOutlined />,
+      icon: <XCircle size={16} />,
       label: 'Failed',
       color: 'error',
       bgClass: 'bg-red-50',
       borderClass: 'border-red-200',
     },
     fallback: {
-      icon: <WarningOutlined />,
+      icon: <AlertTriangle size={16} />,
       label: 'Fallback to LLM',
       color: 'warning',
       bgClass: 'bg-yellow-50',
@@ -95,13 +88,13 @@ const getModeIcon = (mode: 'direct' | 'prompt') => {
   if (mode === 'direct') {
     return (
       <Tooltip title="Direct execution - bypassing LLM">
-        <RocketOutlined className="text-blue-500" />
+        <Rocket className="text-blue-500" size={16} />
       </Tooltip>
     );
   }
   return (
     <Tooltip title="Prompt injection - guided by LLM">
-      <EditOutlined className="text-green-500" />
+      <Edit className="text-green-500" size={16} />
     </Tooltip>
   );
 };
@@ -159,7 +152,7 @@ export const SkillExecutionCard: React.FC<SkillExecutionCardProps> = ({ skillExe
         {/* Header */}
         <Space style={{ width: '100%', justifyContent: 'space-between' }}>
           <Space>
-            <ThunderboltOutlined className="text-yellow-500" />
+            <Zap className="text-yellow-500" size={16} />
             <Text strong>{skillExecution.skill_name}</Text>
             {getModeIcon(skillExecution.execution_mode)}
             <Tag

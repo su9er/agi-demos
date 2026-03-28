@@ -43,9 +43,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 
-import { LoadingOutlined } from '@ant-design/icons';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Pin, PinOff, ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Loader2, Pin, PinOff } from 'lucide-react';
 
 import { useAgentV3Store } from '../../stores/agentV3';
 
@@ -202,7 +201,7 @@ const InternalLoading: React.FC<
   return (
     <div className="h-full flex items-center justify-center">
       <div className="text-center">
-        <LoadingOutlined className="text-4xl text-primary mb-4" spin />
+        <Loader2 className="animate-spin text-4xl text-primary mb-4" size={16} />
         <p className="text-slate-500">{message || 'Loading conversation...'}</p>
       </div>
     </div>
@@ -519,7 +518,7 @@ const MessageAreaInner: React.FC<_MessageAreaRootProps> = memo(
               data-testid="scroll-indicator"
             >
               <div className="flex items-center px-3 py-1.5 bg-slate-100/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-full shadow-sm border border-slate-200/50 dark:border-slate-700/50 opacity-70">
-                <LoadingOutlined className="text-primary mr-2" spin />
+                <Loader2 className="animate-spin text-primary mr-2" size={16} />
                 <span className="text-xs text-slate-500">
                   {scrollIndicatorChild?.props.label || 'Loading...'}
                 </span>

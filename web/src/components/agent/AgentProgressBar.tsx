@@ -7,13 +7,8 @@
 
 import React from 'react';
 
-import {
-  CheckCircleOutlined,
-  LoadingOutlined,
-  CloseCircleOutlined,
-  ClockCircleOutlined,
-  ThunderboltFilled,
-} from '@ant-design/icons';
+import { CheckCircle2, Clock, Loader2, XCircle, Zap } from 'lucide-react';
+
 
 import { useThemeColors } from '@/hooks/useThemeColor';
 
@@ -46,44 +41,44 @@ const statusConfig: Record<
 > = {
   thinking: {
     color: 'default',
-    icon: <ClockCircleOutlined />,
+    icon: <Clock size={16} />,
     label: 'Thinking',
     class: 'status-thinking',
   },
   work_planning: {
     color: 'purple',
-    icon: <ThunderboltFilled />,
+    icon: <Zap size={16} />,
     label: 'Planning',
     class: 'status-planning',
   },
   step_executing: {
     color: 'blue',
-    icon: <LoadingOutlined />,
+    icon: <Loader2 size={16} />,
     label: 'Executing',
     class: 'status-running',
   },
   preparing: {
     color: 'blue',
-    icon: <LoadingOutlined />,
+    icon: <Loader2 size={16} />,
     label: 'Preparing Tool',
     class: 'status-running',
   },
-  acting: { color: 'orange', icon: <LoadingOutlined />, label: 'Acting', class: 'status-running' },
+  acting: { color: 'orange', icon: <Loader2 size={16} />, label: 'Acting', class: 'status-running' },
   observing: {
     color: 'cyan',
-    icon: <LoadingOutlined />,
+    icon: <Loader2 size={16} />,
     label: 'Observing',
     class: 'status-running',
   },
   completed: {
     color: 'success',
-    icon: <CheckCircleOutlined />,
+    icon: <CheckCircle2 size={16} />,
     label: 'Completed',
     class: 'status-completed',
   },
   failed: {
     color: 'exception',
-    icon: <CloseCircleOutlined />,
+    icon: <XCircle size={16} />,
     label: 'Failed',
     class: 'status-failed',
   },

@@ -9,7 +9,8 @@
 
 import React, { useState, memo } from 'react';
 
-import { BulbOutlined, CaretDownOutlined, CaretRightOutlined } from '@ant-design/icons';
+import { ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
+
 import { Card, Typography, Space, Tag } from 'antd';
 
 import type { ThoughtLevel } from '../../types/agent';
@@ -55,7 +56,7 @@ export const ThoughtBubble: React.FC<ThoughtBubbleProps> = ({
         aria-label="Agent thinking process"
       >
         <Space>
-          <BulbOutlined />
+          <Lightbulb size={16} />
           <Text type="secondary" italic>
             {isThinking ? 'Thinking...' : 'Processing...'}
           </Text>
@@ -84,7 +85,7 @@ export const ThoughtBubble: React.FC<ThoughtBubbleProps> = ({
         {/* Header */}
         <Space className="w-full justify-between">
           <Space>
-            <BulbOutlined className={animationClass} data-testid="thinking-indicator" />
+            <Lightbulb className={animationClass} data-testid="thinking-indicator" size={16} />
             <Tag color={config.color} className="m-0">
               {config.label}
             </Tag>
@@ -99,7 +100,7 @@ export const ThoughtBubble: React.FC<ThoughtBubbleProps> = ({
               className="text-xs"
               aria-label={collapsed ? 'Expand thought' : 'Collapse thought'}
             >
-              {collapsed ? <CaretRightOutlined /> : <CaretDownOutlined />}
+              {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
             </Typography.Link>
           ) : null}
         </Space>

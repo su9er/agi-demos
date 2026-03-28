@@ -18,7 +18,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { EditOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Edit, RefreshCw } from 'lucide-react';
+
 import { Typography } from 'antd';
 
 import { agentConfigService, TenantAgentConfigError } from '@/services/agentConfigService';
@@ -143,7 +144,7 @@ export function TenantAgentConfigView({
           description="Unable to load tenant agent configuration."
           showIcon
           action={
-            <LazyButton size="small" icon={<ReloadOutlined />} onClick={loadConfig}>
+            <LazyButton size="small" icon={<RefreshCw size={16} />} onClick={loadConfig}>
               Reload
             </LazyButton>
           }
@@ -171,7 +172,7 @@ export function TenantAgentConfigView({
           canEdit && onEdit ? (
             <LazyButton
               type="primary"
-              icon={<EditOutlined />}
+              icon={<Edit size={16} />}
               onClick={onEdit}
               aria-label="Edit configuration"
             >

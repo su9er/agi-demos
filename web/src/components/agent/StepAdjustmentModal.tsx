@@ -12,12 +12,8 @@
 
 import React, { useMemo } from 'react';
 
-import {
-  CheckOutlined,
-  CloseOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-} from '@ant-design/icons';
+import { Check, CheckCircle2, X, XCircle } from 'lucide-react';
+
 import { Modal, List, Tag, Button, Space, Typography, Empty, Alert } from 'antd';
 
 import type { StepAdjustment, AdjustmentType } from '../../types/agent';
@@ -87,7 +83,7 @@ const AdjustmentItem: React.FC<AdjustmentItemProps> = ({ adjustment, onApprove, 
         <Button
           key="approve"
           type="text"
-          icon={<CheckOutlined />}
+          icon={<Check size={16} />}
           onClick={() => {
             onApprove(adjustment.step_id);
           }}
@@ -99,7 +95,7 @@ const AdjustmentItem: React.FC<AdjustmentItemProps> = ({ adjustment, onApprove, 
         <Button
           key="reject"
           type="text"
-          icon={<CloseOutlined />}
+          icon={<X size={16} />}
           onClick={() => {
             onReject(adjustment.step_id);
           }}
@@ -167,10 +163,10 @@ export const StepAdjustmentModal: React.FC<StepAdjustmentModalProps> = ({
     const modalFooter = has ? (
       <div className="flex justify-between">
         <Space>
-          <Button icon={<CloseCircleOutlined />} onClick={onRejectAll} className="text-red-500">
+          <Button icon={<XCircle size={16} />} onClick={onRejectAll} className="text-red-500">
             Reject All
           </Button>
-          <Button icon={<CheckCircleOutlined />} onClick={onApproveAll} type="primary">
+          <Button icon={<CheckCircle2 size={16} />} onClick={onApproveAll} type="primary">
             Approve All
           </Button>
         </Space>
@@ -196,7 +192,7 @@ export const StepAdjustmentModal: React.FC<StepAdjustmentModalProps> = ({
     <Modal
       title={
         <Space>
-          <CheckCircleOutlined className="text-blue-500" />
+          <CheckCircle2 className="text-blue-500" size={16} />
           <span>Step Adjustments Review</span>
           {hasAdjustments && <Tag color="blue">{adjustmentCount} pending</Tag>}
         </Space>

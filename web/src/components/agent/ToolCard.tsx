@@ -9,12 +9,8 @@
 
 import React, { memo, useMemo } from 'react';
 
-import {
-  CheckCircleOutlined,
-  SyncOutlined,
-  CloseCircleOutlined,
-  ClockCircleOutlined,
-} from '@ant-design/icons';
+import { CheckCircle2, Clock, RefreshCw, XCircle } from 'lucide-react';
+
 import { Card, Tag, Collapse, Typography } from 'antd';
 
 import { formatTimeOnly } from '@/utils/date';
@@ -43,11 +39,11 @@ export const ToolCard: React.FC<ToolCardProps> = memo(
     const getIcon = () => {
       switch (status) {
         case 'running':
-          return <SyncOutlined spin className="text-blue-500" />;
+          return <RefreshCw className="animate-spin text-blue-500" size={16} />;
         case 'success':
-          return <CheckCircleOutlined className="text-green-500" />;
+          return <CheckCircle2 className="text-green-500" size={16} />;
         case 'failed':
-          return <CloseCircleOutlined className="text-red-500" />;
+          return <XCircle className="text-red-500" size={16} />;
       }
     };
 
@@ -62,7 +58,7 @@ export const ToolCard: React.FC<ToolCardProps> = memo(
         <span className="font-semibold text-sm">{toolName}</span>
         <div className="ml-auto flex items-center gap-2">
           {duration && (
-            <Tag icon={<ClockCircleOutlined />} className="mr-0 text-xs">
+            <Tag icon={<Clock size={16} />} className="mr-0 text-xs">
               {formatDuration(duration)}
             </Tag>
           )}

@@ -7,7 +7,8 @@
 
 import React, { useState, useMemo } from 'react';
 
-import { DownloadOutlined, SearchOutlined, FileTextOutlined } from '@ant-design/icons';
+import { Download, FileText, Search } from 'lucide-react';
+
 import { Typography } from 'antd';
 
 import { LazyTable, LazyButton, LazyCard, LazyInput, LazySpace } from '@/components/ui/lazyAntd';
@@ -135,7 +136,7 @@ export const TableView: React.FC<TableViewProps> = ({
       title={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FileTextOutlined />
+            <FileText size={16} />
             <Text strong>{title}</Text>
             <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>
               ({filteredData.length} rows)
@@ -145,7 +146,7 @@ export const TableView: React.FC<TableViewProps> = ({
             {showSearch && (
               <LazyInput
                 placeholder="Search..."
-                prefix={<SearchOutlined />}
+                prefix={<Search size={16} />}
                 value={searchText}
                 onChange={(e: any) => {
                   handleSearch(e.target.value);
@@ -156,7 +157,7 @@ export const TableView: React.FC<TableViewProps> = ({
             )}
             {showExport && (
               <LazyButton
-                icon={<DownloadOutlined />}
+                icon={<Download size={16} />}
                 onClick={handleExportCSV}
                 disabled={!data || data.length === 0}
               >

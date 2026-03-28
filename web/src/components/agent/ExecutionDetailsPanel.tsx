@@ -27,7 +27,8 @@
 
 import React, { useMemo, useState, memo, useCallback, Children } from 'react';
 
-import { BulbOutlined, FieldTimeOutlined, ToolOutlined, BarChartOutlined } from '@ant-design/icons';
+import { BarChart3, Clock, Lightbulb, Wrench } from 'lucide-react';
+
 import { Segmented } from 'antd';
 
 import {
@@ -164,25 +165,25 @@ const ExecutionDetailsPanelInner: React.FC<ExecutionDetailsPanelRootProps> = ({
       {
         value: 'thinking' as ViewType,
         label: 'Thinking',
-        icon: <BulbOutlined />,
+        icon: <Lightbulb size={16} />,
         available: hasTimeline || hasThoughts || hasToolCalls,
       },
       {
         value: 'activity' as ViewType,
         label: 'Activity',
-        icon: <FieldTimeOutlined />,
+        icon: <Clock size={16} />,
         available: hasTimeline,
       },
       {
         value: 'tools' as ViewType,
         label: 'Tools',
-        icon: <ToolOutlined />,
+        icon: <Wrench size={16} />,
         available: toolVisualizationData.length > 0,
       },
       {
         value: 'tokens' as ViewType,
         label: 'Tokens',
-        icon: <BarChartOutlined />,
+        icon: <BarChart3 size={16} />,
         available: hasTokens,
       },
     ];

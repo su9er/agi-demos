@@ -9,13 +9,8 @@
 
 import React, { useState } from 'react';
 
-import {
-  CodeOutlined,
-  FileOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  ClockCircleOutlined,
-} from '@ant-design/icons';
+import { CheckCircle2, Clock, Code, File, XCircle } from 'lucide-react';
+
 import { Card, Typography, Space, Tag, Alert, Collapse } from 'antd';
 
 import { FileDownloadButton } from './FileDownloadButton';
@@ -121,15 +116,15 @@ export const CodeExecutorResultCard: React.FC<CodeExecutorResultCardProps> = ({ 
       <Space direction="vertical" size="small" style={{ width: '100%' }}>
         {/* Status Header */}
         <Space wrap>
-          <CodeOutlined />
+          <Code size={16} />
           <Text strong>Code Execution</Text>
           <Tag
-            icon={result.success ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
+            icon={result.success ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
             color={result.success ? 'success' : 'error'}
           >
             {result.success ? 'Success' : 'Failed'}
           </Tag>
-          <Tag icon={<ClockCircleOutlined />} color="default">
+          <Tag icon={<Clock size={16} />} color="default">
             {result.execution_time_ms}ms
           </Tag>
           {result.exit_code !== 0 && <Tag color="warning">Exit: {result.exit_code}</Tag>}
@@ -144,7 +139,7 @@ export const CodeExecutorResultCard: React.FC<CodeExecutorResultCardProps> = ({ 
         {hasFiles && (
           <div style={{ marginTop: 8 }}>
             <Space wrap>
-              <FileOutlined />
+              <File size={16} />
               <Text type="secondary">Generated Files:</Text>
             </Space>
             <div style={{ marginTop: 8 }}>

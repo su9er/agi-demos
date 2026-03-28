@@ -14,7 +14,8 @@
 
 import React, { useState, useMemo } from 'react';
 
-import { ExclamationCircleOutlined, LoadingOutlined } from '@ant-design/icons';
+import { AlertCircle, Loader2 } from 'lucide-react';
+
 
 import { Select, Modal, Spin, Alert } from '@/components/ui/lazyAntd';
 
@@ -140,7 +141,7 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({
   if (isLoadingHistory) {
     return (
       <div className={className} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-        <Spin indicator={<LoadingOutlined spin />} size="small" />
+        <Spin indicator={<Loader2 className="animate-spin" size={16} />} size="small" />
         <span>Loading conversations...</span>
       </div>
     );
@@ -194,7 +195,7 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({
       <Modal
         title={
           <span>
-            <ExclamationCircleOutlined style={{ color: '#faad14', marginRight: 8 }} />
+            <AlertCircle style={{ color: '#faad14', marginRight: 8}} size={16} />
             Switch Project?
           </span>
         }
@@ -240,7 +241,7 @@ export const ProjectSelectorLoading: React.FC<{ className?: string | undefined }
     {...(className != null ? { className } : {})}
     style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
   >
-    <Spin indicator={<LoadingOutlined spin />} size="small" />
+    <Spin indicator={<Loader2 className="animate-spin" size={16} />} size="small" />
     <span data-testid="loading-indicator">Loading...</span>
   </div>
 );

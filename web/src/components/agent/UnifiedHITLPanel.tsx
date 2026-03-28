@@ -16,19 +16,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
-import {
-  QuestionCircleOutlined,
-  ExclamationCircleOutlined,
-  KeyOutlined,
-  SafetyOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  ClockCircleOutlined,
-  WarningOutlined,
-  LockOutlined,
-  FileTextOutlined,
-  CodeOutlined,
-} from '@ant-design/icons';
+import { AlertCircle, AlertTriangle, CheckCircle2, Clock, Code, FileText, HelpCircle, Key, Lock, ShieldCheck, XCircle } from 'lucide-react';
+
 
 import { useThemeColors } from '@/hooks/useThemeColor';
 
@@ -77,25 +66,25 @@ interface TypeConfigEntry {
 
 const TYPE_CONFIG: Record<HITLType, TypeConfigEntry> = {
   clarification: {
-    icon: <QuestionCircleOutlined style={{ color: 'var(--color-info)' }} />,
+    icon: <HelpCircle style={{ color: 'var(--color-info)'}} size={16} />,
     title: '需要澄清',
     color: 'blue',
     submitText: '确认回答',
   },
   decision: {
-    icon: <ExclamationCircleOutlined style={{ color: 'var(--color-warning)' }} />,
+    icon: <AlertCircle style={{ color: 'var(--color-warning)'}} size={16} />,
     title: '需要决策',
     color: 'gold',
     submitText: '确认决策',
   },
   env_var: {
-    icon: <KeyOutlined style={{ color: 'var(--color-success)' }} />,
+    icon: <Key style={{ color: 'var(--color-success)'}} size={16} />,
     title: '配置环境变量',
     color: 'green',
     submitText: '保存配置',
   },
   permission: {
-    icon: <SafetyOutlined style={{ color: 'var(--color-tile-purple)' }} />,
+    icon: <ShieldCheck style={{ color: 'var(--color-tile-purple)'}} size={16} />,
     title: '权限请求',
     color: 'purple',
     submitText: '授权执行',
@@ -122,17 +111,17 @@ const RISK_LEVEL_CONFIG: Record<string, { label: string; color: string; icon: Re
   low: {
     label: '低风险',
     color: 'green',
-    icon: <SafetyOutlined style={{ color: 'var(--color-success)' }} />,
+    icon: <ShieldCheck style={{ color: 'var(--color-success)'}} size={16} />,
   },
   medium: {
     label: '中等风险',
     color: 'gold',
-    icon: <WarningOutlined style={{ color: 'var(--color-warning)' }} />,
+    icon: <AlertTriangle style={{ color: 'var(--color-warning)'}} size={16} />,
   },
   high: {
     label: '高风险',
     color: 'red',
-    icon: <WarningOutlined style={{ color: 'var(--color-error)' }} />,
+    icon: <AlertTriangle style={{ color: 'var(--color-error)'}} size={16} />,
   },
 };
 
@@ -221,7 +210,7 @@ export const UnifiedHITLPanel: React.FC<UnifiedHITLPanelProps> = ({ request, onC
                   marginRight: 8,
                 }}
               >
-                <ClockCircleOutlined style={{ fontSize: 16, marginRight: 4 }} />
+                <Clock style={{ marginRight: 4}} size={16} />
               </Badge>
             </Tooltip>
           )}
@@ -472,7 +461,7 @@ const ClarificationContent: React.FC<HITLContentProps> = ({
         <Button onClick={onCancel}>取消</Button>
         <Button
           type="primary"
-          icon={<CheckCircleOutlined />}
+          icon={<CheckCircle2 size={16} />}
           onClick={handleSubmit}
           disabled={isSubmitDisabled}
           loading={isSubmitting}
@@ -646,7 +635,7 @@ const DecisionContent: React.FC<HITLContentProps> = ({
         <Button
           type={hasHighRisk ? 'default' : 'primary'}
           danger={hasHighRisk ?? false}
-          icon={<CheckCircleOutlined />}
+          icon={<CheckCircle2 size={16} />}
           onClick={handleSubmit}
           disabled={isSubmitDisabled}
           loading={isSubmitting}
@@ -702,7 +691,7 @@ const DecisionOptionCard: React.FC<{
         <div className="flex gap-4 ml-6 mb-2">
           {option.estimatedTime && (
             <div className={'flex items-center gap-1 text-xs text-slate-500'}>
-              <ClockCircleOutlined />
+              <Clock size={16} />
               <span>{option.estimatedTime}</span>
             </div>
           )}
@@ -727,7 +716,7 @@ const DecisionOptionCard: React.FC<{
           }
           type="warning"
           showIcon
-          icon={<WarningOutlined />}
+          icon={<AlertTriangle size={16} />}
           className="ml-6 mt-2"
         />
       )}
@@ -794,9 +783,9 @@ const EnvVarContent: React.FC<HITLContentProps> = ({
   };
 
   const inputTypeIcons: Record<string, React.ReactNode> = {
-    text: <FileTextOutlined />,
-    password: <LockOutlined />,
-    textarea: <FileTextOutlined />,
+    text: <FileText size={16} />,
+    password: <Lock size={16} />,
+    textarea: <FileText size={16} />,
   };
 
   return (
@@ -857,7 +846,7 @@ const EnvVarContent: React.FC<HITLContentProps> = ({
         <Button onClick={onCancel}>取消</Button>
         <Button
           type="primary"
-          icon={<CheckCircleOutlined />}
+          icon={<CheckCircle2 size={16} />}
           onClick={handleSubmit}
           loading={isSubmitting}
         >
@@ -911,7 +900,7 @@ const PermissionContent: React.FC<HITLContentProps> = ({
         <Descriptions.Item
           label={
             <Space>
-              <CodeOutlined /> 工具名称
+              <Code size={16} /> 工具名称
             </Space>
           }
         >
@@ -952,7 +941,7 @@ const PermissionContent: React.FC<HITLContentProps> = ({
 
       {/* Actions */}
       <div className="flex justify-between">
-        <Button danger icon={<CloseCircleOutlined />} onClick={handleDeny} loading={isSubmitting}>
+        <Button danger icon={<XCircle size={16} />} onClick={handleDeny} loading={isSubmitting}>
           拒绝
         </Button>
         <Space>
@@ -963,7 +952,7 @@ const PermissionContent: React.FC<HITLContentProps> = ({
           )}
           <Button
             type="primary"
-            icon={<SafetyOutlined />}
+            icon={<ShieldCheck size={16} />}
             onClick={handleGrant}
             loading={isSubmitting}
           >
