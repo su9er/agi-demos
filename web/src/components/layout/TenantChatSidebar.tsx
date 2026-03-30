@@ -38,6 +38,7 @@ import {
 import { useAgentV3Store } from '@/stores/agentV3';
 import { useProjectStore } from '@/stores/project';
 
+import { buildAgentWorkspacePath } from '@/utils/agentWorkspacePath';
 import { formatDistanceToNow } from '@/utils/date';
 
 import {
@@ -55,26 +56,6 @@ import type { MenuProps } from 'antd';
 interface ConversationWithProject extends Conversation {
   projectId: string;
   projectName: string;
-}
-
-export function buildAgentWorkspacePath({
-  tenantId,
-  conversationId,
-  projectId,
-  workspaceId,
-}: {
-  tenantId?: string | undefined;
-  conversationId?: string | undefined;
-  projectId?: string | undefined;
-  workspaceId?: string | null | undefined;
-}): string {
-  const basePath = tenantId ? `/tenant/${tenantId}/agent-workspace` : '/tenant/agent-workspace';
-  const conversationPath = conversationId ? `${basePath}/${conversationId}` : basePath;
-  const params = new URLSearchParams();
-  if (projectId) params.set('projectId', projectId);
-  if (workspaceId) params.set('workspaceId', workspaceId);
-  const query = params.toString();
-  return query ? `${conversationPath}?${query}` : conversationPath;
 }
 
 interface ConversationItemProps {

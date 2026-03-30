@@ -59,20 +59,24 @@ export const ObjectiveList: React.FC<ObjectiveListProps> = ({
         <Typography.Title level={4} className="m-0">
           {t('workspaceDetail.objectives.title')}
         </Typography.Title>
-        <Button type="primary" icon={<Plus size={16} />} onClick={onCreate}>
-          {t('workspaceDetail.objectives.addObjective')}
-        </Button>
+        {onCreate && (
+          <Button type="primary" icon={<Plus size={16} />} onClick={onCreate}>
+            {t('workspaceDetail.objectives.addObjective')}
+          </Button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 space-y-6">
         {topLevel.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <Empty description={t('workspaceDetail.objectives.noObjectives')} image={Empty.PRESENTED_IMAGE_SIMPLE}>
-              <Button type="primary" onClick={onCreate}>
-                {t('workspaceDetail.objectives.createFirst')}
-              </Button>
-            </Empty>
-          </div>
+            <div className="h-full flex items-center justify-center">
+              <Empty description={t('workspaceDetail.objectives.noObjectives')} image={Empty.PRESENTED_IMAGE_SIMPLE}>
+                {onCreate && (
+                  <Button type="primary" onClick={onCreate}>
+                    {t('workspaceDetail.objectives.createFirst')}
+                  </Button>
+                )}
+              </Empty>
+            </div>
         ) : (
           topLevel.map((parent) => (
             <div key={parent.id} className="space-y-2">

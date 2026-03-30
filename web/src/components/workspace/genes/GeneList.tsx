@@ -54,9 +54,11 @@ export const GeneList: React.FC<GeneListProps> = ({
         <Typography.Title level={4} className="m-0">
           {t('workspaceDetail.genes.title')}
         </Typography.Title>
-        <Button type="primary" icon={<Plus size={16} />} onClick={onCreate}>
-          {t('workspaceDetail.genes.createGene')}
-        </Button>
+        {onCreate && (
+          <Button type="primary" icon={<Plus size={16} />} onClick={onCreate}>
+            {t('workspaceDetail.genes.createGene')}
+          </Button>
+        )}
       </div>
 
       <div className="mb-4">
@@ -75,13 +77,13 @@ export const GeneList: React.FC<GeneListProps> = ({
 
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 space-y-3">
         {filteredGenes.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <Empty description={t('workspaceDetail.genes.noGenes')} image={Empty.PRESENTED_IMAGE_SIMPLE}>
-              {filterCategory === 'All' && (
-                <Button type="primary" onClick={onCreate}>
-                  {t('workspaceDetail.genes.createFirst')}
-                </Button>
-              )}
+            <div className="h-full flex items-center justify-center">
+              <Empty description={t('workspaceDetail.genes.noGenes')} image={Empty.PRESENTED_IMAGE_SIMPLE}>
+                {filterCategory === 'All' && onCreate && (
+                  <Button type="primary" onClick={onCreate}>
+                    {t('workspaceDetail.genes.createFirst')}
+                  </Button>
+                )}
             </Empty>
           </div>
         ) : (

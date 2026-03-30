@@ -3,6 +3,9 @@ import { renderHook } from '@testing-library/react';
 
 import {
   workspaceBlackboardService,
+  workspaceChatService,
+  workspaceGeneService,
+  workspaceObjectiveService,
   workspaceService,
   workspaceTaskService,
   workspaceTopologyService,
@@ -27,6 +30,15 @@ vi.mock('@/services/workspaceService', () => ({
     listNodes: vi.fn(),
     listEdges: vi.fn(),
   },
+  workspaceObjectiveService: {
+    list: vi.fn(),
+  },
+  workspaceGeneService: {
+    list: vi.fn(),
+  },
+  workspaceChatService: {
+    listMessages: vi.fn(),
+  },
 }));
 
 describe('workspace store', () => {
@@ -39,10 +51,16 @@ describe('workspace store', () => {
       agents: [],
       posts: [],
       repliesByPostId: {},
+      loadedReplyPostIds: {},
+      replyLoadingPostIds: {},
       tasks: [],
       topologyNodes: [],
       topologyEdges: [],
+      objectives: [],
+      genes: [],
+      chatMessages: [],
       isLoading: false,
+      activeSurfaceRequestId: 0,
       error: null,
     });
   });
@@ -88,7 +106,6 @@ describe('workspace store', () => {
     vi.mocked(workspaceBlackboardService.listPosts).mockResolvedValueOnce([
       { id: 'post-1', title: 'Question', content: 'How to ship?', status: 'open' },
     ] as any);
-    vi.mocked(workspaceBlackboardService.listReplies).mockResolvedValueOnce([]);
     vi.mocked(workspaceTaskService.list).mockResolvedValueOnce([
       { id: 'task-1', title: 'Ship v1', status: 'todo' },
     ] as any);
@@ -98,6 +115,9 @@ describe('workspace store', () => {
     vi.mocked(workspaceTopologyService.listEdges).mockResolvedValueOnce([
       { id: 'edge-1', source_node_id: 'node-1', target_node_id: 'node-1' },
     ] as any);
+    vi.mocked(workspaceObjectiveService.list).mockResolvedValueOnce([]);
+    vi.mocked(workspaceGeneService.list).mockResolvedValueOnce([]);
+    vi.mocked(workspaceChatService.listMessages).mockResolvedValueOnce([]);
 
     await useWorkspaceStore.getState().loadWorkspaceSurface('t-1', 'p-1', 'ws-1');
 
@@ -107,6 +127,339 @@ describe('workspace store', () => {
     expect(state.tasks[0].id).toBe('task-1');
     expect(state.topologyNodes[0].id).toBe('node-1');
     expect(state.topologyEdges[0].id).toBe('edge-1');
+    expect(state.repliesByPostId).toEqual({});
+    expect(state.loadedReplyPostIds).toEqual({});
+    expect(workspaceBlackboardService.listReplies).not.toHaveBeenCalled();
+  });
+
+  it('loadReplies fetches replies on demand for the active workspace', async () => {
+    useWorkspaceStore.setState({
+      currentWorkspace: {
+        id: 'ws-1',
+        tenant_id: 't-1',
+        project_id: 'p-1',
+        name: 'Alpha',
+        created_by: 'u-1',
+        created_at: '',
+      } as any,
+      repliesByPostId: {},
+      loadedReplyPostIds: {},
+      replyLoadingPostIds: {},
+    });
+    vi.mocked(workspaceBlackboardService.listReplies).mockResolvedValueOnce([
+      {
+        id: 'reply-1',
+        post_id: 'post-1',
+        workspace_id: 'ws-1',
+        content: 'Ship it',
+        author_id: 'u-2',
+        metadata: {},
+        created_at: '2026-03-30T10:00:00Z',
+      },
+    ] as any);
+
+    await useWorkspaceStore.getState().loadReplies('t-1', 'p-1', 'ws-1', 'post-1');
+
+    expect(useWorkspaceStore.getState().repliesByPostId['post-1']).toEqual([
+      expect.objectContaining({ id: 'reply-1' }),
+    ]);
+    expect(useWorkspaceStore.getState().loadedReplyPostIds['post-1']).toBe(true);
+  });
+
+  it('loadReplies still fetches full history when live replies exist before the thread is loaded', async () => {
+    useWorkspaceStore.setState({
+      currentWorkspace: {
+        id: 'ws-1',
+        tenant_id: 't-1',
+        project_id: 'p-1',
+        name: 'Alpha',
+        created_by: 'u-1',
+        created_at: '',
+      } as any,
+      repliesByPostId: {
+        'post-1': [
+          {
+            id: 'reply-live',
+            post_id: 'post-1',
+            workspace_id: 'ws-1',
+            content: 'Newest',
+            author_id: 'u-2',
+            metadata: {},
+            created_at: '2026-03-30T10:00:01Z',
+          },
+        ] as any,
+      },
+      loadedReplyPostIds: {},
+      replyLoadingPostIds: {},
+    });
+    vi.mocked(workspaceBlackboardService.listReplies).mockResolvedValueOnce([
+      {
+        id: 'reply-old',
+        post_id: 'post-1',
+        workspace_id: 'ws-1',
+        content: 'Older',
+        author_id: 'u-1',
+        metadata: {},
+        created_at: '2026-03-30T10:00:00Z',
+      },
+      {
+        id: 'reply-live',
+        post_id: 'post-1',
+        workspace_id: 'ws-1',
+        content: 'Newest',
+        author_id: 'u-2',
+        metadata: {},
+        created_at: '2026-03-30T10:00:01Z',
+      },
+    ] as any);
+
+    await useWorkspaceStore.getState().loadReplies('t-1', 'p-1', 'ws-1', 'post-1');
+
+    expect(useWorkspaceStore.getState().repliesByPostId['post-1']).toEqual([
+      expect.objectContaining({ id: 'reply-old' }),
+      expect.objectContaining({ id: 'reply-live' }),
+    ]);
+    expect(useWorkspaceStore.getState().loadedReplyPostIds['post-1']).toBe(true);
+  });
+
+  it('loadReplies lets canonical API reply data win over earlier live payloads', async () => {
+    useWorkspaceStore.setState({
+      currentWorkspace: {
+        id: 'ws-1',
+        tenant_id: 't-1',
+        project_id: 'p-1',
+        name: 'Alpha',
+        created_by: 'u-1',
+        created_at: '',
+      } as any,
+      repliesByPostId: {
+        'post-1': [
+          {
+            id: 'reply-1',
+            post_id: 'post-1',
+            workspace_id: 'ws-1',
+            content: 'Live payload',
+            author_id: 'u-2',
+            metadata: {},
+            created_at: '2026-03-30T10:00:00Z',
+          },
+        ] as any,
+      },
+      loadedReplyPostIds: {},
+      replyLoadingPostIds: {},
+    });
+    vi.mocked(workspaceBlackboardService.listReplies).mockResolvedValueOnce([
+      {
+        id: 'reply-1',
+        post_id: 'post-1',
+        workspace_id: 'ws-1',
+        content: 'Canonical payload',
+        author_id: 'u-2',
+        metadata: { source: 'api' },
+        created_at: '2026-03-30T10:00:00Z',
+      },
+    ] as any);
+
+    await useWorkspaceStore.getState().loadReplies('t-1', 'p-1', 'ws-1', 'post-1');
+
+    expect(useWorkspaceStore.getState().repliesByPostId['post-1']).toEqual([
+      expect.objectContaining({
+        id: 'reply-1',
+        content: 'Canonical payload',
+        metadata: { source: 'api' },
+      }),
+    ]);
+  });
+
+  it('loadReplies keeps newer live replies that arrive while the fetch is in flight', async () => {
+    let resolveReplies: ((value: any) => void) | null = null;
+    const repliesPromise = new Promise((resolve) => {
+      resolveReplies = resolve;
+    });
+
+    useWorkspaceStore.setState({
+      currentWorkspace: {
+        id: 'ws-1',
+        tenant_id: 't-1',
+        project_id: 'p-1',
+        name: 'Alpha',
+        created_by: 'u-1',
+        created_at: '',
+      } as any,
+      repliesByPostId: {},
+      loadedReplyPostIds: {},
+      replyLoadingPostIds: {},
+    });
+    vi.mocked(workspaceBlackboardService.listReplies).mockReturnValueOnce(repliesPromise as Promise<any>);
+
+    const loadPromise = useWorkspaceStore.getState().loadReplies('t-1', 'p-1', 'ws-1', 'post-1');
+
+    useWorkspaceStore.getState().handleBlackboardEvent({
+      type: 'blackboard_reply_created',
+      data: {
+        post_id: 'post-1',
+        reply: {
+          id: 'reply-live',
+          post_id: 'post-1',
+          workspace_id: 'ws-1',
+          author_id: 'u-2',
+          content: 'Newest',
+          metadata: {},
+          created_at: '2026-03-30T10:00:01Z',
+        },
+      },
+    });
+
+    resolveReplies?.([
+      {
+        id: 'reply-old',
+        post_id: 'post-1',
+        workspace_id: 'ws-1',
+        author_id: 'u-1',
+        content: 'Older',
+        metadata: {},
+        created_at: '2026-03-30T10:00:00Z',
+      },
+    ]);
+    await loadPromise;
+
+    expect(useWorkspaceStore.getState().repliesByPostId['post-1']).toEqual([
+      expect.objectContaining({ id: 'reply-old' }),
+      expect.objectContaining({ id: 'reply-live' }),
+    ]);
+    expect(useWorkspaceStore.getState().loadedReplyPostIds['post-1']).toBe(true);
+  });
+
+  it('loadReplies skips duplicate requests while the same post is already loading', async () => {
+    let resolveReplies: ((value: any) => void) | null = null;
+    const repliesPromise = new Promise((resolve) => {
+      resolveReplies = resolve;
+    });
+
+    useWorkspaceStore.setState({
+      currentWorkspace: {
+        id: 'ws-1',
+        tenant_id: 't-1',
+        project_id: 'p-1',
+        name: 'Alpha',
+        created_by: 'u-1',
+        created_at: '',
+      } as any,
+      repliesByPostId: {},
+      loadedReplyPostIds: {},
+      replyLoadingPostIds: {},
+    });
+    vi.mocked(workspaceBlackboardService.listReplies).mockReturnValue(repliesPromise as Promise<any>);
+
+    const firstLoad = useWorkspaceStore.getState().loadReplies('t-1', 'p-1', 'ws-1', 'post-1');
+    const secondLoad = useWorkspaceStore.getState().loadReplies('t-1', 'p-1', 'ws-1', 'post-1');
+
+    expect(workspaceBlackboardService.listReplies).toHaveBeenCalledTimes(1);
+
+    resolveReplies?.([]);
+    await Promise.all([firstLoad, secondLoad]);
+
+    expect(useWorkspaceStore.getState().replyLoadingPostIds['post-1']).toBeUndefined();
+    expect(useWorkspaceStore.getState().loadedReplyPostIds['post-1']).toBe(true);
+  });
+
+  it('loadReplies does not restore reply state after the post is deleted mid-flight', async () => {
+    let resolveReplies: ((value: any) => void) | null = null;
+    const repliesPromise = new Promise((resolve) => {
+      resolveReplies = resolve;
+    });
+
+    useWorkspaceStore.setState({
+      currentWorkspace: {
+        id: 'ws-1',
+        tenant_id: 't-1',
+        project_id: 'p-1',
+        name: 'Alpha',
+        created_by: 'u-1',
+        created_at: '',
+      } as any,
+      posts: [{ id: 'post-1', title: 'Question', content: 'How?', status: 'open' }] as any,
+      repliesByPostId: {},
+      loadedReplyPostIds: {},
+      replyLoadingPostIds: {},
+    });
+    vi.mocked(workspaceBlackboardService.listReplies).mockReturnValueOnce(repliesPromise as Promise<any>);
+
+    const loadPromise = useWorkspaceStore.getState().loadReplies('t-1', 'p-1', 'ws-1', 'post-1');
+
+    useWorkspaceStore.getState().handleBlackboardEvent({
+      type: 'blackboard_post_deleted',
+      data: { post_id: 'post-1' },
+    });
+
+    resolveReplies?.([
+      {
+        id: 'reply-1',
+        post_id: 'post-1',
+        workspace_id: 'ws-1',
+        author_id: 'u-1',
+        content: 'Older',
+        metadata: {},
+        created_at: '2026-03-30T10:00:00Z',
+      },
+    ]);
+    await loadPromise;
+
+    const state = useWorkspaceStore.getState();
+    expect(state.posts).toEqual([]);
+    expect(state.repliesByPostId['post-1']).toBeUndefined();
+    expect(state.loadedReplyPostIds['post-1']).toBeUndefined();
+    expect(state.replyLoadingPostIds['post-1']).toBeUndefined();
+  });
+
+  it('loadWorkspaceSurface ignores stale responses from older workspace requests', async () => {
+    let resolveFirstWorkspace: ((value: any) => void) | null = null;
+    const firstWorkspacePromise = new Promise((resolve) => {
+      resolveFirstWorkspace = resolve;
+    });
+
+    vi.mocked(workspaceService.getById)
+      .mockReturnValueOnce(firstWorkspacePromise as Promise<any>)
+      .mockResolvedValueOnce({
+        id: 'ws-2',
+        tenant_id: 't-1',
+        project_id: 'p-1',
+        name: 'Beta',
+        created_by: 'u-1',
+        created_at: '',
+      } as any);
+    vi.mocked(workspaceService.listMembers).mockResolvedValue([]);
+    vi.mocked(workspaceService.listAgents).mockResolvedValue([]);
+    vi.mocked(workspaceBlackboardService.listPosts)
+      .mockResolvedValueOnce([{ id: 'post-1', title: 'Alpha', content: 'A', status: 'open' }] as any)
+      .mockResolvedValueOnce([{ id: 'post-2', title: 'Beta', content: 'B', status: 'open' }] as any);
+    vi.mocked(workspaceTaskService.list)
+      .mockResolvedValueOnce([{ id: 'task-1', title: 'Alpha task', status: 'todo' }] as any)
+      .mockResolvedValueOnce([{ id: 'task-2', title: 'Beta task', status: 'done' }] as any);
+    vi.mocked(workspaceTopologyService.listNodes).mockResolvedValue([]);
+    vi.mocked(workspaceTopologyService.listEdges).mockResolvedValue([]);
+    vi.mocked(workspaceObjectiveService.list).mockResolvedValue([]);
+    vi.mocked(workspaceGeneService.list).mockResolvedValue([]);
+    vi.mocked(workspaceChatService.listMessages).mockResolvedValue([]);
+
+    const firstLoad = useWorkspaceStore.getState().loadWorkspaceSurface('t-1', 'p-1', 'ws-1');
+    const secondLoad = useWorkspaceStore.getState().loadWorkspaceSurface('t-1', 'p-1', 'ws-2');
+
+    await secondLoad;
+    resolveFirstWorkspace?.({
+      id: 'ws-1',
+      tenant_id: 't-1',
+      project_id: 'p-1',
+      name: 'Alpha',
+      created_by: 'u-1',
+      created_at: '',
+    });
+    await firstLoad;
+
+    const state = useWorkspaceStore.getState();
+    expect(state.currentWorkspace?.id).toBe('ws-2');
+    expect(state.posts[0].id).toBe('post-2');
+    expect(state.tasks[0].id).toBe('task-2');
   });
 
   it('useWorkspaceReplies returns stable empty array reference when post has no replies', () => {

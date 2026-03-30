@@ -31,6 +31,61 @@ import type {
   WorkspaceMessage,
 } from '@/types/workspace';
 
+type WorkspaceSurfaceState = Pick<
+  WorkspaceState,
+  | 'currentWorkspace'
+  | 'members'
+  | 'agents'
+  | 'posts'
+  | 'repliesByPostId'
+  | 'loadedReplyPostIds'
+  | 'replyLoadingPostIds'
+  | 'tasks'
+  | 'topologyNodes'
+  | 'topologyEdges'
+  | 'objectives'
+  | 'genes'
+  | 'chatMessages'
+>;
+
+const createEmptySurfaceState = (): WorkspaceSurfaceState => ({
+  currentWorkspace: null,
+  members: [],
+  agents: [],
+  posts: [],
+  repliesByPostId: {},
+  loadedReplyPostIds: {},
+  replyLoadingPostIds: {},
+  tasks: [],
+  topologyNodes: [],
+  topologyEdges: [],
+  objectives: [],
+  genes: [],
+  chatMessages: [],
+});
+
+const hasLoadedReplies = (
+  loadedReplyPostIds: Record<string, boolean>,
+  postId: string
+): boolean => loadedReplyPostIds[postId] === true;
+
+let workspaceSurfaceRequestSequence = 0;
+
+const mergeReplies = (
+  fetchedReplies: BlackboardReply[],
+  existingReplies: BlackboardReply[]
+): BlackboardReply[] => {
+  const mergedReplies = new Map<string, BlackboardReply>();
+
+  for (const reply of [...existingReplies, ...fetchedReplies]) {
+    mergedReplies.set(reply.id, reply);
+  }
+
+  return Array.from(mergedReplies.values()).sort((left, right) =>
+    left.created_at.localeCompare(right.created_at)
+  );
+};
+
 interface WorkspaceState {
   workspaces: Workspace[];
   currentWorkspace: Workspace | null;
@@ -38,12 +93,15 @@ interface WorkspaceState {
   agents: WorkspaceAgent[];
   posts: BlackboardPost[];
   repliesByPostId: Record<string, BlackboardReply[]>;
+  loadedReplyPostIds: Record<string, boolean>;
+  replyLoadingPostIds: Record<string, boolean>;
   tasks: WorkspaceTask[];
   topologyNodes: TopologyNode[];
   topologyEdges: TopologyEdge[];
   objectives: CyberObjective[];
   genes: CyberGene[];
   isLoading: boolean;
+  activeSurfaceRequestId: number;
   error: string | null;
   onlineUsers: PresenceUser[];
   onlineAgents: PresenceAgent[];
@@ -120,12 +178,43 @@ interface WorkspaceState {
     workspaceId: string,
     data: { title: string; content: string }
   ) => Promise<void>;
+  loadReplies: (
+    tenantId: string,
+    projectId: string,
+    workspaceId: string,
+    postId: string
+  ) => Promise<void>;
   createReply: (
     tenantId: string,
     projectId: string,
     workspaceId: string,
     postId: string,
     data: { content: string }
+  ) => Promise<void>;
+  deletePost: (
+    tenantId: string,
+    projectId: string,
+    workspaceId: string,
+    postId: string
+  ) => Promise<void>;
+  pinPost: (
+    tenantId: string,
+    projectId: string,
+    workspaceId: string,
+    postId: string
+  ) => Promise<void>;
+  unpinPost: (
+    tenantId: string,
+    projectId: string,
+    workspaceId: string,
+    postId: string
+  ) => Promise<void>;
+  deleteReply: (
+    tenantId: string,
+    projectId: string,
+    workspaceId: string,
+    postId: string,
+    replyId: string
   ) => Promise<void>;
   createTask: (workspaceId: string, data: { title: string; description?: string }) => Promise<void>;
   setTaskStatus: (
@@ -180,6 +269,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       agents: [],
       posts: [],
       repliesByPostId: {},
+      loadedReplyPostIds: {},
+      replyLoadingPostIds: {},
       tasks: [],
       topologyNodes: [],
       topologyEdges: [],
@@ -188,6 +279,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       chatMessages: [],
       chatLoading: false,
       isLoading: false,
+      activeSurfaceRequestId: 0,
       error: null,
       onlineUsers: [],
       onlineAgents: [],
@@ -209,7 +301,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       loadWorkspaceSurface: async (tenantId, projectId, workspaceId) => {
-        set({ isLoading: true, error: null });
+        const requestId = ++workspaceSurfaceRequestSequence;
+        set({ activeSurfaceRequestId: requestId, isLoading: true, error: null });
         try {
           const [
             workspace,
@@ -235,24 +328,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             workspaceChatService.listMessages(tenantId, projectId, workspaceId),
           ]);
 
-          const repliesByPostId = (
-            await Promise.all(
-              posts.map(async (post) => ({
-                postId: post.id,
-                replies: await workspaceBlackboardService.listReplies(
-                  tenantId,
-                  projectId,
-                  workspaceId,
-                  post.id
-                ),
-              }))
-            )
-          ).reduce<Record<string, BlackboardReply[]>>((acc, entry) => {
-            acc[entry.postId] = entry.replies;
-            return acc;
-          }, {});
+          if (get().activeSurfaceRequestId !== requestId) {
+            return;
+          }
 
           set({
+            ...createEmptySurfaceState(),
             currentWorkspace: workspace,
             members,
             agents,
@@ -263,11 +344,17 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             objectives,
             genes,
             chatMessages,
-            repliesByPostId,
             isLoading: false,
           });
         } catch (error) {
-          set({ error: getErrorMessage(error), isLoading: false });
+          if (get().activeSurfaceRequestId !== requestId) {
+            return;
+          }
+          set({
+            ...createEmptySurfaceState(),
+            error: getErrorMessage(error),
+            isLoading: false,
+          });
           throw error;
         }
       },
@@ -362,7 +449,83 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           workspaceId,
           data
         );
-        set({ posts: [post, ...get().posts] });
+        set((state) => ({
+          posts: [post, ...state.posts],
+          repliesByPostId: {
+            ...state.repliesByPostId,
+            [post.id]: [],
+          },
+          loadedReplyPostIds: {
+            ...state.loadedReplyPostIds,
+            [post.id]: true,
+          },
+        }));
+      },
+
+      loadReplies: async (tenantId, projectId, workspaceId, postId) => {
+        const state = get();
+        const startedWithExistingPost = state.posts.some((post) => post.id === postId);
+        if (
+          state.currentWorkspace?.id !== workspaceId ||
+          hasLoadedReplies(state.loadedReplyPostIds, postId) ||
+          state.replyLoadingPostIds[postId] === true
+        ) {
+          return;
+        }
+
+        set((current) => ({
+          replyLoadingPostIds: {
+            ...current.replyLoadingPostIds,
+            [postId]: true,
+          },
+        }));
+
+        try {
+          const replies = await workspaceBlackboardService.listReplies(
+            tenantId,
+            projectId,
+            workspaceId,
+            postId
+          );
+
+          if (get().currentWorkspace?.id !== workspaceId) {
+            return;
+          }
+
+          set((current) => {
+            if (current.currentWorkspace?.id !== workspaceId) {
+              return current;
+            }
+            if (
+              startedWithExistingPost &&
+              !current.posts.some((post) => post.id === postId)
+            ) {
+              return current;
+            }
+
+            const mergedReplies = mergeReplies(replies, current.repliesByPostId[postId] ?? []);
+
+            return {
+              repliesByPostId: {
+                ...current.repliesByPostId,
+                [postId]: mergedReplies,
+              },
+              loadedReplyPostIds: {
+                ...current.loadedReplyPostIds,
+                [postId]: true,
+              },
+            };
+          });
+        } finally {
+          set((current) => {
+            const { [postId]: _loadingReply, ...nextReplyLoadingPostIds } =
+              current.replyLoadingPostIds;
+
+            return {
+              replyLoadingPostIds: nextReplyLoadingPostIds,
+            };
+          });
+        }
       },
 
       createReply: async (tenantId, projectId, workspaceId, postId, data) => {
@@ -379,6 +542,58 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             [postId]: [...(get().repliesByPostId[postId] ?? []), reply],
           },
         });
+      },
+
+      deletePost: async (tenantId, projectId, workspaceId, postId) => {
+        await workspaceBlackboardService.deletePost(tenantId, projectId, workspaceId, postId);
+        set((state) => {
+          const { [postId]: _removedReplies, ...nextRepliesByPostId } = state.repliesByPostId;
+          const { [postId]: _loadedReplies, ...nextLoadedReplyPostIds } = state.loadedReplyPostIds;
+          const { [postId]: _loadingReplies, ...nextReplyLoadingPostIds } =
+            state.replyLoadingPostIds;
+
+          return {
+            posts: state.posts.filter((post) => post.id !== postId),
+            repliesByPostId: nextRepliesByPostId,
+            loadedReplyPostIds: nextLoadedReplyPostIds,
+            replyLoadingPostIds: nextReplyLoadingPostIds,
+          };
+        });
+      },
+
+      pinPost: async (tenantId, projectId, workspaceId, postId) => {
+        const post = await workspaceBlackboardService.pinPost(tenantId, projectId, workspaceId, postId);
+        set((state) => ({
+          posts: state.posts.map((entry) => (entry.id === post.id ? post : entry)),
+        }));
+      },
+
+      unpinPost: async (tenantId, projectId, workspaceId, postId) => {
+        const post = await workspaceBlackboardService.unpinPost(
+          tenantId,
+          projectId,
+          workspaceId,
+          postId
+        );
+        set((state) => ({
+          posts: state.posts.map((entry) => (entry.id === post.id ? post : entry)),
+        }));
+      },
+
+      deleteReply: async (tenantId, projectId, workspaceId, postId, replyId) => {
+        await workspaceBlackboardService.deleteReply(
+          tenantId,
+          projectId,
+          workspaceId,
+          postId,
+          replyId
+        );
+        set((state) => ({
+          repliesByPostId: {
+            ...state.repliesByPostId,
+            [postId]: (state.repliesByPostId[postId] ?? []).filter((reply) => reply.id !== replyId),
+          },
+        }));
       },
 
       createTask: async (workspaceId, data) => {
@@ -480,9 +695,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           }));
         } else if (type === 'blackboard_post_deleted') {
           const postId = data.post_id as string;
-          set((state) => ({
-            posts: state.posts.filter((p) => p.id !== postId),
-          }));
+          set((state) => {
+            const { [postId]: _removedReplies, ...nextRepliesByPostId } = state.repliesByPostId;
+            const { [postId]: _loadedReplies, ...nextLoadedReplyPostIds } = state.loadedReplyPostIds;
+            const { [postId]: _loadingReplies, ...nextReplyLoadingPostIds } =
+              state.replyLoadingPostIds;
+
+            return {
+              posts: state.posts.filter((p) => p.id !== postId),
+              repliesByPostId: nextRepliesByPostId,
+              loadedReplyPostIds: nextLoadedReplyPostIds,
+              replyLoadingPostIds: nextReplyLoadingPostIds,
+            };
+          });
         } else if (type === 'blackboard_reply_created') {
           const reply = data.reply as BlackboardReply;
           const postId = data.post_id as string;
@@ -670,7 +895,12 @@ export const useWorkspaceActions = () =>
       setCurrentWorkspace: state.setCurrentWorkspace,
       createWorkspace: state.createWorkspace,
       createPost: state.createPost,
+      loadReplies: state.loadReplies,
       createReply: state.createReply,
+      deletePost: state.deletePost,
+      pinPost: state.pinPost,
+      unpinPost: state.unpinPost,
+      deleteReply: state.deleteReply,
       createTask: state.createTask,
       setTaskStatus: state.setTaskStatus,
       selectHex: state.selectHex,

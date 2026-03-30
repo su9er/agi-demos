@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes, useLocation } from 'react-router-dom';
 
 import { render, screen, waitFor } from '../../utils';
 
 import { AgentWorkspace } from '../../../pages/tenant/AgentWorkspace';
-import { WorkspaceDetail } from '../../../pages/tenant/WorkspaceDetail';
-import { buildAgentWorkspacePath } from '../../../components/layout/TenantChatSidebar';
+import { WorkspaceBlackboardRedirect } from '../../../pages/project/WorkspaceBlackboardRedirect';
+import { buildAgentWorkspacePath } from '../../../utils/agentWorkspacePath';
 
 const agentChatContentProps = vi.fn();
 
@@ -122,12 +122,21 @@ describe('workspace/agent workspace bridge', () => {
     });
   });
 
-  it('renders Open in Agent Workspace link with tenant/project/workspace context', () => {
+  it('redirects legacy workspace detail routes to the project blackboard with workspace context', async () => {
+    const LocationProbe = () => {
+      const location = useLocation();
+      return <div data-testid="location-probe">{`${location.pathname}${location.search}`}</div>;
+    };
+
     render(
       <Routes>
         <Route
           path="/tenant/:tenantId/project/:projectId/workspaces/:workspaceId"
-          element={<WorkspaceDetail />}
+          element={<WorkspaceBlackboardRedirect />}
+        />
+        <Route
+          path="/tenant/:tenantId/project/:projectId/blackboard"
+          element={<LocationProbe />}
         />
       </Routes>,
       {
@@ -135,11 +144,46 @@ describe('workspace/agent workspace bridge', () => {
       }
     );
 
-    const openLink = screen.getByRole('link', { name: 'Open in Agent Workspace' });
-    expect(openLink).toHaveAttribute(
-      'href',
-      '/tenant/tenant-1/agent-workspace?projectId=project-1&workspaceId=ws-1'
+    await waitFor(() => {
+      expect(screen.getByTestId('location-probe')).toHaveTextContent(
+        '/tenant/tenant-1/project/project-1/blackboard?workspaceId=ws-1&open=1'
+      );
+    });
+  });
+
+  it('waits for tenant context instead of redirecting to an invalid tenant-less path', async () => {
+    tenantState = {
+      currentTenant: null,
+    };
+    authState = {
+      user: null,
+    };
+
+    const LocationProbe = () => {
+      const location = useLocation();
+      return <div data-testid="location-probe">{`${location.pathname}${location.search}`}</div>;
+    };
+
+    render(
+      <>
+        <LocationProbe />
+        <Routes>
+          <Route
+            path="/project/:projectId/workspaces/:workspaceId"
+            element={<WorkspaceBlackboardRedirect />}
+          />
+        </Routes>
+      </>,
+      {
+        route: '/project/project-1/workspaces/ws-1',
+      }
     );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-probe')).toHaveTextContent(
+        '/project/project-1/workspaces/ws-1'
+      );
+    });
   });
 
   it('preserves workspaceId in conversation navigation URLs', () => {

@@ -3,10 +3,10 @@ import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { OrgSetupGuard } from './components/common/OrgSetupGuard';
 import { LazySpin } from './components/ui/lazyAntd';
 import './i18n/config';
 import { SchemaLayout } from './layouts/SchemaLayout';
-import { OrgSetupGuard } from './components/common/OrgSetupGuard';
 import { TenantLayout } from './layouts/TenantLayout';
 import { Login } from './pages/Login';
 import { useAuthStore } from './stores/auth';
@@ -148,8 +148,10 @@ const AgentWorkspace = lazy(() =>
 const WorkspaceList = lazy(() =>
   import('./pages/tenant/WorkspaceList').then((m) => ({ default: m.WorkspaceList }))
 );
-const WorkspaceDetail = lazy(() =>
-  import('./pages/tenant/WorkspaceDetail').then((m) => ({ default: m.WorkspaceDetail }))
+const WorkspaceBlackboardRedirect = lazy(() =>
+  import('./pages/project/WorkspaceBlackboardRedirect').then((m) => ({
+    default: m.WorkspaceBlackboardRedirect,
+  }))
 );
 const InstanceList = lazy(() =>
   import('./pages/tenant/InstanceList').then((m) => ({ default: m.InstanceList }))
@@ -1017,7 +1019,7 @@ function App() {
                   path="workspaces/:workspaceId"
                   element={
                     <Suspense fallback={<PageLoader />}>
-                      <WorkspaceDetail />
+                      <WorkspaceBlackboardRedirect />
                     </Suspense>
                   }
                 />
@@ -1646,7 +1648,7 @@ function App() {
                   path="workspaces/:workspaceId"
                   element={
                     <Suspense fallback={<PageLoader />}>
-                      <WorkspaceDetail />
+                      <WorkspaceBlackboardRedirect />
                     </Suspense>
                   }
                 />
