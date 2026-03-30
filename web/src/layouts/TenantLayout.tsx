@@ -272,6 +272,15 @@ export const TenantLayout: React.FC = memo(() => {
     'plugins',
     'templates',
     'project',
+    'instances',
+    'instance-templates',
+    'clusters',
+    'genes',
+    'audit-logs',
+    'trust-policies',
+    'decision-records',
+    'deploy',
+    'org-settings',
   ];
   const pathSegments = location.pathname.replace(basePath, '').split('/').filter(Boolean);
   const isAgentWorkspacePath =

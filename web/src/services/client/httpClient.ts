@@ -24,8 +24,10 @@ export interface HttpRequestConfig extends AxiosRequestConfig {
 /**
  * Create axios client with relative baseURL (goes through Vite proxy)
  */
+export const API_BASE_URL = '/api/v1';
+
 const client = axios.create({
-  baseURL: '/api/v1',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },

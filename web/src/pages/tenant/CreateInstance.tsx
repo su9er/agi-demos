@@ -8,12 +8,11 @@ import {
   Form,
   Input,
   InputNumber,
-  Select,
-  Button,
-  message,
   Space,
   Descriptions,
 } from 'antd';
+
+import { LazyButton, LazySelect, useLazyMessage } from '@/components/ui/lazyAntd';
 
 import { useClusters, useClusterActions } from '../../stores/cluster';
 import { useInstanceActions } from '../../stores/instance';
@@ -24,16 +23,19 @@ export const CreateInstance: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [form] = Form.useForm();
+  const messageApi = useLazyMessage();
 
   const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<Partial<InstanceCreate>>({});
 
   const { createInstance } = useInstanceActions();
   const clusters = useClusters();
   const { listClusters } = useClusterActions();
 
   useEffect(() => {
-    listClusters().catch(() => {});
+    listClusters().catch((err) => {
+      console.error('Failed to list clusters:', err);
+    });
   }, [listClusters]);
 
   const handleNameChange = useCallback(
@@ -65,14 +67,14 @@ export const CreateInstance: React.FC = () => {
               label={t('tenant.instances.create.basic.name', 'Name')}
               rules={[{ required: true }]}
             >
-              <Input onChange={handleNameChange} placeholder="e.g. My Instance" />
+              <Input onChange={handleNameChange} placeholder={t('tenant.instances.create.placeholders.name', 'e.g. My Instance')} />
             </Form.Item>
             <Form.Item
               name="slug"
               label={t('tenant.instances.create.basic.slug', 'Slug')}
               rules={[{ required: true }]}
             >
-              <Input placeholder="e.g. my-instance" />
+              <Input placeholder={t('tenant.instances.create.placeholders.slug', 'e.g. my-instance')} />
             </Form.Item>
             <Form.Item
               name="agent_display_name"
@@ -104,13 +106,10 @@ export const CreateInstance: React.FC = () => {
               name="cluster_id"
               label={t('tenant.instances.create.infra.cluster_id', 'Cluster')}
             >
-              <Select allowClear>
-                {clusters.map((c) => (
-                  <Select.Option key={c.id} value={c.id}>
-                    {c.name}
-                  </Select.Option>
-                ))}
-              </Select>
+              <LazySelect
+                allowClear
+                options={clusters.map((c) => ({ value: c.id, label: c.name }))}
+              />
             </Form.Item>
             <Form.Item
               name="namespace"
@@ -125,11 +124,14 @@ export const CreateInstance: React.FC = () => {
               <Input />
             </Form.Item>
             <Form.Item name="runtime" label={t('tenant.instances.create.infra.runtime', 'Runtime')}>
-              <Select allowClear>
-                <Select.Option value="docker">Docker</Select.Option>
-                <Select.Option value="kubernetes">Kubernetes</Select.Option>
-                <Select.Option value="local">Local</Select.Option>
-              </Select>
+              <LazySelect
+                allowClear
+                options={[
+                  { value: 'docker', label: 'Docker' },
+                  { value: 'kubernetes', label: 'Kubernetes' },
+                  { value: 'local', label: 'Local' },
+                ]}
+              />
             </Form.Item>
             <Form.Item
               name="compute_provider"
@@ -163,35 +165,38 @@ export const CreateInstance: React.FC = () => {
               name="cpu_request"
               label={t('tenant.instances.create.resources.cpu_request', 'CPU Request')}
             >
-              <Input placeholder="e.g. 100m" />
+              <Input placeholder={t('tenant.instances.create.placeholders.cpuRequest', 'e.g. 100m')} />
             </Form.Item>
             <Form.Item
               name="cpu_limit"
               label={t('tenant.instances.create.resources.cpu_limit', 'CPU Limit')}
             >
-              <Input placeholder="e.g. 1" />
+              <Input placeholder={t('tenant.instances.create.placeholders.cpuLimit', 'e.g. 1')} />
             </Form.Item>
             <Form.Item
               name="mem_request"
               label={t('tenant.instances.create.resources.mem_request', 'Memory Request')}
             >
-              <Input placeholder="e.g. 256Mi" />
+              <Input placeholder={t('tenant.instances.create.placeholders.memRequest', 'e.g. 256Mi')} />
             </Form.Item>
             <Form.Item
               name="mem_limit"
               label={t('tenant.instances.create.resources.mem_limit', 'Memory Limit')}
             >
-              <Input placeholder="e.g. 1Gi" />
+              <Input placeholder={t('tenant.instances.create.placeholders.memLimit', 'e.g. 1Gi')} />
             </Form.Item>
             <Form.Item
               name="service_type"
               label={t('tenant.instances.create.resources.service_type', 'Service Type')}
             >
-              <Select allowClear>
-                <Select.Option value="ClusterIP">ClusterIP</Select.Option>
-                <Select.Option value="NodePort">NodePort</Select.Option>
-                <Select.Option value="LoadBalancer">LoadBalancer</Select.Option>
-              </Select>
+              <LazySelect
+                allowClear
+                options={[
+                  { value: 'ClusterIP', label: 'ClusterIP' },
+                  { value: 'NodePort', label: 'NodePort' },
+                  { value: 'LoadBalancer', label: 'LoadBalancer' },
+                ]}
+              />
             </Form.Item>
             <Form.Item
               name="ingress_domain"
@@ -217,7 +222,7 @@ export const CreateInstance: React.FC = () => {
               name="storage_size"
               label={t('tenant.instances.create.storage.storage_size', 'Storage Size')}
             >
-              <Input placeholder="e.g. 10Gi" />
+              <Input placeholder={t('tenant.instances.create.placeholders.storageSize', 'e.g. 10Gi')} />
             </Form.Item>
             <Form.Item
               name="quota_cpu"
@@ -249,19 +254,19 @@ export const CreateInstance: React.FC = () => {
               name="env_vars"
               label={t('tenant.instances.create.config.env_vars', 'Environment Variables (JSON)')}
             >
-              <Input.TextArea rows={4} placeholder='{"KEY": "value"}' />
+              <Input.TextArea rows={4} placeholder={t('tenant.instances.create.placeholders.envVars', '{"KEY": "value"}')} />
             </Form.Item>
             <Form.Item
               name="advanced_config"
               label={t('tenant.instances.create.config.advanced_config', 'Advanced Config (JSON)')}
             >
-              <Input.TextArea rows={4} placeholder='{"key": "value"}' />
+              <Input.TextArea rows={4} placeholder={t('tenant.instances.create.placeholders.advancedConfig', '{"key": "value"}')} />
             </Form.Item>
             <Form.Item
               name="llm_providers"
               label={t('tenant.instances.create.config.llm_providers', 'LLM Providers (JSON)')}
             >
-              <Input.TextArea rows={4} placeholder='{"openai": {"api_key": "..."}}' />
+              <Input.TextArea rows={4} placeholder={t('tenant.instances.create.placeholders.llmProviders', '{"openai": {"api_key": "..."}}')} />
             </Form.Item>
           </div>
         ),
@@ -272,11 +277,42 @@ export const CreateInstance: React.FC = () => {
         fields: [],
         content: (
           <div className="flex flex-col gap-4">
+            
             <Descriptions bordered column={1} size="small">
               {Object.entries(formData).map(([key, value]) => {
                 if (value === undefined || value === null || value === '') return null;
+                const getLabel = (k: string) => {
+                  const map: Record<string, string> = {
+                    name: t('tenant.instances.create.basic.name', 'Name'),
+                    slug: t('tenant.instances.create.basic.slug', 'Slug'),
+                    agent_display_name: t('tenant.instances.create.basic.agent_display_name', 'Agent Display Name'),
+                    agent_label: t('tenant.instances.create.basic.agent_label', 'Agent Label'),
+                    theme_color: t('tenant.instances.create.basic.theme_color', 'Theme Color'),
+                    cluster_id: t('tenant.instances.create.infra.cluster_id', 'Cluster'),
+                    namespace: t('tenant.instances.create.infra.namespace', 'Namespace'),
+                    image_version: t('tenant.instances.create.infra.image_version', 'Image Version'),
+                    runtime: t('tenant.instances.create.infra.runtime', 'Runtime'),
+                    compute_provider: t('tenant.instances.create.infra.compute_provider', 'Compute Provider'),
+                    replicas: t('tenant.instances.create.resources.replicas', 'Replicas'),
+                    cpu_request: t('tenant.instances.create.resources.cpu_request', 'CPU Request'),
+                    cpu_limit: t('tenant.instances.create.resources.cpu_limit', 'CPU Limit'),
+                    mem_request: t('tenant.instances.create.resources.mem_request', 'Memory Request'),
+                    mem_limit: t('tenant.instances.create.resources.mem_limit', 'Memory Limit'),
+                    service_type: t('tenant.instances.create.resources.service_type', 'Service Type'),
+                    ingress_domain: t('tenant.instances.create.resources.ingress_domain', 'Ingress Domain'),
+                    storage_class: t('tenant.instances.create.storage.storage_class', 'Storage Class'),
+                    storage_size: t('tenant.instances.create.storage.storage_size', 'Storage Size'),
+                    quota_cpu: t('tenant.instances.create.storage.quota_cpu', 'Quota CPU'),
+                    quota_memory: t('tenant.instances.create.storage.quota_memory', 'Quota Memory'),
+                    quota_max_pods: t('tenant.instances.create.storage.quota_max_pods', 'Quota Max Pods'),
+                    env_vars: t('tenant.instances.create.config.env_vars', 'Environment Variables (JSON)'),
+                    advanced_config: t('tenant.instances.create.config.advanced_config', 'Advanced Config (JSON)'),
+                    llm_providers: t('tenant.instances.create.config.llm_providers', 'LLM Providers (JSON)')
+                  };
+                  return map[k] || k;
+                };
                 return (
-                  <Descriptions.Item key={key} label={key}>
+                  <Descriptions.Item key={key} label={getLabel(key)}>
                     {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                   </Descriptions.Item>
                 );
@@ -312,7 +348,9 @@ export const CreateInstance: React.FC = () => {
           setFormData((prev) => ({ ...prev, ...values }));
           setCurrentStep((prev) => prev + 1);
         })
-        .catch(() => {});
+        .catch((err) => {
+          console.error('Form validation failed:', err);
+        });
     } else {
       setCurrentStep((prev) => prev + 1);
     }
@@ -323,6 +361,7 @@ export const CreateInstance: React.FC = () => {
   }, []);
 
   const handleSubmit = useCallback(() => {
+    // TODO: tenant_id is hardcoded to 'default' pending multi-tenant architecture completion
     const finalData: InstanceCreate = {
       name: String(formData.name),
       slug: String(formData.slug),
@@ -342,13 +381,14 @@ export const CreateInstance: React.FC = () => {
 
     createInstance(finalData)
       .then(() => {
-        message.success(t('tenant.instances.create.success', 'Instance created successfully'));
+        messageApi?.success(t('tenant.instances.create.success', 'Instance created successfully'));
         navigate('/instances');
       })
-      .catch(() => {
-        message.error(t('tenant.instances.create.error', 'Failed to create instance'));
+      .catch((err) => {
+        console.error('Failed to create instance:', err);
+        messageApi?.error(t('tenant.instances.create.error', 'Failed to create instance'));
       });
-  }, [formData, createInstance, navigate, t, parseJsonField]);
+  }, [formData, createInstance, navigate, t, parseJsonField, messageApi]);
 
   return (
     <div className="max-w-4xl mx-auto w-full flex flex-col gap-8">
@@ -356,7 +396,7 @@ export const CreateInstance: React.FC = () => {
         {t('tenant.instances.create.title', 'Create Instance')}
       </h1>
 
-      <div className="bg-white dark:bg-slate-800 rounded-lg p-8 border border-slate-200 dark:border-slate-700">
+      <div className="bg-surface-light dark:bg-surface-dark rounded-lg p-8 border border-border-light dark:border-border-dark">
         <Steps
           current={currentStep}
           items={stepsInfo.map((s) => ({ title: s.title }))}
@@ -364,32 +404,34 @@ export const CreateInstance: React.FC = () => {
         />
 
         <Form form={form} layout="vertical">
-          {stepsInfo.map((step, index) => (
-            <div
-              key={step.id || step.title}
-              style={{ display: currentStep === index ? 'block' : 'none' }}
-            >
-              {step.content}
-            </div>
-          ))}
+          <div aria-live="polite">
+            {stepsInfo.map((step, index) => (
+              <div
+                key={step.id || step.title}
+                style={{ display: currentStep === index ? 'block' : 'none' }}
+              >
+                {step.content}
+              </div>
+            ))}
+          </div>
         </Form>
 
-        <div className="flex justify-between mt-8 pt-4 border-t border-slate-200 dark:border-slate-700">
-          <Button onClick={handleBack} disabled={currentStep === 0}>
+        <div className="flex justify-between mt-8 pt-4 border-t border-border-light dark:border-border-dark">
+          <LazyButton onClick={handleBack} disabled={currentStep === 0}>
             {t('tenant.instances.create.actions.back', 'Back')}
-          </Button>
+          </LazyButton>
           <Space>
-            <Button onClick={() => navigate('/instances')}>
+            <LazyButton onClick={() => navigate('/instances')}>
               {t('tenant.instances.create.actions.cancel', 'Cancel')}
-            </Button>
+            </LazyButton>
             {currentStep < stepsInfo.length - 1 ? (
-              <Button type="primary" onClick={handleNext}>
+              <LazyButton type="primary" onClick={handleNext}>
                 {t('tenant.instances.create.actions.next', 'Next')}
-              </Button>
+              </LazyButton>
             ) : (
-              <Button type="primary" onClick={handleSubmit}>
+              <LazyButton type="primary" onClick={handleSubmit}>
                 {t('tenant.instances.create.actions.submit', 'Create')}
-              </Button>
+              </LazyButton>
             )}
           </Space>
         </div>

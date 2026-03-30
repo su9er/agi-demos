@@ -5,25 +5,27 @@ import { useParams, useNavigate } from 'react-router-dom';
 
 import {
   Timeline,
-  Button,
   Badge,
   Card,
   Typography,
-  Spin,
   Alert,
   Pagination,
-  Select,
   Tag,
-  Empty,
 } from 'antd';
 import { ArrowLeft } from 'lucide-react';
 
+
+import { LazyButton, LazySpin, LazyEmpty, LazySelect } from '@/components/ui/lazyAntd';
+
 import {
   useEvolutionEvents,
+  useEvolutionTotal,
   useGeneMarketLoading,
   useGeneMarketError,
   useGeneMarketActions,
 } from '../../stores/geneMarket';
+
+import { formatDate } from './utils/instanceUtils';
 
 const { Title, Text } = Typography;
 
@@ -40,12 +42,18 @@ const getEventColor = (eventType: string): string => {
   return EVENT_TYPE_COLORS[eventType] ?? 'default';
 };
 
+const getEventTypeLabel = (t: any, type: string) => {
+  if (type === 'config_changed') return t('tenant.evolution.types.configChanged', 'Config Changed');
+  return t(`tenant.evolution.types.${type}`, type);
+};
+
 export const EvolutionLog: React.FC = () => {
   const { t } = useTranslation();
   const { instanceId } = useParams();
   const navigate = useNavigate();
 
   const evolutionEvents = useEvolutionEvents();
+  const evolutionTotal = useEvolutionTotal();
   const loading = useGeneMarketLoading();
   const error = useGeneMarketError();
   const { listEvolutionEvents, clearError } = useGeneMarketActions();
@@ -60,7 +68,9 @@ export const EvolutionLog: React.FC = () => {
     if (eventTypeFilter) {
       params.event_type = eventTypeFilter;
     }
-    listEvolutionEvents(instanceId, params).catch(() => {});
+    listEvolutionEvents(instanceId, params).catch((err) => {
+      console.error('Failed to list evolution events:', err);
+    });
   }, [instanceId, page, pageSize, eventTypeFilter, listEvolutionEvents]);
 
   useEffect(() => {
@@ -83,20 +93,20 @@ export const EvolutionLog: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto w-full flex flex-col gap-6">
       <div className="flex items-center gap-4">
-        <Button icon={<ArrowLeft size={16} />} onClick={() => navigate(-1)}>
+        <LazyButton icon={<ArrowLeft size={16} />} onClick={() => navigate(-1)}>
           {t('common.back', 'Back')}
-        </Button>
+        </LazyButton>
         <Title level={3} className="!mb-0">
           {t('tenant.evolution.title', 'Evolution Log')}
         </Title>
       </div>
 
       <div className="flex items-center gap-4">
-        <Select
+        <LazySelect
           allowClear
           placeholder={t('tenant.evolution.filterByType', 'Filter by event type')}
           value={eventTypeFilter}
-          onChange={(val) => {
+          onChange={(val: string | undefined) => {
             setEventTypeFilter(val);
             setPage(1);
           }}
@@ -119,29 +129,29 @@ export const EvolutionLog: React.FC = () => {
 
       {loading && evolutionEvents.length === 0 ? (
         <div className="flex justify-center p-12">
-          <Spin size="large" />
+          <LazySpin size="large" />
         </div>
       ) : evolutionEvents.length === 0 ? (
         <Card>
-          <Empty description={t('tenant.evolution.empty', 'No evolution events found')} />
+          <LazyEmpty description={t('tenant.evolution.empty', 'No evolution events found')} />
         </Card>
       ) : (
         <>
-          <Card className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+          <Card className="bg-surface-light dark:bg-surface-dark rounded-lg border border-border-light dark:border-border-dark">
             <Timeline
               items={evolutionEvents.map((evt) => ({
                 color: getEventColor(evt.event_type),
                 children: (
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
-                      <Tag color={getEventColor(evt.event_type)}>{evt.event_type}</Tag>
+                      <Tag color={getEventColor(evt.event_type)}>{getEventTypeLabel(t, evt.event_type)}</Tag>
                       <Badge
                         status={evt.status === 'success' ? 'success' : 'error'}
                         text={evt.status}
                       />
                     </div>
                     <Text type="secondary" className="text-xs">
-                      {new Date(evt.created_at).toLocaleString()}
+                      {formatDate(evt.created_at)}
                     </Text>
                     {evt.from_version && evt.to_version && (
                       <Text className="text-sm">
@@ -163,7 +173,7 @@ export const EvolutionLog: React.FC = () => {
             <Pagination
               current={page}
               pageSize={pageSize}
-              total={evolutionEvents.length < pageSize ? page * pageSize : (page + 1) * pageSize}
+              total={evolutionTotal}
               onChange={handlePageChange}
               showSizeChanger={false}
             />

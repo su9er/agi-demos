@@ -1,14 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 
-import { Input, Tag, Dropdown, Button as AntButton, Breadcrumb, Tree, Modal } from 'antd';
-import { ArrowLeft, Download, Eye, FilePlus, FileText, Folder, FolderOpen, FolderPlus, HardDrive, MoreVertical, Trash2, Upload, Image as ImageIcon, FileBox, Terminal, Code, Braces, File } from 'lucide-react';
+import { Input, Tag, Dropdown, Breadcrumb, Tree, Modal } from 'antd';
+import { Download, Eye, FilePlus, FileText, Folder, FolderOpen, FolderPlus, HardDrive, MoreVertical, Trash2, Upload, Image as ImageIcon, FileBox, Terminal, Code, Braces, File } from 'lucide-react';
 
 import { instanceFileService } from '@/services/instanceFileService';
 
-import { useLazyMessage, LazyEmpty, LazySpin, LazyModal } from '@/components/ui/lazyAntd';
+import { useLazyMessage, LazyEmpty, LazySpin, LazyModal, LazyButton } from '@/components/ui/lazyAntd';
 
 import type { MenuProps, TreeDataNode } from 'antd';
 
@@ -54,8 +54,7 @@ const formatFileSize = (bytes: number | null): string => {
 export const InstanceFiles: React.FC = () => {
   const { t } = useTranslation();
   const { instanceId } = useParams<{ instanceId: string }>();
-  const navigate = useNavigate();
-  const message = useLazyMessage();
+  const messageApi = useLazyMessage();
 
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -77,13 +76,12 @@ export const InstanceFiles: React.FC = () => {
     try {
       const response = await instanceFileService.listFiles(instanceId);
       setFileTree(response.tree);
-    } catch (error) {
-      console.error('Failed to fetch file tree:', error);
-      message?.error(t('tenant.instances.files.fetchError'));
+    } catch {
+      messageApi?.error(t('tenant.instances.files.fetchError'));
     } finally {
       setIsLoading(false);
     }
-  }, [instanceId, message, t]);
+  }, [instanceId, messageApi, t]);
 
   useEffect(() => {
     fetchFileTree();
@@ -98,10 +96,13 @@ export const InstanceFiles: React.FC = () => {
         const nameMatches = node.name.toLowerCase().includes(lowerTerm);
         const filteredChildren = node.children ? filterTree(node.children, term) : [];
         if (nameMatches || filteredChildren.length > 0) {
-          acc.push({
-            ...node,
-            children: node.children ? filteredChildren : undefined,
-          });
+          const newNode = { ...node };
+          if (node.children) {
+            newNode.children = filteredChildren;
+          } else {
+            delete newNode.children;
+          }
+          acc.push(newNode);
         }
         return acc;
       }, []);
@@ -138,7 +139,7 @@ export const InstanceFiles: React.FC = () => {
           title: (
             <div className="flex items-center gap-2">
               {(() => { const Icon = getFileIcon(node); return <Icon size={16} />; })()}
-              <span className={selectedNode?.key === node.key ? 'font-medium text-blue-600' : ''}>
+              <span className={selectedNode?.key === node.key ? 'font-medium text-info-dark' : ''}>
                 {node.name}
               </span>
             </div>
@@ -189,14 +190,13 @@ export const InstanceFiles: React.FC = () => {
       try {
         const response = await instanceFileService.previewFile(instanceId!, node.key);
         setPreviewContent(response.content);
-      } catch (error) {
-        console.error('Failed to fetch file content:', error);
-        message?.error(t('tenant.instances.files.previewError'));
+      } catch {
+        messageApi?.error(t('tenant.instances.files.previewError'));
       } finally {
         setIsPreviewLoading(false);
       }
     },
-    [instanceId, message, t]
+    [instanceId, messageApi, t]
   );
 
   const handleDownload = useCallback(
@@ -213,13 +213,12 @@ export const InstanceFiles: React.FC = () => {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        message?.success(t('tenant.instances.files.downloadSuccess'));
-      } catch (error) {
-        console.error('Failed to download file:', error);
-        message?.error(t('tenant.instances.files.downloadError'));
+        messageApi?.success(t('tenant.instances.files.downloadSuccess'));
+      } catch {
+        messageApi?.error(t('tenant.instances.files.downloadError'));
       }
     },
-    [instanceId, message, t]
+    [instanceId, messageApi, t]
   );
 
   const handleDelete = useCallback(
@@ -229,17 +228,16 @@ export const InstanceFiles: React.FC = () => {
       setIsSubmitting(true);
       try {
         await instanceFileService.deleteFile(instanceId, node.key);
-        message?.success(t('tenant.instances.files.deleteSuccess'));
+        messageApi?.success(t('tenant.instances.files.deleteSuccess'));
         setSelectedNode(null);
         fetchFileTree();
-      } catch (error) {
-        console.error('Failed to delete:', error);
-        message?.error(t('tenant.instances.files.deleteError'));
+      } catch {
+        messageApi?.error(t('tenant.instances.files.deleteError'));
       } finally {
         setIsSubmitting(false);
       }
     },
-    [instanceId, message, t, fetchFileTree]
+    [instanceId, messageApi, t, fetchFileTree]
   );
 
   const handleCreate = useCallback(async () => {
@@ -252,7 +250,7 @@ export const InstanceFiles: React.FC = () => {
         createParentPath ? `${createParentPath}/${createName}` : createName,
         createType
       );
-      message?.success(
+      messageApi?.success(
         createType === 'folder'
           ? t('tenant.instances.files.createFolderSuccess')
           : t('tenant.instances.files.createFileSuccess')
@@ -261,13 +259,12 @@ export const InstanceFiles: React.FC = () => {
       setCreateName('');
       setCreateParentPath('');
       fetchFileTree();
-    } catch (error) {
-      console.error('Failed to create:', error);
-      message?.error(t('tenant.instances.files.createError'));
+    } catch {
+      messageApi?.error(t('tenant.instances.files.createError'));
     } finally {
       setIsSubmitting(false);
     }
-  }, [instanceId, createName, createType, createParentPath, message, t, fetchFileTree]);
+  }, [instanceId, createName, createType, createParentPath, messageApi, t, fetchFileTree]);
 
   const handleUpload = useCallback(() => {
     if (!instanceId) return;
@@ -279,19 +276,15 @@ export const InstanceFiles: React.FC = () => {
       try {
         const directory = selectedNode?.type === 'folder' ? selectedNode.key : '';
         await instanceFileService.uploadFile(instanceId, file, directory);
-        message?.success(t('tenant.instances.files.uploadSuccess'));
+        messageApi?.success(t('tenant.instances.files.uploadSuccess'));
         fetchFileTree();
-      } catch (error) {
-        console.error('Failed to upload file:', error);
-        message?.error(t('tenant.instances.files.uploadError'));
+      } catch {
+        messageApi?.error(t('tenant.instances.files.uploadError'));
       }
     };
     input.click();
-  }, [instanceId, selectedNode, message, t, fetchFileTree]);
+  }, [instanceId, selectedNode, messageApi, t, fetchFileTree]);
 
-  const handleGoBack = useCallback(() => {
-    navigate(-1);
-  }, [navigate]);
 
   const getBreadcrumbItems = useCallback((key: string) => {
     const parts = key.split('/');
@@ -372,89 +365,72 @@ export const InstanceFiles: React.FC = () => {
   if (!instanceId) return null;
 
   return (
-    <div className="max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <button
-          onClick={handleGoBack}
-          type="button"
-          className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 mb-3"
-        >
-          <ArrowLeft size={16} />
-          {t('common.back')}
-        </button>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              {t('tenant.instances.files.title')}
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {t('tenant.instances.files.description')}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                setCreateType('folder');
-                setCreateParentPath('');
-                setCreateName('');
-                setIsCreateModalOpen(true);
-              }}
-              type="button"
-              className="inline-flex items-center gap-2 px-3 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm font-medium"
-            >
-              <FolderPlus size={16} />
-              {t('tenant.instances.files.newFolder')}
-            </button>
-            <button
-              onClick={() => {
-                setCreateType('file');
-                setCreateParentPath('');
-                setCreateName('');
-                setIsCreateModalOpen(true);
-              }}
-              type="button"
-              className="inline-flex items-center gap-2 px-3 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm font-medium"
-            >
-              <FilePlus size={16} />
-              {t('tenant.instances.files.newFile')}
-            </button>
-            <button
-              onClick={handleUpload}
-              type="button"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-            >
-              <Upload size={16} />
-              {t('tenant.instances.files.upload')}
-            </button>
-          </div>
+    <div className="flex flex-col gap-6">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary dark:text-text-inverse">
+            {t('tenant.instances.files.title')}
+          </h2>
+          <p className="text-sm text-text-muted">{t('tenant.instances.files.description')}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <LazyButton
+            onClick={() => {
+              setCreateType('folder');
+              setCreateParentPath('');
+              setCreateName('');
+              setIsCreateModalOpen(true);
+            }}
+            icon={<FolderPlus size={16} />}
+          >
+            {t('tenant.instances.files.newFolder')}
+          </LazyButton>
+          <LazyButton
+            onClick={() => {
+              setCreateType('file');
+              setCreateParentPath('');
+              setCreateName('');
+              setIsCreateModalOpen(true);
+            }}
+            icon={<FilePlus size={16} />}
+          >
+            {t('tenant.instances.files.newFile')}
+          </LazyButton>
+          <LazyButton
+            type="primary"
+            onClick={handleUpload}
+            icon={<Upload size={16} />}
+          >
+            {t('tenant.instances.files.upload')}
+          </LazyButton>
         </div>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
-              <Folder size={16} className="text-amber-600 dark:text-amber-400" />
+            <div className="p-2 bg-warning-bg dark:bg-warning-bg-dark rounded-lg">
+              <Folder size={16} className="text-warning-dark dark:text-warning-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
                 {fileTree.length}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-text-muted dark:text-text-muted">
                 {t('tenant.instances.files.totalFolders')}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-              <FileText size={16} className="text-blue-600 dark:text-blue-400" />
+            <div className="p-2 bg-info-bg dark:bg-info-bg-dark rounded-lg">
+              <FileText size={16} className="text-info-dark dark:text-info-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
                 {fileTree.reduce((count, node) => {
                   const countFiles = (n: FileNode): number => {
                     if (n.type === 'file') return 1;
@@ -463,19 +439,19 @@ export const InstanceFiles: React.FC = () => {
                   return count + countFiles(node);
                 }, 0)}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-text-muted dark:text-text-muted">
                 {t('tenant.instances.files.totalFiles')}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-              <HardDrive size={16} className="text-green-600 dark:text-green-400" />
+            <div className="p-2 bg-success-bg dark:bg-success-bg-dark rounded-lg">
+              <HardDrive size={16} className="text-success-dark dark:text-success-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
                 {formatFileSize(
                   fileTree.reduce((total, node) => {
                     const getTotalSize = (n: FileNode): number => {
@@ -489,7 +465,7 @@ export const InstanceFiles: React.FC = () => {
                   }, 0)
                 )}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-text-muted dark:text-text-muted">
                 {t('tenant.instances.files.totalSize')}
               </p>
             </div>
@@ -501,8 +477,8 @@ export const InstanceFiles: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* File Tree */}
         <div className="lg:col-span-1">
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <div className="p-3 border-b border-slate-200 dark:border-slate-700">
+          <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark overflow-hidden">
+            <div className="p-3 border-b border-border-light dark:border-border-dark">
               <Search
                 placeholder={t('tenant.instances.files.searchPlaceholder')}
                 value={search}
@@ -538,19 +514,20 @@ export const InstanceFiles: React.FC = () => {
 
         {/* File Details */}
         <div className="lg:col-span-2">
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark overflow-hidden">
             {selectedNode ? (
               <>
                 {/* Header with path */}
-                <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <div className="p-4 border-b border-border-light dark:border-border-dark flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    {(() => { const Icon = getFileIcon(selectedNode); return <Icon size={16} className="text-slate-400" />; })()}
+                    {(() => { const Icon = getFileIcon(selectedNode); return <Icon size={16} className="text-text-muted" />; })()}
                     <Breadcrumb items={getBreadcrumbItems(selectedNode.key)} className="text-sm" />
                   </div>
                   <Dropdown menu={{ items: contextMenuItems ?? [] }} trigger={['click']}>
-                    <AntButton
+                    <LazyButton
                       type="text"
                       icon={<MoreVertical size={16} />}
+                      aria-label={t('common.moreActions', 'More actions')}
                     />
                   </Dropdown>
                 </div>
@@ -559,29 +536,29 @@ export const InstanceFiles: React.FC = () => {
                 <div className="p-4 space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
+                      <span className="block text-xs font-medium text-text-muted dark:text-text-muted mb-1">
                         {t('tenant.instances.files.colType')}
-                      </label>
-                      <p className="text-sm text-slate-900 dark:text-slate-100">
+                      </span>
+                      <p className="text-sm text-text-primary dark:text-text-inverse">
                         <Tag>{selectedNode.type === 'folder' ? 'Folder' : 'File'}</Tag>
                         {selectedNode.mime_type && (
-                          <span className="ml-2 text-slate-500">{selectedNode.mime_type}</span>
+                          <span className="ml-2 text-text-muted">{selectedNode.mime_type}</span>
                         )}
                       </p>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
+                      <span className="block text-xs font-medium text-text-muted dark:text-text-muted mb-1">
                         {t('tenant.instances.files.colSize')}
-                      </label>
-                      <p className="text-sm text-slate-900 dark:text-slate-100">
+                      </span>
+                      <p className="text-sm text-text-primary dark:text-text-inverse">
                         {formatFileSize(selectedNode.size)}
                       </p>
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
+                      <span className="block text-xs font-medium text-text-muted dark:text-text-muted mb-1">
                         {t('tenant.instances.files.colModified')}
-                      </label>
-                      <p className="text-sm text-slate-900 dark:text-slate-100">
+                      </span>
+                      <p className="text-sm text-text-primary dark:text-text-inverse">
                         {new Date(selectedNode.modified_at).toLocaleString()}
                       </p>
                     </div>
@@ -589,7 +566,7 @@ export const InstanceFiles: React.FC = () => {
 
                   {selectedNode.type === 'file' && (
                     <div className="flex gap-2 pt-2">
-                      <AntButton
+                      <LazyButton
                         type="primary"
                         icon={
                           <Eye size={16} />
@@ -597,21 +574,21 @@ export const InstanceFiles: React.FC = () => {
                         onClick={() => handlePreview(selectedNode)}
                       >
                         {t('tenant.instances.files.preview')}
-                      </AntButton>
-                      <AntButton
+                      </LazyButton>
+                      <LazyButton
                         icon={
                           <Download size={16} />
                         }
                         onClick={() => handleDownload(selectedNode)}
                       >
                         {t('common.download')}
-                      </AntButton>
+                      </LazyButton>
                     </div>
                   )}
                 </div>
               </>
             ) : (
-              <div className="flex flex-col items-center justify-center py-20 text-slate-500 dark:text-slate-400">
+              <div className="flex flex-col items-center justify-center py-20 text-text-muted dark:text-text-muted">
                 <FolderOpen size={16} className="text-5xl mb-3" />
                 <p>{t('tenant.instances.files.selectFile')}</p>
               </div>
@@ -636,7 +613,7 @@ export const InstanceFiles: React.FC = () => {
               <LazySpin />
             </div>
           ) : (
-            <pre className="bg-slate-100 dark:bg-slate-900 p-4 rounded-lg text-sm overflow-x-auto font-mono">
+            <pre className="bg-surface-muted dark:bg-surface-dark-alt p-4 rounded-lg text-sm overflow-x-auto font-mono">
               {previewContent}
             </pre>
           )}
@@ -663,19 +640,20 @@ export const InstanceFiles: React.FC = () => {
         <div className="space-y-4 py-2">
           {createParentPath && (
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor="create-parent-path" className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1">
                 {t('tenant.instances.files.parentFolder')}
               </label>
-              <Input value={createParentPath} disabled />
+              <Input id="create-parent-path" value={createParentPath} disabled />
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <label htmlFor="create-file-name" className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1">
               {createType === 'folder'
                 ? t('tenant.instances.files.folderName')
                 : t('tenant.instances.files.fileName')}
             </label>
             <Input
+              id="create-file-name"
               value={createName}
               onChange={(e) => {
                 setCreateName(e.target.value);

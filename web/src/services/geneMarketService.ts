@@ -118,10 +118,22 @@ export interface InstanceGeneResponse {
   id: string;
   instance_id: string;
   gene_id: string;
-  installed_version: string;
-  config_override: Record<string, unknown>;
+  genome_id: string | null;
   status: string;
-  installed_at: string;
+  installed_version: string | null;
+  config_snapshot: Record<string, unknown>;
+  usage_count: number;
+  installed_at: string | null;
+  created_at: string;
+  // Extra fields from gene details
+  gene_name?: string;
+  gene_description?: string;
+  gene_category?: string;
+}
+
+export interface InstanceGeneListResponse {
+  items: InstanceGeneResponse[];
+  total: number;
 }
 
 export interface EvolutionEventCreate {
@@ -181,6 +193,7 @@ export const geneMarketService = {
     category?: string;
     search?: string;
     visibility?: string;
+    is_published?: boolean;
   }) => httpClient.get<GeneListResponse>(BASE_URL, { params }),
 
   createGene: (data: GeneCreate) => httpClient.post<GeneResponse>(BASE_URL, data),
@@ -212,7 +225,7 @@ export const geneMarketService = {
     httpClient.delete(`${BASE_URL}/instances/${instanceId}/genes/${instanceGeneId}`),
 
   listInstanceGenes: (instanceId: string) =>
-    httpClient.get<InstanceGeneResponse[]>(`${BASE_URL}/instances/${instanceId}`),
+    httpClient.get<InstanceGeneListResponse>(`${BASE_URL}/instances/${instanceId}/genes`),
 
   listGeneRatings: (geneId: string) =>
     httpClient.get<GeneRatingResponse[]>(`${BASE_URL}/${geneId}/ratings`),

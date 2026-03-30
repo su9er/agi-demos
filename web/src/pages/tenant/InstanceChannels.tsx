@@ -1,20 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 
-import { Input, Tag, Button as AntButton, Select, InputNumber } from 'antd';
-import { AlertCircle, ArrowLeft, Link, Network, Plus, Unlink, Webhook, Plug, MessageCircle, MessageSquare, Mail } from 'lucide-react';
+import { Input, Tag, InputNumber, Table, Space } from 'antd';
+import { AlertCircle, Link, Network, Plus, Unlink, Webhook, Plug, MessageCircle, MessageSquare, Mail } from 'lucide-react';
 
 import { instanceChannelService } from '@/services/instanceChannelService';
 
 import {
   useLazyMessage,
+  LazyButton,
+  LazySelect,
   LazyPopconfirm,
   LazyEmpty,
   LazySpin,
   LazyModal,
 } from '@/components/ui/lazyAntd';
+
+import type { ColumnsType } from 'antd/es/table';
 
 const { Search } = Input;
 
@@ -34,7 +38,7 @@ interface ChannelConfig {
 type ChannelType = 'mcp' | 'webhook' | 'websocket' | 'api' | 'slack' | 'discord' | 'email';
 type ChannelStatus = 'connected' | 'disconnected' | 'error' | 'pending';
 
-const CHANNEL_TYPE_OPTIONS: { value: ChannelType; label: string; icon: any }[] = [
+const CHANNEL_TYPE_OPTIONS: { value: ChannelType; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { value: 'mcp', label: 'MCP Server', icon: Network },
   { value: 'webhook', label: 'Webhook', icon: Webhook },
   { value: 'websocket', label: 'WebSocket', icon: Link },
@@ -54,8 +58,7 @@ const STATUS_COLORS: Record<ChannelStatus, string> = {
 export const InstanceChannels: React.FC = () => {
   const { t } = useTranslation();
   const { instanceId } = useParams<{ instanceId: string }>();
-  const navigate = useNavigate();
-  const message = useLazyMessage();
+  const messageApi = useLazyMessage();
 
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -76,13 +79,12 @@ export const InstanceChannels: React.FC = () => {
     try {
       const response = await instanceChannelService.listChannels(instanceId);
       setChannels(response.items);
-    } catch (error) {
-      console.error('Failed to fetch channels:', error);
-      message?.error(t('tenant.instances.channels.fetchError'));
+    } catch {
+      messageApi?.error(t('tenant.instances.channels.fetchError'));
     } finally {
       setIsLoading(false);
     }
-  }, [instanceId, message, t]);
+  }, [instanceId, messageApi, t]);
 
   useEffect(() => {
     fetchChannels();
@@ -136,16 +138,15 @@ export const InstanceChannels: React.FC = () => {
         });
       }
 
-      message?.success(
+      messageApi?.success(
         editingChannel
           ? t('tenant.instances.channels.updateSuccess')
           : t('tenant.instances.channels.createSuccess')
       );
       handleCloseModal();
       fetchChannels();
-    } catch (error) {
-      console.error('Failed to save channel:', error);
-      message?.error(t('tenant.instances.channels.saveError'));
+    } catch {
+      messageApi?.error(t('tenant.instances.channels.saveError'));
     } finally {
       setIsSubmitting(false);
     }
@@ -155,7 +156,7 @@ export const InstanceChannels: React.FC = () => {
     formChannelType,
     formName,
     formConfig,
-    message,
+    messageApi,
     t,
     handleCloseModal,
     fetchChannels,
@@ -167,16 +168,15 @@ export const InstanceChannels: React.FC = () => {
       setIsSubmitting(true);
       try {
         await instanceChannelService.deleteChannel(instanceId, channelId);
-        message?.success(t('tenant.instances.channels.deleteSuccess'));
+        messageApi?.success(t('tenant.instances.channels.deleteSuccess'));
         fetchChannels();
-      } catch (error) {
-        console.error('Failed to delete channel:', error);
-        message?.error(t('tenant.instances.channels.deleteError'));
+      } catch {
+        messageApi?.error(t('tenant.instances.channels.deleteError'));
       } finally {
         setIsSubmitting(false);
       }
     },
-    [instanceId, message, t, fetchChannels]
+    [instanceId, messageApi, t, fetchChannels]
   );
 
   const handleTestConnection = useCallback(
@@ -185,25 +185,111 @@ export const InstanceChannels: React.FC = () => {
       setTestingChannelId(channelId);
       try {
         const result = await instanceChannelService.testConnection(instanceId, channelId);
-        message?.success(result.message || t('tenant.instances.channels.testSuccess'));
+        messageApi?.success(result.message || t('tenant.instances.channels.testSuccess'));
         fetchChannels();
-      } catch (error) {
-        console.error('Channel test failed:', error);
-        message?.error(t('tenant.instances.channels.testError'));
+      } catch {
+        messageApi?.error(t('tenant.instances.channels.testError'));
       } finally {
         setTestingChannelId(null);
       }
     },
-    [instanceId, message, t, fetchChannels]
+    [instanceId, messageApi, t, fetchChannels]
   );
 
-  const handleGoBack = useCallback(() => {
-    navigate(-1);
-  }, [navigate]);
 
   const getChannelTypeInfo = useCallback((type: ChannelType) => {
     return CHANNEL_TYPE_OPTIONS.find((o) => o.value === type) || CHANNEL_TYPE_OPTIONS[0];
   }, []);
+
+  const columns: ColumnsType<ChannelConfig> = [
+    {
+      title: t('tenant.instances.channels.colName'),
+      key: 'name',
+      ellipsis: true,
+      render: (_, channel) => {
+        const typeInfo = getChannelTypeInfo(channel.channel_type)!;
+        return (
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="shrink-0 w-10 h-10 rounded-lg bg-info-bg dark:bg-info-bg-dark flex items-center justify-center">
+              <typeInfo.icon size={16} className="text-info-dark dark:text-info-light" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-text-primary dark:text-text-inverse truncate">
+                {channel.name}
+              </p>
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      title: t('tenant.instances.channels.colType'),
+      key: 'type',
+      render: (_, channel) => {
+        const typeInfo = getChannelTypeInfo(channel.channel_type)!;
+        return <Tag>{typeInfo.label}</Tag>;
+      },
+    },
+    {
+      title: t('tenant.instances.channels.colStatus'),
+      key: 'status',
+      render: (_, channel) => (
+        <Tag color={STATUS_COLORS[channel.status]}>
+          {t(`tenant.instances.channels.status.${channel.status}`, channel.status)}
+        </Tag>
+      ),
+    },
+    {
+      title: t('tenant.instances.channels.colLastConnected'),
+      key: 'last_connected_at',
+      render: (_, channel) =>
+        channel.last_connected_at
+          ? new Date(channel.last_connected_at).toLocaleString()
+          : '-',
+    },
+    {
+      title: t('tenant.instances.channels.colActions'),
+      key: 'actions',
+      align: 'right',
+      render: (_, channel) => (
+        <Space size="small">
+          <LazyButton
+            type="link"
+            size="small"
+            onClick={() => handleTestConnection(channel.id)}
+            loading={testingChannelId === channel.id}
+            className="p-0"
+          >
+            {t('tenant.instances.channels.testConnection')}
+          </LazyButton>
+          <LazyButton
+            type="link"
+            size="small"
+            onClick={() => { handleOpenModal(channel); }}
+            className="p-0"
+          >
+            {t('common.edit')}
+          </LazyButton>
+          <LazyPopconfirm
+            title={t('tenant.instances.channels.deleteConfirm')}
+            onConfirm={() => handleDeleteChannel(channel.id)}
+            okText={t('common.confirm')}
+            cancelText={t('common.cancel')}
+          >
+            <LazyButton
+              type="link"
+              danger
+              size="small"
+              disabled={isSubmitting}
+              className="p-0"
+            >
+              {t('common.delete')}
+            </LazyButton>
+          </LazyPopconfirm>
+        </Space>
+      ),
+    },
+  ];
 
   const renderConfigFields = useCallback(() => {
     switch (formChannelType) {
@@ -211,10 +297,11 @@ export const InstanceChannels: React.FC = () => {
         return (
           <>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor="mcp-server-url" className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1">
                 {t('tenant.instances.channels.config.serverUrl')}
               </label>
               <Input
+                id="mcp-server-url"
                 value={(formConfig.server_url as string) || ''}
                 onChange={(e) => {
                   setFormConfig({ ...formConfig, server_url: e.target.value });
@@ -223,10 +310,11 @@ export const InstanceChannels: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor="mcp-timeout" className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1">
                 {t('tenant.instances.channels.config.timeout')}
               </label>
               <InputNumber
+                id="mcp-timeout"
                 value={(formConfig.timeout as number) || 30}
                 onChange={(val) => {
                   setFormConfig({ ...formConfig, timeout: val || 30 });
@@ -242,10 +330,11 @@ export const InstanceChannels: React.FC = () => {
         return (
           <>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor="webhook-url" className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1">
                 {t('tenant.instances.channels.config.url')}
               </label>
               <Input
+                id="webhook-url"
                 value={(formConfig.url as string) || ''}
                 onChange={(e) => {
                   setFormConfig({ ...formConfig, url: e.target.value });
@@ -254,10 +343,11 @@ export const InstanceChannels: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor="webhook-secret" className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1">
                 {t('tenant.instances.channels.config.secret')}
               </label>
               <Input.Password
+                id="webhook-secret"
                 value={(formConfig.secret as string) || ''}
                 onChange={(e) => {
                   setFormConfig({ ...formConfig, secret: e.target.value });
@@ -271,10 +361,11 @@ export const InstanceChannels: React.FC = () => {
         return (
           <>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor="api-base-url" className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1">
                 {t('tenant.instances.channels.config.baseUrl')}
               </label>
               <Input
+                id="api-base-url"
                 value={(formConfig.base_url as string) || ''}
                 onChange={(e) => {
                   setFormConfig({ ...formConfig, base_url: e.target.value });
@@ -283,10 +374,11 @@ export const InstanceChannels: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor="api-key" className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1">
                 {t('tenant.instances.channels.config.apiKey')}
               </label>
               <Input.Password
+                id="api-key"
                 value={(formConfig.api_key as string) || ''}
                 onChange={(e) => {
                   setFormConfig({ ...formConfig, api_key: e.target.value });
@@ -298,7 +390,7 @@ export const InstanceChannels: React.FC = () => {
         );
       default:
         return (
-          <div className="text-sm text-slate-500 dark:text-slate-400 italic">
+          <div className="text-sm text-text-muted dark:text-text-muted italic">
             {t('tenant.instances.channels.configNotAvailable')}
           </div>
         );
@@ -308,96 +400,81 @@ export const InstanceChannels: React.FC = () => {
   if (!instanceId) return null;
 
   return (
-    <div className="max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <button
-          onClick={handleGoBack}
-          type="button"
-          className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 mb-3"
-        >
-          <ArrowLeft size={16} />
-          {t('common.back')}
-        </button>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              {t('tenant.instances.channels.title')}
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {t('tenant.instances.channels.description')}
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              handleOpenModal();
-            }}
-            type="button"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            <Plus size={16} />
-            {t('tenant.instances.channels.addChannel')}
-          </button>
+    <div className="flex flex-col gap-6">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary dark:text-text-inverse">
+            {t('tenant.instances.channels.title')}
+          </h2>
+          <p className="text-sm text-text-muted">{t('tenant.instances.channels.description')}</p>
         </div>
+        <LazyButton
+          type="primary"
+          icon={<Plus size={16} />}
+          onClick={() => { handleOpenModal(); }}
+        >
+          {t('tenant.instances.channels.addChannel')}
+        </LazyButton>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-              <Network size={16} className="text-blue-600 dark:text-blue-400" />
+            <div className="p-2 bg-info-bg dark:bg-info-bg-dark rounded-lg">
+              <Network size={16} className="text-info-dark dark:text-info-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
                 {channels.length}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-text-muted dark:text-text-muted">
                 {t('tenant.instances.channels.totalChannels')}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-              <Link size={16} className="text-green-600 dark:text-green-400" />
+            <div className="p-2 bg-success-bg dark:bg-success-bg-dark rounded-lg">
+              <Link size={16} className="text-success-dark dark:text-success-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
                 {channels.filter((c) => c.status === 'connected').length}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-text-muted dark:text-text-muted">
                 {t('tenant.instances.channels.connected')}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-gray-100 dark:bg-gray-900/30 rounded-lg">
               <Unlink size={16} className="text-gray-600 dark:text-gray-400" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
                 {channels.filter((c) => c.status === 'disconnected' || c.status === 'pending').length}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-text-muted dark:text-text-muted">
                 {t('tenant.instances.channels.disconnected')}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
-              <AlertCircle size={16} className="text-red-600 dark:text-red-400" />
+            <div className="p-2 bg-error-bg dark:bg-error-bg-dark rounded-lg">
+              <AlertCircle size={16} className="text-error-dark dark:text-error-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
                 {channels.filter((c) => c.status === 'error').length}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-text-muted dark:text-text-muted">
                 {t('tenant.instances.channels.error')}
               </p>
             </div>
@@ -419,7 +496,7 @@ export const InstanceChannels: React.FC = () => {
       </div>
 
       {/* Channels Table */}
-      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <LazySpin size="large" />
@@ -429,101 +506,13 @@ export const InstanceChannels: React.FC = () => {
             <LazyEmpty description={t('tenant.instances.channels.noChannels')} />
           </div>
         ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  {t('tenant.instances.channels.colName')}
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  {t('tenant.instances.channels.colType')}
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  {t('tenant.instances.channels.colStatus')}
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  {t('tenant.instances.channels.colLastConnected')}
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  {t('tenant.instances.channels.colActions')}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-              {filteredChannels.map((channel) => {
-                const typeInfo = getChannelTypeInfo(channel.channel_type)!;
-                return (
-                  <tr
-                    key={channel.id}
-                    className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                          <typeInfo.icon size={16} className="text-blue-600 dark:text-blue-400" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                            {channel.name}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Tag>{typeInfo.label}</Tag>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Tag color={STATUS_COLORS[channel.status]}>
-                        {t(`tenant.instances.channels.status.${channel.status}`, channel.status)}
-                      </Tag>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
-                      {channel.last_connected_at
-                        ? new Date(channel.last_connected_at).toLocaleString()
-                        : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <AntButton
-                          type="link"
-                          size="small"
-                          onClick={() => handleTestConnection(channel.id)}
-                          loading={testingChannelId === channel.id}
-                          className="p-0"
-                        >
-                          {t('tenant.instances.channels.testConnection')}
-                        </AntButton>
-                        <AntButton
-                          type="link"
-                          size="small"
-                          onClick={() => {
-                            handleOpenModal(channel);
-                          }}
-                          className="p-0"
-                        >
-                          {t('common.edit')}
-                        </AntButton>
-                        <LazyPopconfirm
-                          title={t('tenant.instances.channels.deleteConfirm')}
-                          onConfirm={() => handleDeleteChannel(channel.id)}
-                          okText={t('common.confirm')}
-                          cancelText={t('common.cancel')}
-                        >
-                          <button
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
-                            type="button"
-                            disabled={isSubmitting}
-                          >
-                            {t('common.delete')}
-                          </button>
-                        </LazyPopconfirm>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <Table
+            columns={columns}
+            dataSource={filteredChannels}
+            rowKey="id"
+            pagination={false}
+            className="w-full"
+          />
         )}
       </div>
 
@@ -543,10 +532,11 @@ export const InstanceChannels: React.FC = () => {
       >
         <div className="space-y-4 py-2">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <label htmlFor="channel-name" className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1">
               {t('tenant.instances.channels.channelName')}
             </label>
             <Input
+              id="channel-name"
               value={formName}
               onChange={(e) => {
                 setFormName(e.target.value);
@@ -555,12 +545,13 @@ export const InstanceChannels: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <label htmlFor="channel-type" className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1">
               {t('tenant.instances.channels.channelType')}
             </label>
-            <Select
+            <LazySelect
+              id="channel-type"
               value={formChannelType}
-              onChange={(val) => {
+              onChange={(val: ChannelType) => {
                 setFormChannelType(val);
                 setFormConfig({});
               }}
@@ -577,8 +568,8 @@ export const InstanceChannels: React.FC = () => {
               disabled={!!editingChannel}
             />
           </div>
-          <div className="border-t border-slate-200 dark:border-slate-600 pt-4">
-            <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+          <div className="border-t border-border-light dark:border-border-separator pt-4">
+            <h4 className="text-sm font-medium text-text-secondary dark:text-text-muted-light mb-3">
               {t('tenant.instances.channels.config.title')}
             </h4>
             {renderConfigFields()}

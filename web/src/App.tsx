@@ -154,8 +154,11 @@ const WorkspaceDetail = lazy(() =>
 const InstanceList = lazy(() =>
   import('./pages/tenant/InstanceList').then((m) => ({ default: m.InstanceList }))
 );
-const InstanceDetail = lazy(() =>
-  import('./pages/tenant/InstanceDetail').then((m) => ({ default: m.InstanceDetail }))
+const InstanceLayout = lazy(() =>
+  import('./pages/tenant/InstanceLayout').then((m) => ({ default: m.InstanceLayout }))
+);
+const InstanceOverview = lazy(() =>
+  import('./pages/tenant/InstanceOverview').then((m) => ({ default: m.InstanceOverview }))
 );
 const CreateInstance = lazy(() =>
   import('./pages/tenant/CreateInstance').then((m) => ({ default: m.CreateInstance }))
@@ -617,55 +620,64 @@ function App() {
                 path="instances/:instanceId"
                 element={
                   <Suspense fallback={<PageLoader />}>
-                    <InstanceDetail />
+                    <InstanceLayout />
                   </Suspense>
                 }
-              />
+              >
+                <Route
+                  index
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceOverview />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="files"
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceFiles />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="channels"
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceChannels />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="members"
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceMembers />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="genes"
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceGenes />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="settings"
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceSettings />
+                    </Suspense>
+                  }
+                />
+              </Route>
               <Route
                 path="instances/:instanceId/deploy"
                 element={
                   <Suspense fallback={<PageLoader />}>
                     <DeployProgress />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="instances/:instanceId/members"
-                element={
-                  <Suspense fallback={<PageLoader />}>
-                    <InstanceMembers />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="instances/:instanceId/settings"
-                element={
-                  <Suspense fallback={<PageLoader />}>
-                    <InstanceSettings />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="instances/:instanceId/genes"
-                element={
-                  <Suspense fallback={<PageLoader />}>
-                    <InstanceGenes />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="instances/:instanceId/channels"
-                element={
-                  <Suspense fallback={<PageLoader />}>
-                    <InstanceChannels />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="instances/:instanceId/files"
-                element={
-                  <Suspense fallback={<PageLoader />}>
-                    <InstanceFiles />
                   </Suspense>
                 }
               />
@@ -1295,55 +1307,64 @@ function App() {
                 path=":tenantId/instances/:instanceId"
                 element={
                   <Suspense fallback={<PageLoader />}>
-                    <InstanceDetail />
+                    <InstanceLayout />
                   </Suspense>
                 }
-              />
+              >
+                <Route
+                  index
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceOverview />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="files"
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceFiles />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="channels"
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceChannels />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="members"
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceMembers />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="genes"
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceGenes />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="settings"
+                  element={
+                    <Suspense fallback={<PageLoader />}>
+                      <InstanceSettings />
+                    </Suspense>
+                  }
+                />
+              </Route>
               <Route
                 path=":tenantId/instances/:instanceId/deploy"
                 element={
                   <Suspense fallback={<PageLoader />}>
                     <DeployProgress />
-                  </Suspense>
-                }
-              />
-              <Route
-                path=":tenantId/instances/:instanceId/members"
-                element={
-                  <Suspense fallback={<PageLoader />}>
-                    <InstanceMembers />
-                  </Suspense>
-                }
-              />
-              <Route
-                path=":tenantId/instances/:instanceId/settings"
-                element={
-                  <Suspense fallback={<PageLoader />}>
-                    <InstanceSettings />
-                  </Suspense>
-                }
-              />
-              <Route
-                path=":tenantId/instances/:instanceId/genes"
-                element={
-                  <Suspense fallback={<PageLoader />}>
-                    <InstanceGenes />
-                  </Suspense>
-                }
-              />
-              <Route
-                path=":tenantId/instances/:instanceId/channels"
-                element={
-                  <Suspense fallback={<PageLoader />}>
-                    <InstanceChannels />
-                  </Suspense>
-                }
-              />
-              <Route
-                path=":tenantId/instances/:instanceId/files"
-                element={
-                  <Suspense fallback={<PageLoader />}>
-                    <InstanceFiles />
                   </Suspense>
                 }
               />

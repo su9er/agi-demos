@@ -5,21 +5,24 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import {
-  Button,
   Card,
   Tag,
-  Modal,
   Form,
   Input,
-  Select,
-  Popconfirm,
   Typography,
   Space,
-  message,
-  Spin,
-  Empty,
 } from 'antd';
 import { Copy, Upload, Trash2, Eye, Plus, Search } from 'lucide-react';
+
+import {
+  useLazyMessage,
+  LazyPopconfirm,
+  LazyEmpty,
+  LazySpin,
+  LazyModal,
+  LazyButton,
+  LazySelect,
+} from '@/components/ui/lazyAntd';
 
 import {
   useTemplates,
@@ -40,6 +43,7 @@ interface CreateFormValues {
 export const InstanceTemplateList: FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const messageApi = useLazyMessage();
 
   const templates = useTemplates();
   const isLoading = useTemplateLoading();
@@ -60,12 +64,12 @@ export const InstanceTemplateList: FC = () => {
   const [form] = Form.useForm<CreateFormValues>();
 
   useEffect(() => {
-    listTemplates().catch(() => message.error(t('tenant.templates.fetchError')));
+    listTemplates().catch(() => messageApi?.error(t('tenant.templates.fetchError')));
     return () => {
       clearError();
       reset();
     };
-  }, [listTemplates, clearError, reset, t]);
+  }, [listTemplates, clearError, reset, t, messageApi]);
 
   const filteredTemplates = useMemo(() => {
     return templates.filter((template) => {
@@ -104,14 +108,14 @@ export const InstanceTemplateList: FC = () => {
         base_config: baseConfig,
       });
 
-      message.success(t('tenant.templates.createSuccess'));
+      messageApi?.success(t('tenant.templates.createSuccess'));
       setIsCreateModalVisible(false);
       form.resetFields();
     } catch (err) {
       if (err instanceof Error && err.message.includes('Unexpected token')) {
-        message.error(t('tenant.templates.invalidJson'));
+        messageApi?.error(t('tenant.templates.invalidJson'));
       } else if (err instanceof Error) {
-        message.error(err.message);
+        messageApi?.error(err.message);
       }
     }
   };
@@ -119,11 +123,11 @@ export const InstanceTemplateList: FC = () => {
   const handleClone = async (id: string) => {
     try {
       await cloneTemplate(id);
-      message.success(t('tenant.templates.cloneSuccess'));
+      messageApi?.success(t('tenant.templates.cloneSuccess'));
       void listTemplates();
     } catch (err) {
       if (err instanceof Error) {
-        message.error(err.message);
+        messageApi?.error(err.message);
       }
     }
   };
@@ -131,11 +135,11 @@ export const InstanceTemplateList: FC = () => {
   const handlePublish = async (id: string) => {
     try {
       await publishTemplate(id);
-      message.success(t('tenant.templates.publishSuccess'));
+      messageApi?.success(t('tenant.templates.publishSuccess'));
       void listTemplates();
     } catch (err) {
       if (err instanceof Error) {
-        message.error(err.message);
+        messageApi?.error(err.message);
       }
     }
   };
@@ -143,10 +147,10 @@ export const InstanceTemplateList: FC = () => {
   const handleDelete = async (id: string) => {
     try {
       await deleteTemplate(id);
-      message.success(t('tenant.templates.deleteSuccess'));
+      messageApi?.success(t('tenant.templates.deleteSuccess'));
     } catch (err) {
       if (err instanceof Error) {
-        message.error(err.message);
+        messageApi?.error(err.message);
       }
     }
   };
@@ -164,7 +168,7 @@ export const InstanceTemplateList: FC = () => {
           </Title>
           <Text type="secondary">{t('tenant.templates.subtitle')}</Text>
         </Space>
-        <Button
+        <LazyButton
           type="primary"
           icon={<Plus className="w-4 h-4" />}
           onClick={() => {
@@ -172,13 +176,13 @@ export const InstanceTemplateList: FC = () => {
           }}
         >
           {t('tenant.templates.createTemplate')}
-        </Button>
+        </LazyButton>
       </div>
 
-      <div className="flex items-center gap-4 bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
+      <div className="flex items-center gap-4 bg-surface-light dark:bg-surface-dark p-4 rounded-lg border border-border-light dark:border-border-dark">
         <Input
           placeholder={t('tenant.templates.searchPlaceholder')}
-          prefix={<Search className="w-4 h-4 text-slate-400" />}
+          prefix={<Search className="w-4 h-4 text-text-muted" />}
           value={searchText}
           onChange={(e) => {
             setSearchText(e.target.value);
@@ -186,7 +190,7 @@ export const InstanceTemplateList: FC = () => {
           className="max-w-md"
           allowClear
         />
-        <Select
+        <LazySelect
           value={statusFilter}
           onChange={setStatusFilter}
           options={[
@@ -200,54 +204,58 @@ export const InstanceTemplateList: FC = () => {
 
       {isLoading && templates.length === 0 ? (
         <div className="flex justify-center items-center h-64">
-          <Spin size="large" />
+          <LazySpin size="large" />
         </div>
       ) : filteredTemplates.length === 0 ? (
-        <div className="bg-white dark:bg-slate-800 p-12 rounded-lg border border-slate-200 dark:border-slate-700">
-          <Empty description={t('tenant.templates.empty')} />
+        <div className="bg-surface-light dark:bg-surface-dark p-12 rounded-lg border border-border-light dark:border-border-dark">
+          <LazyEmpty description={t('tenant.templates.empty')} />
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredTemplates.map((template) => (
             <Card
               key={template.id}
-              className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-primary-300 dark:hover:border-primary-600 transition-colors flex flex-col h-full"
-              bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+              className="bg-surface-light dark:bg-surface-dark rounded-lg border border-border-light dark:border-border-dark hover:border-primary-300 dark:hover:border-primary-600 transition-colors flex flex-col h-full"
+              styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column' } }}
               actions={[
-                <Button
+                <LazyButton
                   key="view"
                   type="text"
                   icon={<Eye className="w-4 h-4" />}
+                  aria-label={t('common.view', 'View')}
+                  disabled={isSubmitting}
                   onClick={() => {
                     handleViewDetail(template.id);
                   }}
                 />,
-                <Button
+                <LazyButton
                   key="clone"
                   type="text"
                   icon={<Copy className="w-4 h-4" />}
+                  aria-label={t('common.clone', 'Clone')}
+                  disabled={isSubmitting}
                   onClick={() => {
                     void handleClone(template.id);
                   }}
                 />,
                 !template.is_published ? (
-                  <Popconfirm
+                  <LazyPopconfirm
                     key="publish"
                     title={t('tenant.templates.publishConfirm')}
                     onConfirm={() => handlePublish(template.id)}
                   >
-                    <Button type="text" icon={<Upload className="w-4 h-4" />} />
-                  </Popconfirm>
+                    <LazyButton type="text" icon={<Upload className="w-4 h-4" />} aria-label={t('common.publish', 'Publish')} disabled={isSubmitting} />
+                  </LazyPopconfirm>
                 ) : (
                   <span key="empty"></span>
                 ),
-                <Popconfirm
+                <LazyPopconfirm
                   key="delete"
                   title={t('tenant.templates.deleteConfirm')}
                   onConfirm={() => handleDelete(template.id)}
                 >
-                  <Button type="text" danger icon={<Trash2 className="w-4 h-4" />} />
-                </Popconfirm>,
+                  <LazyButton type="text" danger icon={<Trash2 className="w-4 h-4" />} aria-label={t('common.delete', 'Delete')} disabled={isSubmitting} />
+                </LazyPopconfirm>,
               ]}
             >
               <div className="flex justify-between items-start mb-2">
@@ -262,7 +270,7 @@ export const InstanceTemplateList: FC = () => {
               </div>
 
               <Paragraph
-                className="text-slate-500 dark:text-slate-400 flex-1 overflow-hidden"
+                className="text-text-muted dark:text-text-muted flex-1 overflow-hidden"
                 ellipsis={{ rows: 2 }}
               >
                 {template.description || t('tenant.templates.noDescription')}
@@ -279,7 +287,7 @@ export const InstanceTemplateList: FC = () => {
                   </div>
                 )}
 
-                <div className="flex justify-between items-center text-xs text-slate-400">
+                <div className="flex justify-between items-center text-xs text-text-muted">
                   <span className="flex items-center gap-1">
                     <Copy className="w-3 h-3" /> {template.clone_count || 0}
                   </span>
@@ -291,7 +299,7 @@ export const InstanceTemplateList: FC = () => {
         </div>
       )}
 
-      <Modal
+      <LazyModal
         title={t('tenant.templates.createTemplate')}
         open={isCreateModalVisible}
         onOk={handleCreateSubmit}
@@ -326,7 +334,7 @@ export const InstanceTemplateList: FC = () => {
             <Input.TextArea rows={4} placeholder='{"key": "value"}' className="font-mono text-sm" />
           </Form.Item>
         </Form>
-      </Modal>
+      </LazyModal>
     </div>
   );
 };

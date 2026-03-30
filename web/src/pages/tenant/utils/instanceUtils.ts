@@ -1,0 +1,38 @@
+export const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'provisioning':
+    case 'pending':
+      return 'blue';
+    case 'running':
+    case 'success':
+      return 'green';
+    case 'in_progress':
+      return 'orange';
+    case 'stopped':
+      return 'default';
+    case 'error':
+    case 'failed':
+      return 'red';
+    case 'terminated':
+    case 'cancelled':
+      return 'gray';
+    default:
+      return 'default';
+  }
+};
+
+export const formatDate = (dateString: string | Date | undefined | null) => {
+  if (!dateString) return '-';
+  try {
+    return new Date(dateString).toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  } catch (e) {
+    return String(dateString);
+  }
+};

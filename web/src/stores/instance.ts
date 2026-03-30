@@ -311,7 +311,7 @@ export const useInstanceStore = create<InstanceState>()(
         try {
           await instanceService.removeMember(id, memberId);
           const { members } = get();
-          set({ members: members.filter((m) => m.id !== memberId), isSubmitting: false });
+          set({ members: members.filter((m) => m.user_id !== memberId), isSubmitting: false });
         } catch (error: unknown) {
           set({ error: getErrorMessage(error, 'Failed to remove member'), isSubmitting: false });
           throw error;

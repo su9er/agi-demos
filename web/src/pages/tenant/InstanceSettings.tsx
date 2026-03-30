@@ -9,14 +9,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { Input, Select } from 'antd';
+import { Input } from 'antd';
 import { Loader2, Trash2 } from 'lucide-react';
 
 import { providerAPI } from '@/services/api';
 import { instanceService } from '@/services/instanceService';
 import type { InstanceLlmConfigUpdate } from '@/services/instanceService';
 
-import { useLazyMessage, LazyPopconfirm, LazySpin } from '@/components/ui/lazyAntd';
+import { useLazyMessage, LazyPopconfirm, LazySpin, LazyButton, LazySelect } from '@/components/ui/lazyAntd';
 
 import {
   useCurrentInstance,
@@ -72,8 +72,8 @@ export const InstanceSettings: React.FC = () => {
             setIsDirty(false);
           }
         })
-        .catch(() => {
-          /* handled by store */
+        .catch((err) => {
+          console.error('Failed to get instance details:', err);
         });
     }
   }, [instanceId, getInstance, setCurrentInstance]);
@@ -95,7 +95,9 @@ export const InstanceSettings: React.FC = () => {
     providerAPI
       .list({ include_inactive: false })
       .then(setProviders)
-      .catch(() => {});
+      .catch((err) => {
+        console.error('Failed to list providers:', err);
+      });
   }, []);
 
   useEffect(() => {
@@ -109,7 +111,8 @@ export const InstanceSettings: React.FC = () => {
         setHasApiKeyOverride(cfg.has_api_key_override);
         setLlmApiKeyOverride('');
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('Failed to get LLM config:', err);
         message?.error(t('tenant.instances.settings.llmConfigLoadError'));
       })
       .finally(() => {
@@ -129,7 +132,8 @@ export const InstanceSettings: React.FC = () => {
       .then((res) => {
         setAvailableModels(res.models.chat);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('Failed to list models:', err);
         setAvailableModels([]);
       });
   }, [llmProviderId, providers]);
@@ -150,8 +154,8 @@ export const InstanceSettings: React.FC = () => {
       await updateInstance(instanceId, { name, description });
       message?.success(t('tenant.instances.settings.updateSuccess'));
       setIsDirty(false);
-    } catch {
-      // handled by store
+    } catch (err) {
+      console.error('Failed to update instance:', err);
     }
   }, [instanceId, isDirty, name, description, updateInstance, message, t]);
 
@@ -160,9 +164,9 @@ export const InstanceSettings: React.FC = () => {
     try {
       await deleteInstance(instanceId);
       message?.success(t('tenant.instances.settings.deleteSuccess'));
-      navigate('../..', { relative: 'path' });
-    } catch {
-      // handled by store
+      navigate('../..');
+    } catch (err) {
+      console.error('Failed to delete instance:', err);
     }
   }, [instanceId, deleteInstance, message, t, navigate]);
 
@@ -184,7 +188,8 @@ export const InstanceSettings: React.FC = () => {
       setHasApiKeyOverride(result.has_api_key_override);
       setLlmApiKeyOverride('');
       message?.success(t('tenant.instances.settings.llmConfigUpdateSuccess'));
-    } catch {
+    } catch (err) {
+      console.error('Failed to update LLM config:', err);
       message?.error(t('common.error'));
     } finally {
       setLlmConfigSaving(false);
@@ -202,24 +207,16 @@ export const InstanceSettings: React.FC = () => {
   if (!detail) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-slate-500">{t('common.notFound')}</p>
+        <p className="text-text-muted">{t('common.notFound')}</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto w-full flex flex-col gap-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-          {t('tenant.instances.settings.title')}
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">{t('tenant.instances.settings.description')}</p>
-      </div>
-
+    <div className="max-w-4xl mx-auto w-full flex flex-col gap-6">
       {/* General Settings */}
-      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-6">
+      <div className="bg-surface-light dark:bg-surface-dark rounded-lg border border-border-light dark:border-border-dark p-6">
+        <h2 className="text-lg font-semibold text-text-primary dark:text-text-inverse mb-6">
           {t('tenant.instances.settings.generalSettings')}
         </h2>
 
@@ -227,7 +224,7 @@ export const InstanceSettings: React.FC = () => {
           <div>
             <label
               htmlFor="instance-name"
-              className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+              className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1"
             >
               {t('tenant.instances.create.basic.name')}
             </label>
@@ -243,7 +240,7 @@ export const InstanceSettings: React.FC = () => {
           <div>
             <label
               htmlFor="instance-description"
-              className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+              className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1"
             >
               {t('tenant.instances.settings.descriptionLabel')}
             </label>
@@ -259,27 +256,24 @@ export const InstanceSettings: React.FC = () => {
           </div>
 
           <div className="flex justify-end">
-            <button
-              type="button"
+            <LazyButton
+              type="primary"
               onClick={handleSave}
               disabled={!isDirty || isSubmitting}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              icon={isSubmitting ? <Loader2 size={16} className="animate-spin" /> : undefined}
             >
-              {isSubmitting && (
-                <Loader2 size={16} className="animate-spin" />
-              )}
               {t('common.save')}
-            </button>
+            </LazyButton>
           </div>
         </div>
       </div>
 
       {/* LLM Configuration */}
-      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+      <div className="bg-surface-light dark:bg-surface-dark rounded-lg border border-border-light dark:border-border-dark p-6">
+        <h2 className="text-lg font-semibold text-text-primary dark:text-text-inverse mb-1">
           {t('tenant.instances.settings.llmConfig')}
         </h2>
-        <p className="text-sm text-slate-500 mb-6">
+        <p className="text-sm text-text-muted mb-6">
           {t('tenant.instances.settings.llmConfigDescription')}
         </p>
 
@@ -292,11 +286,11 @@ export const InstanceSettings: React.FC = () => {
             <div>
               <label
                 htmlFor="llm-provider"
-                className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1"
               >
                 {t('tenant.instances.settings.llmProvider')}
               </label>
-              <Select
+              <LazySelect
                 id="llm-provider"
                 className="w-full"
                 value={llmProviderId ?? null}
@@ -313,11 +307,11 @@ export const InstanceSettings: React.FC = () => {
             <div>
               <label
                 htmlFor="llm-model"
-                className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1"
               >
                 {t('tenant.instances.settings.llmModel')}
               </label>
-              <Select
+              <LazySelect
                 id="llm-model"
                 className="w-full"
                 value={llmModelName}
@@ -335,7 +329,7 @@ export const InstanceSettings: React.FC = () => {
             <div>
               <label
                 htmlFor="llm-api-key"
-                className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1"
               >
                 {t('tenant.instances.settings.llmApiKeyOverride')}
               </label>
@@ -347,48 +341,45 @@ export const InstanceSettings: React.FC = () => {
                 }}
                 placeholder={t('tenant.instances.settings.llmApiKeyOverridePlaceholder')}
               />
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-text-muted mt-1">
                 {t('tenant.instances.settings.llmApiKeyOverrideHint')}
               </p>
               {hasApiKeyOverride && (
-                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                <p className="text-xs text-success-dark dark:text-success-light mt-1">
                   {t('tenant.instances.settings.llmApiKeySet')}
                 </p>
               )}
             </div>
 
             <div className="flex justify-end">
-              <button
-                type="button"
+              <LazyButton
+                type="primary"
                 onClick={handleLlmConfigSave}
                 disabled={llmConfigSaving}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                icon={llmConfigSaving ? <Loader2 size={16} className="animate-spin" /> : undefined}
               >
-                {llmConfigSaving && (
-                  <Loader2 size={16} className="animate-spin" />
-                )}
                 {t('common.save')}
-              </button>
+              </LazyButton>
             </div>
           </div>
         )}
       </div>
 
       {/* Danger Zone */}
-      <div className="bg-white dark:bg-slate-800 rounded-lg border border-red-200 dark:border-red-900/50 p-6">
-        <h2 className="text-lg font-semibold text-red-600 dark:text-red-400 mb-2">
+      <div className="bg-surface-light dark:bg-surface-dark rounded-lg border border-error dark:border-error/50 p-6">
+        <h2 className="text-lg font-semibold text-error-dark dark:text-error-light mb-2">
           {t('tenant.instances.settings.dangerZone')}
         </h2>
-        <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+        <p className="text-sm text-text-secondary dark:text-text-muted mb-4">
           {t('tenant.instances.settings.dangerZoneDescription')}
         </p>
 
-        <div className="flex items-center justify-between p-4 border border-red-200 dark:border-red-900/50 rounded-lg">
+        <div className="flex items-center justify-between p-4 border border-error dark:border-error/50 rounded-lg">
           <div>
-            <p className="text-sm font-medium text-slate-900 dark:text-white">
+            <p className="text-sm font-medium text-text-primary dark:text-text-inverse">
               {t('tenant.instances.settings.deleteInstance')}
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-text-muted dark:text-text-muted mt-0.5">
               {t('tenant.instances.settings.deleteInstanceDescription')}
             </p>
           </div>
@@ -399,14 +390,14 @@ export const InstanceSettings: React.FC = () => {
             cancelText={t('common.cancel')}
             okButtonProps={{ danger: true }}
           >
-            <button
-              type="button"
+            <LazyButton
+              type="primary"
+              danger
               disabled={isSubmitting}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50"
+              icon={<Trash2 size={16} />}
             >
-              <Trash2 size={16} />
               {t('common.delete')}
-            </button>
+            </LazyButton>
           </LazyPopconfirm>
         </div>
       </div>

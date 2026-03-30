@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 
-import { Input } from 'antd';
-import { ArrowLeft, CheckCircle, Eye, Shield, UserMinus, UserPlus, Users } from 'lucide-react';
+import { Input, Table } from 'antd';
+import { CheckCircle, Eye, Shield, UserPlus, Users } from 'lucide-react';
 
 import {
   useLazyMessage,
+  LazyButton,
   LazyPopconfirm,
   LazySelect,
   LazyEmpty,
@@ -24,6 +25,7 @@ import {
 } from '../../stores/instance';
 
 import type { InstanceMemberResponse, UserSearchResult } from '../../services/instanceService';
+import type { ColumnsType } from 'antd/es/table';
 
 const { Search } = Input;
 
@@ -37,7 +39,6 @@ const ROLE_OPTIONS = [
 export const InstanceMembers: React.FC = () => {
   const { t } = useTranslation();
   const { instanceId } = useParams<{ instanceId: string }>();
-  const navigate = useNavigate();
   const message = useLazyMessage();
 
   const members = useInstanceMembers();
@@ -84,8 +85,8 @@ export const InstanceMembers: React.FC = () => {
       try {
         const results = await searchUsers(instanceId, userSearchQuery);
         setUserSearchResults(results);
-      } catch {
-        // Error handled by store
+      } catch (err) {
+        console.error('Failed to search users:', err);
       } finally {
         setIsSearching(false);
       }
@@ -106,14 +107,83 @@ export const InstanceMembers: React.FC = () => {
     );
   }, [members, search]);
 
+  const columns: ColumnsType<InstanceMemberResponse> = [
+    {
+      title: t('tenant.instances.members.colUser'),
+      key: 'user',
+      ellipsis: true,
+      render: (_, member) => (
+        <div className="flex items-center gap-3 overflow-hidden">
+          <div className="shrink-0 w-8 h-8 rounded-full bg-surface-alt dark:bg-surface-elevated flex items-center justify-center text-sm font-medium text-text-secondary dark:text-text-muted-light">
+            {(member.user_name ?? member.user_email ?? member.user_id)
+              .charAt(0)
+              .toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-text-primary dark:text-text-inverse truncate">
+              {member.user_name ?? member.user_id}
+            </p>
+            {member.user_email && (
+              <p className="text-xs text-text-muted dark:text-text-muted truncate">
+                {member.user_email}
+              </p>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: t('tenant.instances.members.colRole'),
+      key: 'role',
+      render: (_, member) => (
+        <LazySelect
+          value={member.role}
+          onChange={(val: string) => handleRoleChange(member, val)}
+          options={ROLE_OPTIONS}
+          size="small"
+          className="w-28"
+          disabled={isSubmitting}
+        />
+      ),
+    },
+    {
+      title: t('tenant.instances.members.colJoined'),
+      key: 'joined',
+      render: (_, member) => new Date(member.created_at).toLocaleDateString(),
+    },
+    {
+      title: t('common.actions'),
+      key: 'actions',
+      align: 'right',
+      render: (_, member) => (
+        <LazyPopconfirm
+          title={t('tenant.instances.members.removeConfirm')}
+          onConfirm={() => handleRemove(member)}
+          okText={t('common.confirm')}
+          cancelText={t('common.cancel')}
+        >
+          <LazyButton
+            type="link"
+            danger
+            size="small"
+            disabled={isSubmitting}
+            className="p-0"
+          >
+            {t('common.remove')}
+          </LazyButton>
+        </LazyPopconfirm>
+      ),
+    },
+  ];
+
   const handleRoleChange = useCallback(
     async (member: InstanceMemberResponse, newRole: string) => {
       if (!instanceId) return;
       try {
         await updateMemberRole(instanceId, member.user_id, { role: newRole });
         message?.success(t('tenant.instances.members.roleUpdated'));
-      } catch {
-        // Error handled by store
+      } catch (err) {
+        console.error('Failed to update member role:', err);
       }
     },
     [instanceId, updateMemberRole, message, t]
@@ -125,8 +195,8 @@ export const InstanceMembers: React.FC = () => {
       try {
         await removeMember(instanceId, member.user_id);
         message?.success(t('tenant.instances.members.removeSuccess'));
-      } catch {
-        // Error handled by store
+      } catch (err) {
+        console.error('Failed to remove member:', err);
       }
     },
     [instanceId, removeMember, message, t]
@@ -146,93 +216,77 @@ export const InstanceMembers: React.FC = () => {
       setSelectedRole('user');
       setUserSearchQuery('');
       setUserSearchResults([]);
-    } catch {
-      // Error handled by store
+    } catch (err) {
+      console.error('Failed to add member:', err);
     }
   }, [instanceId, selectedUserId, selectedRole, addMember, message, t]);
 
-  const handleGoBack = useCallback(() => {
-    navigate(-1);
-  }, [navigate]);
 
   if (!instanceId) return null;
 
   return (
-    <div className="max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <button
-          onClick={handleGoBack}
-          type="button"
-          className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 mb-3"
-        >
-          <ArrowLeft size={16} />
-          {t('common.back')}
-        </button>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              {t('tenant.instances.members.title')}
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {t('tenant.instances.members.description')}
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              setIsAddModalOpen(true);
-            }}
-            type="button"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            <UserPlus size={16} />
-            {t('tenant.instances.members.addMember')}
-          </button>
+    <div className="flex flex-col gap-6">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary dark:text-text-inverse">
+            {t('tenant.instances.members.title')}
+          </h2>
+          <p className="text-sm text-text-muted">{t('tenant.instances.members.description')}</p>
         </div>
+        <LazyButton
+          type="primary"
+          icon={<UserPlus size={16} />}
+          onClick={() => {
+            setIsAddModalOpen(true);
+          }}
+        >
+          {t('tenant.instances.members.addMember')}
+        </LazyButton>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-              <Users size={16} className="text-blue-600 dark:text-blue-400" />
+            <div className="p-2 bg-info-bg dark:bg-info-bg-dark rounded-lg">
+              <Users size={16} className="text-info-dark dark:text-info-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
                 {members.length}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-text-muted dark:text-text-muted">
                 {t('tenant.instances.members.totalMembers')}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-              <Shield size={16} className="text-purple-600 dark:text-purple-400" />
+            <div className="p-2 bg-purple-bg dark:bg-purple-bg-dark rounded-lg">
+              <Shield size={16} className="text-purple-dark dark:text-purple-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
                 {members.filter((m) => m.role === 'admin').length}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-text-muted dark:text-text-muted">
                 {t('tenant.instances.members.admins')}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-              <Eye size={16} className="text-green-600 dark:text-green-400" />
+            <div className="p-2 bg-success-bg dark:bg-success-bg-dark rounded-lg">
+              <Eye size={16} className="text-success-dark dark:text-success-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
                 {members.filter((m) => m.role === 'viewer').length}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-text-muted dark:text-text-muted">
                 {t('tenant.instances.members.viewers')}
               </p>
             </div>
@@ -254,7 +308,7 @@ export const InstanceMembers: React.FC = () => {
       </div>
 
       {/* Members Table */}
-      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <LazySpin size="large" />
@@ -264,84 +318,13 @@ export const InstanceMembers: React.FC = () => {
             <LazyEmpty description={t('tenant.instances.members.noMembers')} />
           </div>
         ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  {t('tenant.instances.members.colUser')}
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  {t('tenant.instances.members.colRole')}
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  {t('tenant.instances.members.colJoined')}
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  {t('common.actions')}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-              {filteredMembers.map((member) => {
-                return (
-                  <tr
-                    key={member.id}
-                    className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center text-sm font-medium text-slate-600 dark:text-slate-300">
-                          {(member.user_name ?? member.user_email ?? member.user_id)
-                            .charAt(0)
-                            .toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                            {member.user_name ?? member.user_id}
-                          </p>
-                          {member.user_email && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                              {member.user_email}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <LazySelect
-                        value={member.role}
-                        onChange={(val: string) => handleRoleChange(member, val)}
-                        options={ROLE_OPTIONS}
-                        size="small"
-                        className="w-28"
-                        disabled={isSubmitting}
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
-                      {new Date(member.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <LazyPopconfirm
-                        title={t('tenant.instances.members.removeConfirm')}
-                        onConfirm={() => handleRemove(member)}
-                        okText={t('common.confirm')}
-                        cancelText={t('common.cancel')}
-                      >
-                        <button
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
-                          type="button"
-                          disabled={isSubmitting}
-                        >
-                          <UserMinus size={16} />
-                          {t('common.remove')}
-                        </button>
-                      </LazyPopconfirm>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <Table
+            columns={columns}
+            dataSource={filteredMembers}
+            rowKey="id"
+            pagination={false}
+            className="w-full"
+          />
         )}
       </div>
 
@@ -364,7 +347,7 @@ export const InstanceMembers: React.FC = () => {
           <div>
             <label
               htmlFor="user-search-input"
-              className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+              className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1"
             >
               {t('tenant.instances.members.searchUser')}
             </label>
@@ -379,31 +362,32 @@ export const InstanceMembers: React.FC = () => {
               allowClear
             />
             {userSearchResults.length > 0 && (
-              <div className="mt-2 border border-slate-200 dark:border-slate-600 rounded-lg max-h-48 overflow-y-auto">
+              <div className="mt-2 border border-border-light dark:border-border-separator rounded-lg max-h-48 overflow-y-auto">
                 {userSearchResults.map((user) => (
-                  <button
+                  <LazyButton
                     key={user.user_id}
-                    type="button"
+                    type="text"
+                    block
                     onClick={() => {
                       setSelectedUserId(user.user_id);
                     }}
-                    className={`w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors ${
-                      selectedUserId === user.user_id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                    className={`w-full text-left px-3 py-2 hover:bg-surface-alt dark:hover:bg-surface-elevated flex items-center gap-2 transition-colors h-auto rounded-none border-0 ${
+                      selectedUserId === user.user_id ? 'bg-info-bg dark:bg-info-bg-dark' : ''
                     }`}
                   >
-                    <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center text-xs font-medium">
+                    <div className="w-7 h-7 rounded-full bg-surface-alt dark:bg-surface-elevated flex items-center justify-center text-xs font-medium">
                       {(user.name || user.email).charAt(0).toUpperCase()}
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-medium text-text-primary dark:text-text-inverse">
                         {user.name || user.email}
                       </p>
-                      <p className="text-xs text-slate-500">{user.email}</p>
+                      <p className="text-xs text-text-muted">{user.email}</p>
                     </div>
                     {selectedUserId === user.user_id && (
-                      <CheckCircle size={16} className="text-blue-600 ml-auto" />
+                      <CheckCircle size={16} className="text-info-dark ml-auto" />
                     )}
-                  </button>
+                  </LazyButton>
                 ))}
               </div>
             )}
@@ -411,7 +395,7 @@ export const InstanceMembers: React.FC = () => {
           <div>
             <label
               htmlFor="member-role-select"
-              className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+              className="block text-sm font-medium text-text-secondary dark:text-text-muted-light mb-1"
             >
               {t('tenant.instances.members.colRole')}
             </label>

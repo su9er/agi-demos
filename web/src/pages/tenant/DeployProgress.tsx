@@ -3,7 +3,11 @@ import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate } from 'react-router-dom';
 
-import { Timeline, Button, Badge, Card, Typography, Spin, Alert, Collapse, Space } from 'antd';
+import { Timeline, Badge, Card, Typography, Alert, Collapse, Space } from 'antd';
+
+import { API_BASE_URL } from '@/services/client/httpClient';
+
+import { LazyButton, LazySpin, LazyEmpty, LazyPopconfirm, useLazyMessage } from '@/components/ui/lazyAntd';
 
 import { useAuthStore } from '../../stores/auth';
 import {
@@ -14,29 +18,15 @@ import {
   useDeployActions,
 } from '../../stores/deploy';
 
-const { Title, Text, Paragraph } = Typography;
+import { getStatusColor, formatDate } from './utils/instanceUtils';
 
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case 'pending':
-      return 'blue';
-    case 'in_progress':
-      return 'orange';
-    case 'success':
-      return 'green';
-    case 'failed':
-      return 'red';
-    case 'cancelled':
-      return 'gray';
-    default:
-      return 'default';
-  }
-};
+const { Title, Text, Paragraph } = Typography;
 
 export const DeployProgress: React.FC = () => {
   const { t } = useTranslation();
   const { instanceId, deployId } = useParams();
   const navigate = useNavigate();
+  const messageApi = useLazyMessage();
 
   const deploys = useDeploys();
   const currentDeploy = useCurrentDeploy();
@@ -47,11 +37,17 @@ export const DeployProgress: React.FC = () => {
 
   useEffect(() => {
     if (deployId) {
-      getDeploy(deployId).catch(() => {});
+      getDeploy(deployId).catch((err) => {
+        console.error('Failed to get deploy:', err);
+        messageApi?.error(t('tenant.deploy.errors.getFailed', 'Failed to fetch deploy details'));
+      });
     } else if (instanceId) {
-      listDeploys({ instance_id: instanceId }).catch(() => {});
+      listDeploys({ instance_id: instanceId }).catch((err) => {
+        console.error('Failed to list deploys:', err);
+        messageApi?.error(t('tenant.deploy.errors.listFailed', 'Failed to fetch deploy history'));
+      });
     }
-  }, [instanceId, deployId, getDeploy, listDeploys]);
+  }, [instanceId, deployId, getDeploy, listDeploys, messageApi, t]);
 
   useEffect(() => {
     if (
@@ -65,24 +61,31 @@ export const DeployProgress: React.FC = () => {
     const token = useAuthStore.getState().token;
     if (!token) return;
 
-    const es = new EventSource(`/api/v1/deploys/${deployId}/progress?token=${token}`);
+    // TODO: Security - EventSource doesn't support custom headers, so token is in URL.
+    // Replace with a short-lived ticket endpoint to prevent token leakage in logs/history.
+    const es = new EventSource(`${API_BASE_URL}/deploys/${deployId}/progress?token=${token}`);
 
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data as string) as { type: string };
         if (data.type === 'status') {
-          getDeploy(deployId).catch(() => {});
+          getDeploy(deployId).catch((err) => {
+            console.error('Failed to get deploy status update:', err);
+          });
         }
         if (data.type === 'done') {
-          getDeploy(deployId).catch(() => {});
+          getDeploy(deployId).catch((err) => {
+            console.error('Failed to get final deploy status:', err);
+          });
           es.close();
         }
-      } catch {
-        /* empty */
+      } catch (err) {
+        console.error('Failed to parse SSE message:', err);
       }
     };
 
-    es.onerror = () => {
+    es.onerror = (err) => {
+      console.error('EventSource connection error:', err);
       es.close();
     };
 
@@ -97,13 +100,16 @@ export const DeployProgress: React.FC = () => {
       .then((res) => {
         navigate(`../deploy/${res.id}`);
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error('Failed to create deploy:', err);
+        messageApi?.error(t('tenant.deploy.errors.createFailed', 'Failed to create new deploy'));
+      });
   };
 
   if (loading && !deploys.length && !currentDeploy) {
     return (
       <div className="flex justify-center p-12">
-        <Spin size="large" />
+        <LazySpin size="large" />
       </div>
     );
   }
@@ -119,7 +125,7 @@ export const DeployProgress: React.FC = () => {
           <>
             <Text strong>{t('tenant.deploy.states.created', 'Created')}</Text>
             <br />
-            <Text type="secondary">{new Date(currentDeploy.created_at).toLocaleString()}</Text>
+            <Text type="secondary">{formatDate(currentDeploy.created_at)}</Text>
           </>
         ),
       },
@@ -131,7 +137,7 @@ export const DeployProgress: React.FC = () => {
             {currentDeploy.started_at && (
               <>
                 <br />
-                <Text type="secondary">{new Date(currentDeploy.started_at).toLocaleString()}</Text>
+                <Text type="secondary">{formatDate(currentDeploy.started_at)}</Text>
               </>
             )}
           </>
@@ -156,7 +162,7 @@ export const DeployProgress: React.FC = () => {
               <>
                 <br />
                 <Text type="secondary">
-                  {new Date(currentDeploy.completed_at).toLocaleString()}
+                  {formatDate(currentDeploy.completed_at)}
                 </Text>
               </>
             )}
@@ -171,7 +177,7 @@ export const DeployProgress: React.FC = () => {
     return (
       <div className="max-w-4xl mx-auto w-full flex flex-col gap-8">
         <div className="flex items-center gap-4">
-          <Button onClick={() => navigate(-1)}>{t('tenant.deploy.actions.back', 'Back')}</Button>
+          <LazyButton onClick={() => navigate(-1)}>{t('tenant.deploy.actions.back', 'Back')}</LazyButton>
           <Title level={3} className="!mb-0">
             {t('tenant.deploy.detailTitle', 'Deployment Detail')}
           </Title>
@@ -184,7 +190,7 @@ export const DeployProgress: React.FC = () => {
 
         {error && <Alert type="error" message={error} />}
 
-        <Card className="bg-white dark:bg-slate-800 rounded-lg p-6 border border-slate-200 dark:border-slate-700">
+        <Card className="bg-surface-light dark:bg-surface-dark rounded-lg p-6 border border-border-light dark:border-border-dark">
           <div className="grid grid-cols-2 gap-8 mb-8">
             <div>
               <Text type="secondary">{t('tenant.deploy.fields.id', 'ID')}</Text>
@@ -207,7 +213,7 @@ export const DeployProgress: React.FC = () => {
                 key: 'config',
                 label: t('tenant.deploy.fields.config', 'Configuration Snapshot'),
                 children: (
-                  <pre className="bg-slate-50 dark:bg-slate-900 p-4 rounded overflow-auto text-xs">
+                  <pre className="bg-surface-alt dark:bg-surface-dark-alt p-4 rounded overflow-auto text-xs">
                     {JSON.stringify(currentDeploy.config_snapshot, null, 2)}
                   </pre>
                 ),
@@ -215,22 +221,52 @@ export const DeployProgress: React.FC = () => {
             ]}
           />
 
-          <div className="mt-8 pt-4 border-t border-slate-200 dark:border-slate-700 flex gap-4">
+          <div className="mt-8 pt-4 border-t border-border-light dark:border-border-dark flex gap-4">
             {currentDeploy.status === 'in_progress' && (
-              <Button danger onClick={() => cancelDeploy(currentDeploy.id).catch(() => {})}>
-                {t('tenant.deploy.actions.cancel', 'Cancel Deploy')}
-              </Button>
+              <LazyPopconfirm
+                title={t('tenant.deploy.actions.cancelConfirm', 'Are you sure you want to cancel this deploy?')}
+                okText={t('common.actions.yes', 'Yes')}
+                cancelText={t('common.actions.no', 'No')}
+                onConfirm={() => cancelDeploy(currentDeploy.id).catch((err) => {
+                  console.error('Failed to cancel deploy:', err);
+                  messageApi?.error(t('tenant.deploy.errors.cancelFailed', 'Failed to cancel deploy'));
+                })}
+              >
+                <LazyButton danger>
+                  {t('tenant.deploy.actions.cancel', 'Cancel Deploy')}
+                </LazyButton>
+              </LazyPopconfirm>
             )}
             <Space className="ml-auto">
               {currentDeploy.status !== 'success' && (
-                <Button onClick={() => markSuccess(currentDeploy.id).catch(() => {})}>
-                  {t('tenant.deploy.actions.markSuccess', 'Mark Success')}
-                </Button>
+                <LazyPopconfirm
+                  title={t('tenant.deploy.actions.markSuccessConfirm', 'Are you sure you want to mark this deploy as success?')}
+                  okText={t('common.actions.yes', 'Yes')}
+                  cancelText={t('common.actions.no', 'No')}
+                  onConfirm={() => markSuccess(currentDeploy.id).catch((err) => {
+                    console.error('Failed to mark deploy as success:', err);
+                    messageApi?.error(t('tenant.deploy.errors.markSuccessFailed', 'Failed to update deploy status'));
+                  })}
+                >
+                  <LazyButton>
+                    {t('tenant.deploy.actions.markSuccess', 'Mark Success')}
+                  </LazyButton>
+                </LazyPopconfirm>
               )}
               {currentDeploy.status !== 'failed' && (
-                <Button danger onClick={() => markFailed(currentDeploy.id).catch(() => {})}>
-                  {t('tenant.deploy.actions.markFailed', 'Mark Failed')}
-                </Button>
+                <LazyPopconfirm
+                  title={t('tenant.deploy.actions.markFailedConfirm', 'Are you sure you want to mark this deploy as failed?')}
+                  okText={t('common.actions.yes', 'Yes')}
+                  cancelText={t('common.actions.no', 'No')}
+                  onConfirm={() => markFailed(currentDeploy.id).catch((err) => {
+                    console.error('Failed to mark deploy as failed:', err);
+                    messageApi?.error(t('tenant.deploy.errors.markFailedFailed', 'Failed to update deploy status'));
+                  })}
+                >
+                  <LazyButton danger>
+                    {t('tenant.deploy.actions.markFailed', 'Mark Failed')}
+                  </LazyButton>
+                </LazyPopconfirm>
               )}
             </Space>
           </div>
@@ -245,21 +281,22 @@ export const DeployProgress: React.FC = () => {
         <Title level={3} className="!mb-0">
           {t('tenant.deploy.listTitle', 'Deployment History')}
         </Title>
-        <Button type="primary" onClick={handleNewDeploy}>
+        <LazyButton type="primary" onClick={handleNewDeploy}>
           {t('tenant.deploy.actions.new', 'New Deploy')}
-        </Button>
+        </LazyButton>
       </div>
 
       {error && <Alert type="error" message={error} />}
 
-      <Card className="bg-white dark:bg-slate-800 rounded-lg p-6 border border-slate-200 dark:border-slate-700">
+      <Card className="bg-surface-light dark:bg-surface-dark rounded-lg p-6 border border-border-light dark:border-border-dark">
         <Timeline
           items={deploys.map((d) => ({
             color: getStatusColor(d.status),
             children: (
-              <button
-                type="button"
-                className="w-full text-left cursor-pointer bg-transparent border-none hover:bg-slate-50 dark:hover:bg-slate-800 p-2 rounded -ml-2 transition-colors"
+              <Card
+                size="small"
+                hoverable
+                className="w-full cursor-pointer -ml-2"
                 onClick={() => navigate(`../deploy/${d.id}`)}
               >
                 <div className="flex justify-between items-start mb-1">
@@ -267,7 +304,7 @@ export const DeployProgress: React.FC = () => {
                     {d.description || t('tenant.deploy.defaultDescription', 'System Update')}
                   </Text>
                   <Text type="secondary" className="text-xs">
-                    {new Date(d.created_at).toLocaleString()}
+                    {formatDate(d.created_at)}
                   </Text>
                 </div>
                 <div className="flex gap-4 text-sm">
@@ -275,13 +312,13 @@ export const DeployProgress: React.FC = () => {
                   <Text type="secondary">{d.image_version}</Text>
                   {d.triggered_by && <Text type="secondary">by {d.triggered_by}</Text>}
                 </div>
-              </button>
+              </Card>
             ),
           }))}
         />
         {deploys.length === 0 && !loading && (
-          <div className="text-center text-slate-500 py-8">
-            {t('tenant.deploy.empty', 'No deployments found')}
+          <div className="text-center text-text-muted py-8">
+            <LazyEmpty description={t('tenant.deploy.empty', 'No deployments found')} />
           </div>
         )}
       </Card>

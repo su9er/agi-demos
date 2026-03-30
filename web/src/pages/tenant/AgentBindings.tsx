@@ -404,7 +404,7 @@ export const AgentBindings: React.FC = () => {
               setSearch(e.target.value);
             }}
             placeholder={t('common.search', 'Search...')}
-            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-text-inverse focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none"
           />
         </div>
         <button
@@ -483,7 +483,7 @@ export const AgentBindings: React.FC = () => {
               },
             ]}
           >
-            <select className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
+            <select className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-text-inverse">
               <option value="">
                 {t('tenant.agentBindings.testRouting.selectChannelType', 'Select channel type')}
               </option>
