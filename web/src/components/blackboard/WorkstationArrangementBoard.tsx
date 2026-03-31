@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  WheelEvent as ReactWheelEvent,
+} from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -24,10 +28,15 @@ import { useWorkspaceActions } from '@/stores/workspace';
 import { useLazyMessage } from '@/components/ui/lazyAntd';
 import { AddAgentModal } from '@/components/workspace/AddAgentModal';
 import { hexDistance, hexToPixel, generateGrid, getHexCorners } from '@/components/workspace/hex/useHexLayout';
-import { HexCanvas3D } from '@/components/workspace/hex3d/HexCanvas3D';
 
 import { getErrorMessage } from '@/types/common';
 import type { TopologyEdge, TopologyNode, WorkspaceAgent, WorkspaceTask } from '@/types/workspace';
+
+const HexCanvas3D = lazy(() =>
+  import('@/components/workspace/hex3d/HexCanvas3D').then((module) => ({
+    default: module.HexCanvas3D,
+  }))
+);
 
 type ViewMode = '2d' | '3d';
 
@@ -62,13 +71,22 @@ const MAX_RENDER_GRID_RADIUS = 26;
 const COLOR_SWATCHS = ['#1e3fae', '#2563eb', '#7c3aed', '#0f766e', '#d97706', '#dc2626'];
 
 const KEYBOARD_HINTS = [
-  ['W/A/S/D', 'blackboard.arrangement.shortcuts.pan'],
-  ['+ / -', 'blackboard.arrangement.shortcuts.zoom'],
-  ['0', 'blackboard.arrangement.shortcuts.reset'],
-  ['A / C / H', 'blackboard.arrangement.shortcuts.place'],
-  ['M / Del', 'blackboard.arrangement.shortcuts.edit'],
-  ['2 / 3 / Esc', 'blackboard.arrangement.shortcuts.mode'],
+  { keys: 'Arrow keys', labelKey: 'blackboard.arrangement.shortcuts.navigate', defaultLabel: 'Move focus' },
+  { keys: 'Shift + Arrows', labelKey: 'blackboard.arrangement.shortcuts.pan', defaultLabel: 'Pan canvas' },
+  { keys: 'Enter / Space', labelKey: 'blackboard.arrangement.shortcuts.activate', defaultLabel: 'Inspect focused hex' },
+  { keys: '+ / -', labelKey: 'blackboard.arrangement.shortcuts.zoom', defaultLabel: 'Zoom' },
+  { keys: '0', labelKey: 'blackboard.arrangement.shortcuts.reset', defaultLabel: 'Reset view' },
+  { keys: 'A / C / H', labelKey: 'blackboard.arrangement.shortcuts.place', defaultLabel: 'Place items' },
+  { keys: 'M / Delete', labelKey: 'blackboard.arrangement.shortcuts.edit', defaultLabel: 'Move or remove selected item' },
+  { keys: '2 / 3 / Esc', labelKey: 'blackboard.arrangement.shortcuts.mode', defaultLabel: 'Switch modes or clear selection' },
 ] as const;
+
+const HEX_KEY_OFFSETS = {
+  ArrowUp: { q: 0, r: -1 },
+  ArrowDown: { q: 0, r: 1 },
+  ArrowLeft: { q: -1, r: 0 },
+  ArrowRight: { q: 1, r: 0 },
+} as const;
 
 interface WorkstationArrangementBoardProps {
   tenantId: string;
@@ -105,9 +123,9 @@ function getNodeAccent(node: TopologyNode): string {
     return resolveColor(node.data.color, HUMAN_SEAT_COLOR);
   }
   if (node.node_type === 'objective') {
-    return '#8b5cf6';
+    return 'var(--color-primary-light)';
   }
-  return '#06b6d4';
+  return 'var(--color-info)';
 }
 
 function resolveColor(value: unknown, fallback: string): string {
@@ -206,11 +224,15 @@ export function WorkstationArrangementBoard({
   const [zoom, setZoom] = useState(1);
   const [panning, setPanning] = useState(false);
   const [panAnchor, setPanAnchor] = useState({ x: 0, y: 0 });
-
-  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [keyboardCursor, setKeyboardCursor] = useState({ q: 0, r: 0 });
+  const [isBoardFocused, setIsBoardFocused] = useState(false);
+  const isKeyboardGridActive = viewMode === '2d';
+  const boardContainerRef = useRef<HTMLDivElement | null>(null);
 
   const gridRadius = useMemo(() => getGridRadius(agents, nodes), [agents, nodes]);
   const gridCells = useMemo(() => generateGrid(gridRadius), [gridRadius]);
+  const gridHelpId = useMemo(() => `blackboard-grid-help-${workspaceId}`, [workspaceId]);
+  const gridStatusId = useMemo(() => `blackboard-grid-status-${workspaceId}`, [workspaceId]);
 
   const placedAgents = useMemo(() => agents.filter(isPlacedAgent), [agents]);
   const placedNodes = useMemo(() => nodes.filter(isPlacedNode), [nodes]);
@@ -304,6 +326,24 @@ export function WorkstationArrangementBoard({
     }
     clearSelectedHex();
   }, [clearSelectedHex, selectHex, selectedHex]);
+
+  useEffect(() => {
+    if (selectedHex) {
+      setKeyboardCursor({ q: selectedHex.q, r: selectedHex.r });
+    }
+  }, [selectedHex]);
+
+  useEffect(() => {
+    if (!isKeyboardGridActive) {
+      setIsBoardFocused(false);
+    }
+  }, [isKeyboardGridActive]);
+
+  useEffect(() => {
+    if (hexDistance(0, 0, keyboardCursor.q, keyboardCursor.r) > gridRadius) {
+      setKeyboardCursor({ q: 0, r: 0 });
+    }
+  }, [gridRadius, keyboardCursor.q, keyboardCursor.r]);
 
   const resetView = useCallback(() => {
     setPan({ x: 0, y: 0 });
@@ -414,6 +454,8 @@ export function WorkstationArrangementBoard({
 
   const handleActivateHex = useCallback(
     async (q: number, r: number) => {
+      setKeyboardCursor({ q, r });
+
       if (moveMode) {
         await handleMoveSelection(q, r);
         return;
@@ -444,11 +486,14 @@ export function WorkstationArrangementBoard({
   );
 
   const handleCreateNode = useCallback(
-    async (nodeType: TopologyNode['node_type']) => {
-      if (selection?.kind !== 'empty') {
+    async (nodeType: TopologyNode['node_type'], targetHex?: { q: number; r: number }) => {
+      const target =
+        targetHex ?? (selection?.kind === 'empty' ? { q: selection.q, r: selection.r } : null);
+
+      if (!target) {
         return;
       }
-      const logicalPosition = hexToPixel(selection.q, selection.r, 1);
+      const logicalPosition = hexToPixel(target.q, target.r, 1);
       const defaultTitle =
         nodeType === 'human_seat'
           ? t('blackboard.arrangement.defaults.humanSeat', 'Human seat')
@@ -459,8 +504,8 @@ export function WorkstationArrangementBoard({
         const createdNode = await createTopologyNode(workspaceId, {
           node_type: nodeType,
           title: defaultTitle,
-          hex_q: selection.q,
-          hex_r: selection.r,
+          hex_q: target.q,
+          hex_r: target.r,
           position_x: logicalPosition.x,
           position_y: logicalPosition.y,
           status: 'active',
@@ -614,8 +659,8 @@ export function WorkstationArrangementBoard({
     }
   }, [selection]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
+  const handleBoardKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
       if (isEditableTarget(event.target)) {
         return;
       }
@@ -654,32 +699,64 @@ export function WorkstationArrangementBoard({
         return;
       }
 
-      if (event.key.toLowerCase() === 'w' || event.key === 'ArrowUp') {
+      if (event.shiftKey && event.key in HEX_KEY_OFFSETS) {
         event.preventDefault();
-        nudgePan(0, 28);
-        return;
-      }
 
-      if (event.key.toLowerCase() === 's' || event.key === 'ArrowDown') {
-        event.preventDefault();
-        nudgePan(0, -28);
-        return;
-      }
-
-      if (event.key.toLowerCase() === 'a' || event.key === 'ArrowLeft') {
-        if (selection?.kind === 'empty') {
-          event.preventDefault();
-          setAddAgentOpen(true);
+        if (event.key === 'ArrowUp') {
+          nudgePan(0, 28);
           return;
         }
-        event.preventDefault();
-        nudgePan(28, 0);
+        if (event.key === 'ArrowDown') {
+          nudgePan(0, -28);
+          return;
+        }
+        if (event.key === 'ArrowLeft') {
+          nudgePan(28, 0);
+          return;
+        }
+        if (event.key === 'ArrowRight') {
+          nudgePan(-28, 0);
+        }
         return;
       }
 
-      if (event.key.toLowerCase() === 'd' || event.key === 'ArrowRight') {
+      if (viewMode === '2d' && event.key in HEX_KEY_OFFSETS) {
         event.preventDefault();
-        nudgePan(-28, 0);
+        setKeyboardCursor((current) => {
+          const offset = HEX_KEY_OFFSETS[event.key as keyof typeof HEX_KEY_OFFSETS];
+          const next = { q: current.q + offset.q, r: current.r + offset.r };
+
+          if (hexDistance(0, 0, next.q, next.r) > gridRadius) {
+            return current;
+          }
+
+          return next;
+        });
+        return;
+      }
+
+      if (viewMode === '2d' && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        void handleActivateHex(keyboardCursor.q, keyboardCursor.r);
+        return;
+      }
+
+      if (selection?.kind === 'empty' && event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        setAddAgentOpen(true);
+        return;
+      }
+
+      if (
+        selection?.kind !== 'empty' &&
+        event.key.toLowerCase() === 'a' &&
+        !agentByCoord.has(coordKey(keyboardCursor.q, keyboardCursor.r)) &&
+        !nodeByCoord.has(coordKey(keyboardCursor.q, keyboardCursor.r)) &&
+        coordKey(keyboardCursor.q, keyboardCursor.r) !== RESERVED_CENTER_KEY
+      ) {
+        event.preventDefault();
+        setSelection({ kind: 'empty', q: keyboardCursor.q, r: keyboardCursor.r });
+        setAddAgentOpen(true);
         return;
       }
 
@@ -689,43 +766,70 @@ export function WorkstationArrangementBoard({
         return;
       }
 
+      if (
+        selection?.kind !== 'empty' &&
+        event.key.toLowerCase() === 'c' &&
+        !agentByCoord.has(coordKey(keyboardCursor.q, keyboardCursor.r)) &&
+        !nodeByCoord.has(coordKey(keyboardCursor.q, keyboardCursor.r)) &&
+        coordKey(keyboardCursor.q, keyboardCursor.r) !== RESERVED_CENTER_KEY
+      ) {
+        event.preventDefault();
+        setSelection({ kind: 'empty', q: keyboardCursor.q, r: keyboardCursor.r });
+        void handleCreateNode('corridor', keyboardCursor);
+        return;
+      }
+
       if (selection?.kind === 'empty' && event.key.toLowerCase() === 'h') {
         event.preventDefault();
         void handleCreateNode('human_seat');
         return;
       }
 
-      if ((selection?.kind === 'agent' || selection?.kind === 'node') && event.key.toLowerCase() === 'm') {
+      if (
+        selection?.kind !== 'empty' &&
+        event.key.toLowerCase() === 'h' &&
+        !agentByCoord.has(coordKey(keyboardCursor.q, keyboardCursor.r)) &&
+        !nodeByCoord.has(coordKey(keyboardCursor.q, keyboardCursor.r)) &&
+        coordKey(keyboardCursor.q, keyboardCursor.r) !== RESERVED_CENTER_KEY
+      ) {
+        event.preventDefault();
+        setSelection({ kind: 'empty', q: keyboardCursor.q, r: keyboardCursor.r });
+        void handleCreateNode('human_seat', keyboardCursor);
+        return;
+      }
+
+      if (
+        (selection?.kind === 'agent' || selection?.kind === 'node') &&
+        event.key.toLowerCase() === 'm'
+      ) {
         event.preventDefault();
         beginMoveMode();
         return;
       }
 
-      if ((selection?.kind === 'agent' || selection?.kind === 'node') && (event.key === 'Delete' || event.key === 'Backspace')) {
+      if (
+        (selection?.kind === 'agent' || selection?.kind === 'node') &&
+        (event.key === 'Delete' || event.key === 'Backspace')
+      ) {
         event.preventDefault();
         void handleDeleteSelection();
-        return;
       }
-
-      if (selection?.kind === 'blackboard' && event.key === 'Enter') {
-        event.preventDefault();
-        onOpenBlackboard();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [
-    beginMoveMode,
-    handleCreateNode,
-    handleDeleteSelection,
-    nudgePan,
-    onOpenBlackboard,
-    resetView,
-    selection,
-  ]);
+    },
+    [
+      beginMoveMode,
+      agentByCoord,
+      gridRadius,
+      handleActivateHex,
+      handleCreateNode,
+      handleDeleteSelection,
+      keyboardCursor,
+      nodeByCoord,
+      nudgePan,
+      resetView,
+      selection,
+      viewMode,
+    ]
+  );
 
   const handleWheel = useCallback((event: ReactWheelEvent<SVGSVGElement>) => {
     event.preventDefault();
@@ -734,9 +838,10 @@ export function WorkstationArrangementBoard({
   }, []);
 
   const handlePointerDown = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
-    if (event.target !== event.currentTarget) {
+    if (event.target instanceof Element && event.target.closest('[data-hex-cell="true"]')) {
       return;
     }
+    boardContainerRef.current?.focus();
     setPanning(true);
     setPanAnchor({ x: event.clientX - pan.x, y: event.clientY - pan.y });
   }, [pan.x, pan.y]);
@@ -765,7 +870,8 @@ export function WorkstationArrangementBoard({
                 y1={from.y}
                 x2={to.x}
                 y2={to.y}
-                stroke="rgba(34, 197, 94, 0.28)"
+                stroke="var(--color-success)"
+                strokeOpacity={0.24}
                 strokeWidth={10}
                 strokeLinecap="round"
               />
@@ -774,7 +880,8 @@ export function WorkstationArrangementBoard({
                 y1={from.y}
                 x2={to.x}
                 y2={to.y}
-                stroke="rgba(125, 211, 252, 0.9)"
+                stroke="var(--color-info)"
+                strokeOpacity={0.9}
                 strokeWidth={2.5}
                 strokeLinecap="round"
                 strokeDasharray={edge.direction === 'bidirectional' ? '0' : '12 8'}
@@ -797,43 +904,49 @@ export function WorkstationArrangementBoard({
         const agent = agentByCoord.get(key);
         const node = nodeByCoord.get(key);
         const isSelected = selectedHex != null && selectedHex.q === q && selectedHex.r === r;
+        const isKeyboardTarget = keyboardCursor.q === q && keyboardCursor.r === r;
         const isMoveTarget = moveMode != null && selection?.kind === 'empty' && selection.q === q && selection.r === r;
 
         return (
           <g
             key={key}
-            role="button"
-            tabIndex={0}
+            data-hex-cell="true"
             onClick={(event) => {
               event.stopPropagation();
+              boardContainerRef.current?.focus();
+              setKeyboardCursor({ q, r });
               void handleActivateHex(q, r);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                void handleActivateHex(q, r);
-              }
             }}
           >
             <polygon
               points={points}
               fill={
                 isCenter
-                  ? 'rgba(99, 102, 241, 0.18)'
-                  : isSelected
-                    ? 'rgba(59, 130, 246, 0.14)'
+                  ? 'var(--color-primary-400)'
+                  : isSelected || isKeyboardTarget
+                    ? 'var(--color-primary-light)'
                     : agent || node
-                      ? 'rgba(255, 255, 255, 0.04)'
+                      ? 'var(--color-surface-light)'
                       : 'transparent'
               }
-              stroke={
+              fillOpacity={
                 isCenter
-                  ? 'rgba(167, 139, 250, 0.78)'
+                  ? 0.16
                   : isSelected
-                    ? 'rgba(96, 165, 250, 0.95)'
-                    : 'rgba(148, 163, 184, 0.2)'
+                    ? 0.12
+                    : isKeyboardTarget
+                      ? 0.07
+                      : agent || node
+                        ? 0.04
+                        : 0
               }
-              strokeWidth={isCenter ? 3 : isSelected ? 2.5 : 1}
+              stroke={
+                isCenter || isSelected || isKeyboardTarget
+                  ? 'var(--color-primary-300)'
+                  : 'var(--color-border-separator)'
+              }
+              strokeOpacity={isCenter ? 0.82 : isSelected ? 0.92 : isKeyboardTarget ? 0.72 : 0.24}
+              strokeWidth={isCenter ? 3 : isSelected ? 2.5 : isKeyboardTarget ? 2 : 1}
               strokeDasharray={isMoveTarget ? '10 6' : undefined}
               className="transition-all duration-200 motion-reduce:transition-none"
             />
@@ -844,7 +957,7 @@ export function WorkstationArrangementBoard({
                   x={center.x}
                   y={center.y - 8}
                   textAnchor="middle"
-                  className="fill-violet-100 text-[16px] font-semibold"
+                  className="fill-[var(--color-text-inverse)] text-[16px] font-semibold"
                 >
                   {t('blackboard.arrangement.centerTitle', 'Central blackboard')}
                 </text>
@@ -852,7 +965,7 @@ export function WorkstationArrangementBoard({
                   x={center.x}
                   y={center.y + 18}
                   textAnchor="middle"
-                  className="fill-zinc-400 text-[12px]"
+                  className="fill-[var(--color-primary-200)] text-[12px]"
                 >
                   {t('blackboard.arrangement.centerSubtitle', 'Open discussion, goals, and execution')}
                 </text>
@@ -883,7 +996,7 @@ export function WorkstationArrangementBoard({
                   x={center.x}
                   y={center.y + 28}
                   textAnchor="middle"
-                  className="fill-zinc-100 text-[12px] font-medium"
+                  className="fill-[var(--color-text-inverse)] text-[12px] font-medium"
                 >
                   {(agent.label ?? agent.display_name ?? agent.agent_id).slice(0, 16)}
                 </text>
@@ -897,7 +1010,8 @@ export function WorkstationArrangementBoard({
                   y1={center.y}
                   x2={center.x + 18}
                   y2={center.y}
-                  stroke="rgba(34, 211, 238, 0.95)"
+                  stroke="var(--color-info)"
+                  strokeOpacity={0.95}
                   strokeWidth={3}
                   strokeLinecap="round"
                 />
@@ -906,7 +1020,8 @@ export function WorkstationArrangementBoard({
                   y1={center.y - 18}
                   x2={center.x}
                   y2={center.y + 18}
-                  stroke="rgba(34, 211, 238, 0.4)"
+                  stroke="var(--color-info)"
+                  strokeOpacity={0.4}
                   strokeWidth={3}
                   strokeLinecap="round"
                 />
@@ -914,7 +1029,7 @@ export function WorkstationArrangementBoard({
                   x={center.x}
                   y={center.y + 30}
                   textAnchor="middle"
-                  className="fill-cyan-100 text-[11px] font-medium"
+                  className="fill-[var(--color-text-inverse)] text-[11px] font-medium"
                 >
                   {getNodeLabel(node, t('blackboard.arrangement.defaults.corridor', 'Corridor')).slice(0, 16)}
                 </text>
@@ -945,7 +1060,7 @@ export function WorkstationArrangementBoard({
                   x={center.x}
                   y={center.y + 28}
                   textAnchor="middle"
-                  className="fill-zinc-100 text-[11px] font-medium"
+                  className="fill-[var(--color-text-inverse)] text-[11px] font-medium"
                 >
                   {getNodeLabel(
                     node,
@@ -963,6 +1078,8 @@ export function WorkstationArrangementBoard({
       agentByCoord,
       gridCells,
       handleActivateHex,
+      keyboardCursor.q,
+      keyboardCursor.r,
       moveMode,
       nodeByCoord,
       selectedHex,
@@ -979,25 +1096,69 @@ export function WorkstationArrangementBoard({
     [pan.x, pan.y, zoom]
   );
 
+  const keyboardCursorSummary = useMemo(() => {
+    const key = coordKey(keyboardCursor.q, keyboardCursor.r);
+    const agent = agentByCoord.get(key);
+    const node = nodeByCoord.get(key);
+
+    if (key === RESERVED_CENTER_KEY) {
+      return t(
+        'blackboard.arrangement.focus.blackboard',
+        'Focused on the central blackboard. Press Enter to open the command modal.'
+      );
+    }
+
+    if (agent) {
+      return t('blackboard.arrangement.focus.agent', {
+        defaultValue: 'Focused on agent {{name}} at q {{q}}, r {{r}}.',
+        name: agent.label ?? agent.display_name ?? agent.agent_id,
+        q: keyboardCursor.q,
+        r: keyboardCursor.r,
+      });
+    }
+
+    if (node) {
+      return t('blackboard.arrangement.focus.node', {
+        defaultValue: 'Focused on {{name}} at q {{q}}, r {{r}}.',
+        name: getNodeLabel(
+          node,
+          node.node_type === 'human_seat'
+            ? t('blackboard.arrangement.defaults.humanSeat', 'Human seat')
+            : t('blackboard.arrangement.defaults.corridor', 'Corridor')
+        ),
+        q: keyboardCursor.q,
+        r: keyboardCursor.r,
+      });
+    }
+
+    return t('blackboard.arrangement.focus.empty', {
+      defaultValue: 'Focused on empty hex q {{q}}, r {{r}}.',
+      q: keyboardCursor.q,
+      r: keyboardCursor.r,
+    });
+  }, [agentByCoord, keyboardCursor.q, keyboardCursor.r, nodeByCoord, t]);
+
   return (
-    <section className="rounded-[28px] border border-white/8 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.16),_transparent_38%),linear-gradient(180deg,_rgba(8,11,18,0.98),_rgba(3,6,12,0.98))] p-4 shadow-[0_24px_70px_rgba(2,6,23,0.45)] sm:p-5">
-      <div className="flex flex-col gap-4 border-b border-white/8 pb-4 lg:flex-row lg:items-start lg:justify-between">
+    <section className="rounded-3xl border border-border-light bg-surface-light p-4 shadow-lg transition-colors duration-200 dark:border-border-dark dark:bg-surface-dark sm:p-5">
+      <div className="flex flex-col gap-4 border-b border-border-light pb-4 dark:border-border-dark lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
-          <div className="text-[11px] uppercase tracking-[0.28em] text-sky-300/70">
+          <div className="text-[11px] uppercase tracking-[0.28em] text-primary/75 dark:text-primary/80">
             {t('blackboard.arrangement.eyebrow', 'Workstation arrangement')}
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-2xl font-semibold text-zinc-50">{workspaceName}</h2>
-            <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-200">
+            <h2 className="text-2xl font-semibold text-text-primary dark:text-text-inverse">
+              {workspaceName}
+            </h2>
+            <span className="rounded-full border border-success/25 bg-success/10 px-3 py-1 text-xs font-medium text-status-text-success dark:text-status-text-success-dark">
               {t('blackboard.arrangement.syncState', 'Live topology sync')}
             </span>
             {moveMode && (
-              <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-100">
+              <span className="rounded-full border border-warning/25 bg-warning/10 px-3 py-1 text-xs font-medium text-status-text-warning dark:text-status-text-warning-dark">
                 {t('blackboard.arrangement.moveMode', 'Move mode: click a free hex')}
               </span>
             )}
           </div>
-          <p className="max-w-3xl text-sm leading-7 text-zinc-400">
+          <p className="max-w-3xl text-sm leading-7 text-text-secondary dark:text-text-secondary">
             {t(
               'blackboard.arrangement.description',
               'Place AI employees, human seats, and corridor nodes on a shared command grid, then jump straight into the central blackboard when coordination needs more depth.'
@@ -1007,20 +1168,20 @@ export function WorkstationArrangementBoard({
 
         <div className="flex flex-col gap-3 lg:min-w-[320px] lg:items-end">
           <div className="flex flex-wrap justify-end gap-2">
-            <span className="rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2 text-xs text-zinc-300">
+            <span className="rounded-2xl border border-border-light bg-surface-muted px-3 py-2 text-xs text-text-secondary dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-secondary">
               {t('blackboard.arrangement.metrics.agents', '{{count}} agents', { count: agents.length })}
             </span>
-            <span className="rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2 text-xs text-zinc-300">
+            <span className="rounded-2xl border border-border-light bg-surface-muted px-3 py-2 text-xs text-text-secondary dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-secondary">
               {t('blackboard.arrangement.metrics.seats', '{{count}} human seats', {
                 count: summary.humanSeats,
               })}
             </span>
-            <span className="rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2 text-xs text-zinc-300">
+            <span className="rounded-2xl border border-border-light bg-surface-muted px-3 py-2 text-xs text-text-secondary dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-secondary">
               {t('blackboard.arrangement.metrics.corridors', '{{count}} corridors', {
                 count: summary.corridors,
               })}
             </span>
-            <span className="rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2 text-xs text-zinc-300">
+            <span className="rounded-2xl border border-border-light bg-surface-muted px-3 py-2 text-xs text-text-secondary dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-secondary">
               {t('blackboard.arrangement.metrics.tasks', '{{done}} / {{total}} tasks done', {
                 done: summary.completedTasks,
                 total: tasks.length,
@@ -1029,7 +1190,7 @@ export function WorkstationArrangementBoard({
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="inline-flex rounded-2xl border border-white/8 bg-white/[0.04] p-1">
+            <div className="inline-flex rounded-2xl border border-border-light bg-surface-muted p-1 dark:border-border-dark dark:bg-surface-dark-alt">
               {(['2d', '3d'] as const).map((mode) => (
                 <button
                   key={mode}
@@ -1037,10 +1198,10 @@ export function WorkstationArrangementBoard({
                   onClick={() => {
                     setViewMode(mode);
                   }}
-                  className={`min-h-10 rounded-[14px] px-4 text-sm font-medium transition ${
+                  className={`min-h-10 rounded-[14px] px-4 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
                     viewMode === mode
-                      ? 'bg-sky-500 text-white shadow-[0_10px_30px_rgba(14,165,233,0.28)]'
-                      : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100'
+                      ? 'bg-primary text-white shadow-primary'
+                      : 'text-text-secondary hover:bg-surface-light hover:text-text-primary dark:text-text-muted dark:hover:bg-surface-elevated dark:hover:text-text-inverse'
                   }`}
                 >
                   {mode === '2d'
@@ -1056,7 +1217,7 @@ export function WorkstationArrangementBoard({
                 setZoom((current) => Math.max(0.55, current - 0.15));
               }}
               disabled={viewMode !== '2d'}
-              className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.04] px-3 text-sm text-zinc-200 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-border-light bg-surface-muted px-3 text-sm text-text-secondary transition hover:bg-surface-light disabled:cursor-not-allowed disabled:opacity-40 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-secondary dark:hover:bg-surface-elevated"
             >
               <ZoomOut className="h-4 w-4" />
               <Minus className="h-3 w-3" />
@@ -1068,7 +1229,7 @@ export function WorkstationArrangementBoard({
                 setZoom((current) => Math.min(2.2, current + 0.15));
               }}
               disabled={viewMode !== '2d'}
-              className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.04] px-3 text-sm text-zinc-200 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-border-light bg-surface-muted px-3 text-sm text-text-secondary transition hover:bg-surface-light disabled:cursor-not-allowed disabled:opacity-40 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-secondary dark:hover:bg-surface-elevated"
             >
               <ZoomIn className="h-4 w-4" />
               <Plus className="h-3 w-3" />
@@ -1077,7 +1238,7 @@ export function WorkstationArrangementBoard({
             <button
               type="button"
               onClick={resetView}
-              className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.04] px-4 text-sm text-zinc-200 transition hover:bg-white/[0.08]"
+              className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-border-light bg-surface-muted px-4 text-sm text-text-secondary transition hover:bg-surface-light dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-secondary dark:hover:bg-surface-elevated"
             >
               <RotateCcw className="h-4 w-4" />
               {t('blackboard.arrangement.resetView', 'Reset view')}
@@ -1087,72 +1248,139 @@ export function WorkstationArrangementBoard({
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-        <div className="overflow-hidden rounded-[24px] border border-white/8 bg-[#04070d]">
-          <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
+        <div className="overflow-hidden rounded-[24px] border border-border-light bg-surface-light dark:border-border-dark dark:bg-background-dark">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-light px-4 py-3 dark:border-border-dark">
             <div>
-              <div className="text-sm font-medium text-zinc-100">
+              <div className="text-sm font-medium text-text-primary dark:text-text-inverse">
                 {t('blackboard.arrangement.canvasTitle', 'Command grid')}
               </div>
-              <div className="text-xs text-zinc-500">
+              <div className="text-xs text-text-muted dark:text-text-muted">
                 {t(
                   'blackboard.arrangement.canvasSubtitle',
                   'Select a hex to stage a new seat, update an agent, or drill into the blackboard.'
                 )}
               </div>
             </div>
+            <div className="flex items-center gap-2">
+              {isBoardFocused && isKeyboardGridActive && (
+                <span className="max-w-full truncate rounded-full border border-info/25 bg-info/10 px-3 py-1 text-[11px] font-medium text-status-text-info dark:text-status-text-info-dark sm:max-w-[28rem]">
+                  {keyboardCursorSummary}
+                </span>
+              )}
             <button
               type="button"
               onClick={onOpenBlackboard}
-              className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-violet-400/20 bg-violet-500/12 px-4 text-sm font-medium text-violet-100 transition hover:bg-violet-500/20"
+              className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-primary/20 bg-primary/10 px-4 text-sm font-medium text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:text-primary-200"
             >
               {t('blackboard.openBoard', 'Open central blackboard')}
             </button>
+            </div>
           </div>
 
-          <div className="relative h-[620px] w-full">
+          {!isKeyboardGridActive && (
+            <p className="text-xs text-text-secondary dark:text-text-muted">
+              {t(
+                'blackboard.arrangement.threeDPreviewNote',
+                '3D view is preview only. Use pointer controls here, or switch back to 2D for keyboard editing.'
+              )}
+            </p>
+          )}
+
+          <div className="relative h-[min(65vh,620px)] min-h-[420px] w-full sm:h-[min(70vh,620px)]">
+              <div id={gridHelpId} className="sr-only">
+                {isKeyboardGridActive
+                  ? t(
+                      'blackboard.arrangement.keyboardHint',
+                      'Use arrow keys to move keyboard focus across the grid, Enter to inspect a hex, Shift and arrow keys to pan, and the action shortcuts only while this grid is focused.'
+                    )
+                  : t(
+                      'blackboard.arrangement.threeDKeyboardHint',
+                      'Three-dimensional view is preview only. Use pointer controls here, or switch back to 2D to move across hexes and edit placements with the keyboard.'
+                    )}
+              </div>
+              {isKeyboardGridActive && (
+                <div id={gridStatusId} aria-live="polite" className="sr-only">
+                  {keyboardCursorSummary}
+                </div>
+              )}
             {viewMode === '2d' ? (
-              <svg
-                ref={svgRef}
-                className="h-full w-full touch-none"
-                role="img"
+              <div
+                ref={boardContainerRef}
+                tabIndex={0}
+                role="group"
                 aria-label={t('blackboard.arrangement.ariaLabel', 'Interactive workstation arrangement grid')}
-                viewBox="-760 -560 1520 1120"
-                onWheel={handleWheel}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={() => {
-                  setPanning(false);
+                aria-roledescription={t('blackboard.arrangement.roleDescription', 'hex grid')}
+                aria-describedby={`${gridHelpId} ${gridStatusId}`}
+                onFocus={() => {
+                  setIsBoardFocused(true);
                 }}
-                onPointerLeave={() => {
-                  setPanning(false);
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    setIsBoardFocused(false);
+                  }
                 }}
+                onKeyDown={handleBoardKeyDown}
+                className="h-full w-full rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset"
               >
-                <defs>
-                  <radialGradient id="blackboard-grid-glow">
-                    <stop offset="0%" stopColor="rgba(56, 189, 248, 0.18)" />
-                    <stop offset="100%" stopColor="rgba(56, 189, 248, 0)" />
-                  </radialGradient>
-                </defs>
-                <rect x={-760} y={-560} width={1520} height={1120} fill="url(#blackboard-grid-glow)" />
-                <g transform={svgTransform}>
-                  {edgeElements}
-                  {cellElements}
-                </g>
-              </svg>
+                <svg
+                  className="h-full w-full touch-none"
+                  role="img"
+                  aria-hidden="true"
+                  viewBox="-760 -560 1520 1120"
+                  onWheel={handleWheel}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={() => {
+                    setPanning(false);
+                  }}
+                  onPointerLeave={() => {
+                    setPanning(false);
+                  }}
+                >
+                  <defs>
+                    <radialGradient id="blackboard-grid-glow">
+                      <stop offset="0%" stopColor="rgba(30, 63, 174, 0.12)" />
+                      <stop offset="100%" stopColor="rgba(30, 63, 174, 0)" />
+                    </radialGradient>
+                  </defs>
+                  <rect x={-760} y={-560} width={1520} height={1120} fill="url(#blackboard-grid-glow)" />
+                  <g transform={svgTransform}>
+                    {edgeElements}
+                    {cellElements}
+                  </g>
+                </svg>
+              </div>
             ) : (
-              <HexCanvas3D
-                agents={placedAgents}
-                nodes={placedNodes}
-                edges={edges}
-                gridRadius={gridRadius}
-                onSelectHex={(q, r) => {
-                  void handleActivateHex(q, r);
-                }}
-              />
+              <div
+                tabIndex={-1}
+                role="group"
+                aria-label={t('blackboard.arrangement.threeDAriaLabel', 'Three-dimensional workstation arrangement')}
+                aria-describedby={gridHelpId}
+                className="h-full w-full rounded-[inherit]"
+              >
+                <Suspense
+                  fallback={
+                    <div className="flex h-full items-center justify-center bg-surface-muted text-sm text-text-secondary dark:bg-background-dark dark:text-text-secondary">
+                      {t('common.loading', 'Loading…')}
+                    </div>
+                  }
+                >
+                  <HexCanvas3D
+                    agents={placedAgents}
+                    nodes={placedNodes}
+                    edges={edges}
+                    gridRadius={gridRadius}
+                    onSelectHex={(q, r) => {
+                      setKeyboardCursor({ q, r });
+                      void handleActivateHex(q, r);
+                    }}
+                  />
+                </Suspense>
+              </div>
             )}
 
             {selection == null && (
-              <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-2xl border border-white/8 bg-black/35 px-4 py-3 text-sm text-zinc-300 backdrop-blur">
+              <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-2xl border border-border-light/80 bg-surface-light/95 px-4 py-3 text-sm text-text-secondary shadow-md dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-secondary">
                 {t(
                   'blackboard.arrangement.emptySelectionHint',
                   'Start by selecting an empty hex, an AI employee, or the center board.'
@@ -1162,26 +1390,26 @@ export function WorkstationArrangementBoard({
           </div>
         </div>
 
-        <aside className="hidden rounded-[24px] border border-white/8 bg-white/[0.03] p-4 xl:block">
-          <div className="flex items-center gap-2 text-sm font-medium text-zinc-100">
-            <Keyboard className="h-4 w-4 text-sky-300" />
+        <aside className="hidden rounded-[24px] border border-border-light bg-surface-muted p-4 dark:border-border-dark dark:bg-surface-dark-alt xl:block">
+          <div className="flex items-center gap-2 text-sm font-medium text-text-primary dark:text-text-inverse">
+            <Keyboard className="h-4 w-4 text-primary dark:text-primary-300" />
             {t('blackboard.arrangement.shortcutTitle', 'Keyboard map')}
           </div>
           <div className="mt-4 space-y-2">
-            {KEYBOARD_HINTS.map(([keys, labelKey]) => (
+            {KEYBOARD_HINTS.map(({ keys, labelKey, defaultLabel }) => (
               <div
                 key={keys}
-                className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-3 py-2 text-xs text-zinc-300"
+                className="flex items-center justify-between rounded-2xl border border-border-light bg-surface-light px-3 py-2 text-xs text-text-secondary dark:border-border-dark dark:bg-surface-dark dark:text-text-secondary"
               >
-                <span>{t(labelKey, labelKey)}</span>
-                <kbd className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 font-mono text-[11px] text-zinc-100">
+                <span>{t(labelKey, defaultLabel)}</span>
+                <kbd className="rounded-lg border border-border-light bg-surface-muted px-2 py-1 font-mono text-[11px] text-text-primary dark:border-border-dark dark:bg-surface-elevated dark:text-text-inverse">
                   {keys}
                 </kbd>
               </div>
             ))}
           </div>
 
-          <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 p-3 text-xs leading-6 text-zinc-400">
+          <div className="mt-4 rounded-2xl border border-border-light bg-surface-light p-3 text-xs leading-6 text-text-muted dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
             {moveMode
               ? t(
                   'blackboard.arrangement.moveHint',
@@ -1195,10 +1423,10 @@ export function WorkstationArrangementBoard({
         </aside>
       </div>
 
-      <div className="mt-4 rounded-[24px] border border-white/8 bg-white/[0.03] p-4">
+      <div className="mt-4 rounded-[24px] border border-border-light bg-surface-muted p-4 dark:border-border-dark dark:bg-surface-dark-alt">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <div className="text-sm font-medium text-zinc-100">
+            <div className="text-sm font-medium text-text-primary dark:text-text-inverse">
               {selection?.kind === 'agent' && selectedAgent
                 ? selectedAgent.label ?? selectedAgent.display_name ?? selectedAgent.agent_id
                 : selection?.kind === 'node' && selectedNode
@@ -1214,7 +1442,7 @@ export function WorkstationArrangementBoard({
                       ? t('blackboard.arrangement.emptySlot', 'Empty workstation')
                       : t('blackboard.arrangement.drawerTitle', 'Action drawer')}
             </div>
-            <div className="mt-1 text-xs text-zinc-500">
+            <div className="mt-1 text-xs text-text-muted dark:text-text-muted">
               {selectedHex
                 ? t('blackboard.arrangement.coordinates', 'Hex {{q}}, {{r}}', selectedHex)
                 : t(
@@ -1229,7 +1457,7 @@ export function WorkstationArrangementBoard({
               <button
                 type="button"
                 onClick={onOpenBlackboard}
-                className="inline-flex min-h-10 items-center rounded-2xl border border-violet-400/20 bg-violet-500/12 px-4 text-sm font-medium text-violet-100 transition hover:bg-violet-500/20"
+                className="inline-flex min-h-10 items-center rounded-2xl border border-primary/20 bg-primary/10 px-4 text-sm font-medium text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:text-primary-200"
               >
                 {t('blackboard.openBoard', 'Open central blackboard')}
               </button>
@@ -1239,7 +1467,7 @@ export function WorkstationArrangementBoard({
               <>
                 <Link
                   to={agentWorkspacePath}
-                  className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.04] px-4 text-sm font-medium text-zinc-100 transition hover:bg-white/[0.08]"
+                  className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-border-light bg-surface-light px-4 text-sm font-medium text-text-primary transition hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark dark:text-text-inverse dark:hover:bg-surface-elevated"
                 >
                   <ExternalLink className="h-4 w-4" />
                   {t('blackboard.arrangement.openWorkspace', 'Open workspace')}
@@ -1247,7 +1475,7 @@ export function WorkstationArrangementBoard({
                 <button
                   type="button"
                   onClick={beginMoveMode}
-                  className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.04] px-4 text-sm font-medium text-zinc-100 transition hover:bg-white/[0.08]"
+                  className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-border-light bg-surface-light px-4 text-sm font-medium text-text-primary transition hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark dark:text-text-inverse dark:hover:bg-surface-elevated"
                 >
                   <Move className="h-4 w-4" />
                   {t('blackboard.arrangement.actions.move', 'Move')}
@@ -1258,7 +1486,7 @@ export function WorkstationArrangementBoard({
                     void handleDeleteSelection();
                   }}
                   disabled={pendingAction != null}
-                  className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-rose-400/20 bg-rose-500/12 px-4 text-sm font-medium text-rose-100 transition hover:bg-rose-500/18 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-error/25 bg-error/10 px-4 text-sm font-medium text-status-text-error dark:text-status-text-error-dark transition hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Trash2 className="h-4 w-4" />
                   {t('blackboard.arrangement.actions.remove', 'Remove')}
@@ -1271,7 +1499,7 @@ export function WorkstationArrangementBoard({
                 <button
                   type="button"
                   onClick={beginMoveMode}
-                  className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.04] px-4 text-sm font-medium text-zinc-100 transition hover:bg-white/[0.08]"
+                  className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-border-light bg-surface-light px-4 text-sm font-medium text-text-primary transition hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark dark:text-text-inverse dark:hover:bg-surface-elevated"
                 >
                   <Move className="h-4 w-4" />
                   {t('blackboard.arrangement.actions.move', 'Move')}
@@ -1282,7 +1510,7 @@ export function WorkstationArrangementBoard({
                     void handleDeleteSelection();
                   }}
                   disabled={pendingAction != null}
-                  className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-rose-400/20 bg-rose-500/12 px-4 text-sm font-medium text-rose-100 transition hover:bg-rose-500/18 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-error/25 bg-error/10 px-4 text-sm font-medium text-status-text-error dark:text-status-text-error-dark transition hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Trash2 className="h-4 w-4" />
                   {t('blackboard.arrangement.actions.remove', 'Remove')}
@@ -1301,14 +1529,14 @@ export function WorkstationArrangementBoard({
                   onClick={() => {
                     setAddAgentOpen(true);
                   }}
-                  className="flex min-h-[96px] flex-col justify-between rounded-[20px] border border-white/8 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.08]"
+                  className="flex min-h-[96px] flex-col justify-between rounded-[20px] border border-border-light bg-surface-light p-4 text-left transition hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark dark:hover:bg-surface-elevated"
                 >
-                  <Bot className="h-5 w-5 text-sky-300" />
+                  <Bot className="h-5 w-5 text-primary dark:text-primary-300" />
                   <div>
-                    <div className="text-sm font-medium text-zinc-50">
+                    <div className="text-sm font-medium text-text-primary dark:text-text-inverse">
                       {t('blackboard.arrangement.actions.addAgent', 'Add AI employee')}
                     </div>
-                    <div className="mt-1 text-xs leading-5 text-zinc-500">
+                    <div className="mt-1 text-xs leading-5 text-text-secondary dark:text-text-muted">
                       {t(
                         'blackboard.arrangement.actions.addAgentHint',
                         'Bind an agent definition directly onto this hex.'
@@ -1322,14 +1550,14 @@ export function WorkstationArrangementBoard({
                   onClick={() => {
                     void handleCreateNode('corridor');
                   }}
-                  className="flex min-h-[96px] flex-col justify-between rounded-[20px] border border-white/8 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.08]"
+                  className="flex min-h-[96px] flex-col justify-between rounded-[20px] border border-border-light bg-surface-light p-4 text-left transition hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark dark:hover:bg-surface-elevated"
                 >
-                  <Route className="h-5 w-5 text-cyan-300" />
+                  <Route className="h-5 w-5 text-info dark:text-status-text-info-dark" />
                   <div>
-                    <div className="text-sm font-medium text-zinc-50">
+                    <div className="text-sm font-medium text-text-primary dark:text-text-inverse">
                       {t('blackboard.arrangement.actions.addCorridor', 'Place corridor')}
                     </div>
-                    <div className="mt-1 text-xs leading-5 text-zinc-500">
+                    <div className="mt-1 text-xs leading-5 text-text-secondary dark:text-text-muted">
                       {t(
                         'blackboard.arrangement.actions.addCorridorHint',
                         'Reserve this slot for coordination or routing structure.'
@@ -1343,14 +1571,14 @@ export function WorkstationArrangementBoard({
                   onClick={() => {
                     void handleCreateNode('human_seat');
                   }}
-                  className="flex min-h-[96px] flex-col justify-between rounded-[20px] border border-white/8 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.08]"
+                  className="flex min-h-[96px] flex-col justify-between rounded-[20px] border border-border-light bg-surface-light p-4 text-left transition hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark dark:hover:bg-surface-elevated"
                 >
-                  <User className="h-5 w-5 text-amber-300" />
+                  <User className="h-5 w-5 text-warning dark:text-status-text-warning-dark" />
                   <div>
-                    <div className="text-sm font-medium text-zinc-50">
+                    <div className="text-sm font-medium text-text-primary dark:text-text-inverse">
                       {t('blackboard.arrangement.actions.addHumanSeat', 'Place human seat')}
                     </div>
-                    <div className="mt-1 text-xs leading-5 text-zinc-500">
+                    <div className="mt-1 text-xs leading-5 text-text-secondary dark:text-text-muted">
                       {t(
                         'blackboard.arrangement.actions.addHumanSeatHint',
                         'Mark a human-operated slot for collaboration or review.'
@@ -1362,33 +1590,33 @@ export function WorkstationArrangementBoard({
             )}
 
             {(selection?.kind === 'agent' || selection?.kind === 'node') && (
-              <div className="rounded-[20px] border border-white/8 bg-black/15 p-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="space-y-2 text-sm text-zinc-200">
-                    <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      {selection.kind === 'agent'
-                        ? t('blackboard.arrangement.fields.agentLabel', 'Display label')
-                        : t('blackboard.arrangement.fields.nodeLabel', 'Seat label')}
+                <div className="rounded-[20px] border border-border-light bg-surface-light p-4 dark:border-border-dark dark:bg-surface-dark">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-2 text-sm text-text-primary dark:text-text-secondary">
+                      <span className="text-xs uppercase tracking-[0.2em] text-text-muted dark:text-text-muted">
+                        {selection.kind === 'agent'
+                          ? t('blackboard.arrangement.fields.agentLabel', 'Display label')
+                          : t('blackboard.arrangement.fields.nodeLabel', 'Seat label')}
                     </span>
                     <input
                       value={labelDraft}
-                      onChange={(event) => {
-                        setLabelDraft(event.target.value);
-                      }}
-                      maxLength={64}
-                      className="min-h-11 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-zinc-100 outline-none transition focus:border-sky-400/60"
-                      placeholder={t(
-                        'blackboard.arrangement.fields.labelPlaceholder',
-                        'Name this workstation'
+                        onChange={(event) => {
+                          setLabelDraft(event.target.value);
+                        }}
+                        maxLength={64}
+                        className="min-h-11 w-full rounded-2xl border border-border-light bg-surface-muted px-4 text-sm text-text-primary outline-none transition focus:border-primary/60 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse"
+                        placeholder={t(
+                          'blackboard.arrangement.fields.labelPlaceholder',
+                          'Name this workstation'
                       )}
                     />
                   </label>
 
-                  <div className="space-y-2 text-sm text-zinc-200">
-                    <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      {t('blackboard.arrangement.fields.accentColor', 'Accent color')}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="space-y-2 text-sm text-text-primary dark:text-text-secondary">
+                      <div className="text-xs uppercase tracking-[0.2em] text-text-muted dark:text-text-muted">
+                        {t('blackboard.arrangement.fields.accentColor', 'Accent color')}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
                       {COLOR_SWATCHS.map((swatch) => (
                         <button
                           key={swatch}
@@ -1414,38 +1642,38 @@ export function WorkstationArrangementBoard({
                       void handleSaveSelection();
                     }}
                     disabled={pendingAction != null}
-                    className="min-h-11 rounded-2xl bg-sky-500 px-5 text-sm font-medium text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
+                     className="min-h-11 rounded-2xl bg-primary px-5 text-sm font-medium text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+                   >
                     {pendingAction === 'save-agent' || pendingAction === 'save-node'
                       ? t('common.loading', 'Loading…')
                       : t('blackboard.save', 'Save')}
                   </button>
 
                   {selection.kind === 'agent' && selectedAgent?.status && (
-                    <span className="rounded-full border border-white/8 bg-white/[0.04] px-3 py-2 text-xs text-zinc-300">
-                      {t('blackboard.arrangement.fields.status', 'Status')}: {selectedAgent.status}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
+                      <span className="rounded-full border border-border-light bg-surface-muted px-3 py-2 text-xs text-text-secondary dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-secondary">
+                       {t('blackboard.arrangement.fields.status', 'Status')}: {selectedAgent.status}
+                     </span>
+                   )}
+                 </div>
+               </div>
+             )}
 
-            {selection == null && (
-              <div className="rounded-[20px] border border-dashed border-white/10 bg-black/15 p-4 text-sm leading-7 text-zinc-400">
-                {t(
-                  'blackboard.arrangement.drawerEmpty',
-                  'Use the grid to stage a layout. The action drawer adapts to the selected workstation and keeps destructive actions away from the canvas.'
+             {selection == null && (
+                <div className="rounded-[20px] border border-dashed border-border-separator bg-surface-light p-4 text-sm leading-7 text-text-secondary dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
+                 {t(
+                   'blackboard.arrangement.drawerEmpty',
+                   'Use the grid to stage a layout. The action drawer adapts to the selected workstation and keeps destructive actions away from the canvas.'
                 )}
               </div>
             )}
           </div>
 
-          <div className="rounded-[20px] border border-white/8 bg-black/15 p-4 text-sm leading-7 text-zinc-400">
-            <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+          <div className="rounded-[20px] border border-border-light bg-surface-light p-4 text-sm leading-7 text-text-secondary dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
+            <div className="text-xs uppercase tracking-[0.2em] text-text-muted dark:text-text-muted">
               {t('blackboard.arrangement.contextTitle', 'Selection context')}
             </div>
             <div className="mt-3 space-y-3">
-              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
+              <div className="rounded-2xl border border-border-light bg-surface-muted px-3 py-3 dark:border-border-dark dark:bg-surface-dark-alt">
                 {selection?.kind === 'blackboard'
                   ? t(
                       'blackboard.arrangement.context.blackboard',
@@ -1471,7 +1699,7 @@ export function WorkstationArrangementBoard({
                             'No hex selected yet. Pick a slot to inspect its available actions.'
                           )}
               </div>
-              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
+              <div className="rounded-2xl border border-border-light bg-surface-muted px-3 py-3 dark:border-border-dark dark:bg-surface-dark-alt">
                 {moveMode
                   ? t(
                       'blackboard.arrangement.context.move',

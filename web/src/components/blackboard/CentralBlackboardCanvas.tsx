@@ -48,30 +48,30 @@ function getNodePalette(kind: 'blackboard' | 'agent' | 'human'): {
 } {
   if (kind === 'agent') {
     return {
-      fill: '#122a18',
-      stroke: '#52d685',
-      glow: '#2ec46d',
-      text: '#effaf3',
-      muted: '#97d7b0',
+      fill: 'var(--color-success-bg-dark)',
+      stroke: 'var(--color-success)',
+      glow: 'var(--color-success)',
+      text: 'var(--color-text-inverse)',
+      muted: 'var(--color-status-text-success-dark)',
     };
   }
 
   if (kind === 'human') {
     return {
-      fill: '#312110',
-      stroke: '#f2a22b',
-      glow: '#d48806',
-      text: '#fdf2dd',
-      muted: '#f2c97b',
+      fill: 'var(--color-warning-bg-dark)',
+      stroke: 'var(--color-warning)',
+      glow: 'var(--color-warning-dark)',
+      text: 'var(--color-text-inverse)',
+      muted: 'var(--color-status-text-warning-dark)',
     };
   }
 
   return {
-    fill: '#1c1831',
-    stroke: '#a78bfa',
-    glow: '#8b5cf6',
-    text: '#f5f3ff',
-    muted: '#d4c8ff',
+    fill: 'var(--color-primary-900)',
+    stroke: 'var(--color-primary-light)',
+    glow: 'var(--color-primary-glow)',
+    text: 'var(--color-text-inverse)',
+    muted: 'var(--color-primary-200)',
   };
 }
 
@@ -200,18 +200,26 @@ export function CentralBlackboardCanvas({
   const boardPolygon = toPolygonPoints(0, 0, BOARD_NODE_SIZE);
 
   return (
-    <div className="relative min-h-[620px] overflow-hidden rounded-[28px] border border-cyan-950/70 bg-[#070b10]">
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-4 p-4 sm:p-6">
+    <div className="relative min-h-[520px] overflow-hidden rounded-3xl border border-border-light bg-surface-light shadow-lg dark:border-border-dark dark:bg-background-dark sm:min-h-[620px]">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-3 p-4 sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="pointer-events-auto max-w-2xl rounded-3xl border border-white/8 bg-black/30 px-5 py-4 backdrop-blur">
-            <div className="text-[11px] uppercase tracking-[0.32em] text-zinc-500">
+          <div className="pointer-events-auto max-w-3xl rounded-3xl border border-border-light bg-surface-light/96 px-5 py-4 shadow-md dark:border-border-dark dark:bg-surface-dark-alt/92">
+            <div className="text-[11px] uppercase tracking-[0.32em] text-primary/75 dark:text-primary/80">
               {t('blackboard.commandCenter', 'Workspace command center')}
             </div>
-            <h2 className="mt-2 text-2xl font-semibold text-zinc-100">{workspaceName}</h2>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
+            <h2 className="mt-2 break-words text-2xl font-semibold text-text-primary dark:text-text-inverse">
+              {workspaceName}
+            </h2>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-text-secondary dark:text-text-muted">
               {t(
                 'blackboard.canvasHint',
                 'Use the central blackboard to review execution, align the team, and jump into shared tasks and discussions.'
+              )}
+            </p>
+            <p className="mt-3 text-xs leading-6 text-text-muted dark:text-text-muted">
+              {t(
+                'blackboard.quickActionsHint',
+                'The center tracks completion, discussions, and agent activity. Open it to edit tasks, reply to posts, and inspect topology.'
               )}
             </p>
           </div>
@@ -219,63 +227,57 @@ export function CentralBlackboardCanvas({
           <button
             type="button"
             onClick={onOpenBlackboard}
-            className="pointer-events-auto inline-flex items-center justify-center gap-2 self-start rounded-full border border-violet-400/30 bg-violet-500/12 px-4 py-2 text-sm font-medium text-violet-100 transition hover:border-violet-300/50 hover:bg-violet-500/18 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300/80"
+            className="pointer-events-auto inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-full border border-primary bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
           >
             {t('blackboard.openBoard', 'Open central blackboard')}
             <ChevronRight size={16} />
           </button>
         </div>
 
-        <div className="pointer-events-auto grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="pointer-events-auto flex flex-wrap gap-2">
           {statCards.map((card) => {
             const Icon = card.icon;
 
             return (
               <div
                 key={card.key}
-                className="rounded-2xl border border-white/8 bg-black/28 px-4 py-3 backdrop-blur"
+                title={card.helper}
+                className="rounded-full border border-border-light bg-surface-light/96 px-3 py-2 shadow-sm dark:border-border-dark dark:bg-surface-dark-alt/90"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full border border-border-light bg-surface-muted p-1.5 text-text-secondary dark:border-border-dark dark:bg-surface-dark dark:text-text-secondary">
+                    <Icon size={14} />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted dark:text-text-muted">
                       {card.label}
                     </div>
-                    <div className="mt-1 text-lg font-semibold text-zinc-100">{card.value}</div>
+                    <div className="truncate text-sm font-semibold text-text-primary dark:text-text-inverse">
+                      {card.value}
+                    </div>
                   </div>
-                  <span className="rounded-full border border-white/8 bg-white/5 p-2 text-zinc-300">
-                    <Icon size={16} />
-                  </span>
                 </div>
-                <div className="mt-2 text-xs text-zinc-500">{card.helper}</div>
               </div>
             );
           })}
         </div>
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 z-20 flex justify-end p-4 sm:p-6">
-        <div className="max-w-xs rounded-2xl border border-white/8 bg-black/34 px-4 py-3 text-xs leading-6 text-zinc-400 backdrop-blur">
-          <div className="font-medium uppercase tracking-[0.18em] text-zinc-500">
-            {t('blackboard.quickActions', 'Quick read')}
-          </div>
-          <div className="mt-2">
-            {t(
-              'blackboard.quickActionsHint',
-              'The center tracks completion, discussions, and agent activity. Open it to edit tasks, reply to posts, and inspect topology.'
-            )}
-          </div>
-        </div>
-      </div>
-
       <svg
         className="h-full w-full"
-        role="img"
-        aria-label={t('blackboard.title', 'Blackboard')}
+        aria-labelledby="central-blackboard-canvas-title central-blackboard-canvas-description"
         viewBox={viewBox}
       >
+        <title id="central-blackboard-canvas-title">{t('blackboard.title', 'Blackboard')}</title>
+        <desc id="central-blackboard-canvas-description">
+          {t(
+            'blackboard.canvasDescription',
+            'Overview of the central blackboard with the main board in the center and connected workstations around it.'
+          )}
+        </desc>
         <defs>
           <filter id="board-node-glow" x="-200%" y="-200%" width="400%" height="400%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blurred" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blurred" />
             <feMerge>
               <feMergeNode in="blurred" />
               <feMergeNode in="SourceGraphic" />
@@ -283,14 +285,14 @@ export function CentralBlackboardCanvas({
           </filter>
         </defs>
 
-        <rect x="-2000" y="-2000" width="4000" height="4000" fill="#070b10" />
+        <rect x="-2000" y="-2000" width="4000" height="4000" fill="var(--color-background-dark)" />
 
         {pixelGrid.map((cell) => (
           <polygon
             key={`grid-${String(cell.q)}-${String(cell.r)}`}
             points={toPolygonPoints(cell.x, cell.y, GRID_HEX_SIZE)}
             fill="transparent"
-            stroke="#14354d"
+            stroke="var(--color-border-dark)"
             strokeOpacity={0.55}
             strokeWidth={1.4}
           />
@@ -303,9 +305,9 @@ export function CentralBlackboardCanvas({
             y1={0}
             x2={actor.x}
             y2={actor.y}
-            stroke="#a78bfa"
+            stroke="var(--color-primary-light)"
             strokeOpacity={0.22}
-            strokeWidth={8}
+            strokeWidth={6}
             strokeLinecap="round"
           />
         ))}
@@ -317,7 +319,7 @@ export function CentralBlackboardCanvas({
             y1={link.fromPixel.y}
             x2={link.toPixel.x}
             y2={link.toPixel.y}
-            stroke="#3a4e6e"
+            stroke="var(--color-border-separator-dark)"
             strokeOpacity={0.62}
             strokeWidth={4}
             strokeLinecap="round"
@@ -340,7 +342,7 @@ export function CentralBlackboardCanvas({
           <polygon
             points={boardPolygon}
             fill={boardPalette.glow}
-            fillOpacity={0.14}
+            fillOpacity={0.09}
             filter="url(#board-node-glow)"
           />
           <polygon
@@ -352,7 +354,7 @@ export function CentralBlackboardCanvas({
           <polygon
             points={toPolygonPoints(0, 0, BOARD_NODE_SIZE - 10)}
             fill="transparent"
-            stroke="#6d5ad7"
+            stroke="var(--color-primary-light)"
             strokeWidth={2}
             strokeOpacity={0.82}
           />
@@ -381,7 +383,7 @@ export function CentralBlackboardCanvas({
               defaultValue: '{{done}} / {{total}} tasks complete',
             })}
           </text>
-          <text x={0} y={66} textAnchor="middle" fontSize={18} fill="#8f85bf">
+          <text x={0} y={66} textAnchor="middle" fontSize={18} fill="var(--color-primary-200)">
             {t('blackboard.boardSummaryLine', {
               posts: stats.discussions,
               pinned: stats.pinnedPosts,
@@ -401,7 +403,7 @@ export function CentralBlackboardCanvas({
               <polygon
                 points={polygon}
                 fill={palette.glow}
-                fillOpacity={0.08}
+                fillOpacity={0.05}
                 filter="url(#board-node-glow)"
               />
               <polygon

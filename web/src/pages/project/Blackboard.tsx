@@ -30,9 +30,13 @@ const CentralBlackboardModal = lazy(() =>
 
 function LoadingShell() {
   return (
-    <div className="flex h-full min-h-[420px] items-center justify-center rounded-[28px] border border-white/8 bg-white/[0.03]">
-      <div className="flex items-center gap-3 text-sm text-zinc-400">
-        <span className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-700 border-t-violet-300" />
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex h-full min-h-[420px] items-center justify-center rounded-3xl border border-border-light bg-surface-light dark:border-border-dark dark:bg-surface-dark-alt"
+    >
+      <div className="flex items-center gap-3 text-sm text-text-secondary dark:text-text-muted">
+        <span className="h-3 w-3 animate-spin rounded-full border-2 border-border-separator border-t-primary" />
         Loading…
       </div>
     </div>
@@ -317,14 +321,15 @@ export function Blackboard() {
   const handleCreatePost = useCallback(
     async (data: { title: string; content: string }) => {
       if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return;
+        return false;
       }
 
       try {
         await createPost(tenantId, projectId, selectedWorkspaceId, data);
+        return true;
       } catch (_createError) {
         message?.error(t('blackboard.errors.createPost', 'Failed to create post'));
-        return;
+        return false;
       }
     },
     [createPost, message, projectId, selectedWorkspaceId, t, tenantId]
@@ -333,14 +338,15 @@ export function Blackboard() {
   const handleCreateReply = useCallback(
     async (postId: string, content: string) => {
       if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return;
+        return false;
       }
 
       try {
         await createReply(tenantId, projectId, selectedWorkspaceId, postId, { content });
+        return true;
       } catch (_createError) {
         message?.error(t('blackboard.errors.createReply', 'Failed to create reply'));
-        return;
+        return false;
       }
     },
     [createReply, message, projectId, selectedWorkspaceId, t, tenantId]
@@ -349,14 +355,15 @@ export function Blackboard() {
   const handleLoadReplies = useCallback(
     async (postId: string) => {
       if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return;
+        return false;
       }
 
       try {
         await loadReplies(tenantId, projectId, selectedWorkspaceId, postId);
+        return true;
       } catch (_loadError) {
         message?.error(t('blackboard.errors.loadReplies', 'Failed to load replies'));
-        return;
+        return false;
       }
     },
     [loadReplies, message, projectId, selectedWorkspaceId, t, tenantId]
@@ -365,14 +372,15 @@ export function Blackboard() {
   const handleDeletePost = useCallback(
     async (postId: string) => {
       if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return;
+        return false;
       }
 
       try {
         await deletePost(tenantId, projectId, selectedWorkspaceId, postId);
+        return true;
       } catch (_deleteError) {
         message?.error(t('blackboard.errors.deletePost', 'Failed to delete post'));
-        return;
+        return false;
       }
     },
     [deletePost, message, projectId, selectedWorkspaceId, t, tenantId]
@@ -428,7 +436,7 @@ export function Blackboard() {
 
   if (workspacesLoading) {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-[#06090e] p-4 sm:p-6">
+      <div className="flex h-full min-h-0 flex-col bg-background-light p-4 dark:bg-background-dark sm:p-6">
         <LoadingShell />
       </div>
     );
@@ -436,10 +444,14 @@ export function Blackboard() {
 
   if (workspacesError) {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-[#06090e] p-4 sm:p-6">
-        <div className="rounded-[28px] border border-rose-400/20 bg-rose-500/10 p-6 text-sm leading-7 text-rose-100">
-          <div className="text-lg font-semibold">{t('common.error', 'Error')}</div>
-          <p className="mt-2 text-rose-200/90">{workspacesError}</p>
+      <div className="flex h-full min-h-0 flex-col bg-background-light p-4 dark:bg-background-dark sm:p-6">
+        <div className="rounded-3xl border border-error/25 bg-error/10 p-6 text-sm leading-7 text-status-text-error dark:text-status-text-error-dark">
+          <div className="text-lg font-semibold text-text-primary dark:text-text-inverse">
+            {t('common.error', 'Error')}
+          </div>
+          <p className="mt-2 break-words text-status-text-error dark:text-status-text-error-dark">
+            {workspacesError}
+          </p>
         </div>
       </div>
     );
@@ -447,12 +459,12 @@ export function Blackboard() {
 
   if (workspaces.length === 0) {
     return (
-      <div className="flex h-full min-h-0 flex-col justify-center bg-[#06090e] p-4 sm:p-6">
-        <div className="rounded-[28px] border border-dashed border-white/8 bg-white/[0.02] p-8 text-center">
-          <div className="text-xl font-semibold text-zinc-100">
+      <div className="flex h-full min-h-0 flex-col justify-center bg-background-light p-4 dark:bg-background-dark sm:p-6">
+        <div className="rounded-3xl border border-dashed border-border-separator bg-surface-light p-8 text-center dark:border-border-dark dark:bg-surface-dark-alt">
+          <div className="text-xl font-semibold text-text-primary dark:text-text-inverse">
             {t('blackboard.noWorkspaces', 'No workspaces found')}
           </div>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-zinc-500">
+          <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-text-secondary dark:text-text-muted">
             {t(
               'blackboard.noWorkspacesDescription',
               'Create or attach a workspace first, then the central blackboard will aggregate its tasks, discussions, and topology.'
@@ -464,16 +476,16 @@ export function Blackboard() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 bg-[#06090e] p-4 sm:p-6">
+    <div className="flex h-full min-h-0 flex-col gap-4 bg-background-light p-4 dark:bg-background-dark sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-3xl">
-          <div className="text-[11px] uppercase tracking-[0.34em] text-zinc-500">
+        <div className="max-w-3xl min-w-0">
+          <div className="text-[11px] uppercase tracking-[0.34em] text-primary/75 dark:text-primary/80">
             {t('blackboard.pageEyebrow', 'Project operations board')}
           </div>
-          <h1 className="mt-2 text-3xl font-semibold text-zinc-100">
+          <h1 className="mt-2 text-3xl font-semibold text-text-primary dark:text-text-inverse">
             {t('blackboard.title', 'Blackboard')}
           </h1>
-          <p className="mt-3 text-sm leading-7 text-zinc-400">
+          <p className="mt-3 text-sm leading-7 text-text-secondary dark:text-text-muted">
             {t(
               'blackboard.pageDescription',
               'A central command layer for your current workspace: shared goals, task execution, discussions, notes, and team topology in one place.'
@@ -482,7 +494,7 @@ export function Blackboard() {
         </div>
 
         <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto lg:items-end">
-          <label className="flex min-w-[260px] flex-col gap-2 text-xs uppercase tracking-[0.16em] text-zinc-500">
+          <label className="flex w-full flex-col gap-2 text-xs uppercase tracking-[0.16em] text-text-muted dark:text-text-muted sm:min-w-[260px]">
             {t('blackboard.workspaceLabel', 'Workspace')}
             <select
               value={selectedWorkspaceId ?? ''}
@@ -498,13 +510,13 @@ export function Blackboard() {
                   setSearchParams(nextSearchParams, { replace: true });
                 }
               }}
-              className="min-h-12 rounded-2xl border border-white/8 bg-white/[0.04] px-4 text-sm normal-case tracking-normal text-zinc-100 focus:border-violet-400/60 focus:outline-none"
+              className="min-h-12 rounded-2xl border border-border-light bg-surface-light px-4 text-sm normal-case tracking-normal text-text-primary transition focus:border-primary/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse"
             >
               {workspaces.map((workspace) => (
                 <option
                   key={workspace.id}
                   value={workspace.id}
-                  className="bg-[#111214] text-zinc-100"
+                  className="bg-surface-light text-text-primary dark:bg-surface-dark dark:text-text-inverse"
                 >
                   {workspace.name}
                 </option>
@@ -515,12 +527,12 @@ export function Blackboard() {
           {selectedWorkspaceId ? (
             <Link
               to={agentWorkspacePath}
-              className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-white/8 bg-white/[0.03] px-5 text-sm font-medium text-zinc-100 transition hover:border-violet-400/40 hover:bg-violet-500/12"
+              className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-border-light bg-surface-light px-5 text-sm font-medium text-text-primary transition hover:border-primary/30 hover:bg-primary/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse"
             >
               {t('blackboard.openInAgentWorkspace', 'Open in Agent Workspace')}
             </Link>
           ) : (
-            <span className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-white/8 px-5 text-sm font-medium text-zinc-500">
+            <span className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-border-light px-5 text-sm font-medium text-text-muted dark:border-border-dark dark:text-text-muted">
               {t('blackboard.openInAgentWorkspace', 'Open in Agent Workspace')}
             </span>
           )}
@@ -533,7 +545,7 @@ export function Blackboard() {
             disabled={
               surfaceLoading || !selectedWorkspaceId || currentWorkspace?.id !== selectedWorkspaceId
             }
-            className="min-h-12 rounded-2xl bg-violet-500 px-5 text-sm font-medium text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-12 rounded-2xl bg-primary px-5 text-sm font-medium text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t('blackboard.openBoard', 'Open central blackboard')}
           </button>
@@ -541,15 +553,15 @@ export function Blackboard() {
       </div>
 
       {error && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 sm:flex-row sm:items-center sm:justify-between">
-          <span>{error}</span>
+        <div className="flex flex-col gap-3 rounded-2xl border border-error/25 bg-error/10 px-4 py-3 text-sm text-status-text-error dark:text-status-text-error-dark sm:flex-row sm:items-center sm:justify-between">
+          <span className="break-words">{error}</span>
           <button
             type="button"
             onClick={() => {
               void handleRetrySurface();
             }}
             disabled={surfaceLoading || !selectedWorkspaceId}
-            className="min-h-10 rounded-2xl border border-rose-200/20 bg-white/5 px-4 text-sm font-medium text-rose-50 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-10 rounded-2xl border border-error/25 bg-surface-light px-4 text-sm font-medium text-status-text-error transition hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/5 dark:text-status-text-error-dark"
           >
             {surfaceLoading
               ? t('common.loading', 'Loading…')

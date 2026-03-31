@@ -1,11 +1,23 @@
+import { act } from 'react';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TaskBoard } from '@/components/workspace/TaskBoard';
+import { workspaceTaskService } from '@/services/workspaceService';
 import { render, screen, fireEvent } from '@/test/utils';
 
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceTasks: vi.fn(),
-  useWorkspaceActions: vi.fn(),
+  useWorkspaceAgents: vi.fn(),
+}));
+
+vi.mock('@/services/workspaceService', () => ({
+  workspaceTaskService: {
+    create: vi.fn(),
+    update: vi.fn(),
+    assignToAgent: vi.fn(),
+    unassignAgent: vi.fn(),
+  },
 }));
 
 describe('TaskBoard', () => {
@@ -13,27 +25,28 @@ describe('TaskBoard', () => {
     vi.clearAllMocks();
   });
 
-  it('renders tasks and triggers create action', async () => {
-    const createTask = vi.fn().mockResolvedValue(undefined);
-    const setTaskStatus = vi.fn().mockResolvedValue(undefined);
-    const { useWorkspaceTasks, useWorkspaceActions } = await import('@/stores/workspace');
+  it('renders workspace tasks and triggers create action', async () => {
+    const { useWorkspaceTasks, useWorkspaceAgents } = await import('@/stores/workspace');
 
     vi.mocked(useWorkspaceTasks).mockReturnValue([
       { id: 'task-1', title: 'Define scope', status: 'todo', workspace_id: 'ws-1' },
+      { id: 'task-2', title: 'Ignore me', status: 'todo', workspace_id: 'ws-2' },
     ] as any);
-    vi.mocked(useWorkspaceActions).mockReturnValue({
-      createTask,
-      setTaskStatus,
-    } as any);
+    vi.mocked(useWorkspaceAgents).mockReturnValue([] as any);
+    vi.mocked(workspaceTaskService.create).mockResolvedValue({ id: 'task-3' } as any);
 
     render(<TaskBoard workspaceId="ws-1" />);
 
     expect(screen.getByText('Define scope')).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText('Add task title'), {
-      target: { value: 'Build MVP' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
+    expect(screen.queryByText('Ignore me')).not.toBeInTheDocument();
 
-    expect(createTask).toHaveBeenCalledWith('ws-1', { title: 'Build MVP' });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('workspaceDetail.taskBoard.taskTitle'), {
+        target: { value: 'Build MVP' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'workspaceDetail.taskBoard.add' }));
+    });
+
+    expect(workspaceTaskService.create).toHaveBeenCalledWith('ws-1', { title: 'Build MVP' });
   });
 });
