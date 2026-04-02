@@ -26,7 +26,10 @@ vi.mock('@xterm/xterm', () => {
     dispose = mockDispose;
     cols = 80;
     rows = 24;
-    constructor(_options?: unknown) {}
+    options: Record<string, unknown> = {};
+    constructor(_options?: unknown) {
+      this.options = (_options as Record<string, unknown>) || {};
+    }
   }
 
   return {
@@ -60,8 +63,33 @@ vi.mock('../../../../services/client/urlUtils', () => ({
   },
 }));
 
-// Mock the vendored noVNC RFB class
-vi.mock('../../../../vendor/novnc/core/rfb.js', () => {
+vi.mock('../../../../stores/sandbox', () => ({
+  useSandboxStore: (selector: (state: { activeProjectId: string }) => unknown) =>
+    selector({ activeProjectId: 'proj-1' }),
+}));
+
+vi.mock('../../../../utils/tokenResolver', () => ({
+  getAuthToken: () => 'mock-token',
+}));
+
+// Mock the vendored KasmVNC dependencies
+vi.mock('../../../../vendor/kasmvnc/core/websock.js', () => ({ default: vi.fn() }));
+vi.mock('../../../../vendor/kasmvnc/core/mousebuttonmapper.js', () => {
+  class MockMouseButtonMapper {
+    set = vi.fn();
+  }
+  return {
+    default: MockMouseButtonMapper,
+    XVNC_BUTTONS: {
+      LEFT_BUTTON: 1,
+      MIDDLE_BUTTON: 2,
+      RIGHT_BUTTON: 4,
+      BACK_BUTTON: 8,
+      FORWARD_BUTTON: 16,
+    },
+  };
+});
+vi.mock('../../../../vendor/kasmvnc/core/rfb.js', () => {
   class MockRFB extends EventTarget {
     viewOnly = false;
     focusOnClick = true;
@@ -253,10 +281,13 @@ describe('RemoteDesktopViewer', () => {
   describe('Rendering', () => {
     it('should render NoVNCViewer when desktop is running with wsUrl', () => {
       render(
-        <RemoteDesktopViewer sandboxId="test-sandbox" desktopStatus={mockDesktopStatusRunning} />
+        <RemoteDesktopViewer
+          sandboxId="test-sandbox"
+          projectId="proj-1"
+          desktopStatus={mockDesktopStatusRunning}
+        />
       );
 
-      // NoVNCViewer renders a connecting state initially
       expect(screen.getByText('Connecting to desktop...')).toBeInTheDocument();
     });
 
@@ -287,12 +318,12 @@ describe('RemoteDesktopViewer', () => {
       render(
         <RemoteDesktopViewer
           sandboxId="test-sandbox"
+          projectId="proj-1"
           desktopStatus={mockDesktopStatusRunning}
           showToolbar={true}
         />
       );
 
-      // NoVNCViewer toolbar shows connection status
       expect(screen.getByText('Connecting...')).toBeInTheDocument();
     });
   });
@@ -300,7 +331,7 @@ describe('RemoteDesktopViewer', () => {
   describe('Controls', () => {
     it('should have fullscreen button', () => {
       render(
-        <RemoteDesktopViewer sandboxId="test-sandbox" desktopStatus={mockDesktopStatusRunning} />
+        <RemoteDesktopViewer sandboxId="test-sandbox" projectId="proj-1" desktopStatus={mockDesktopStatusRunning} />
       );
 
       const fullscreenButton = screen.getByRole('button', { name: /fullscreen/i });
@@ -309,7 +340,7 @@ describe('RemoteDesktopViewer', () => {
 
     it('should have reconnect button', () => {
       render(
-        <RemoteDesktopViewer sandboxId="test-sandbox" desktopStatus={mockDesktopStatusRunning} />
+        <RemoteDesktopViewer sandboxId="test-sandbox" projectId="proj-1" desktopStatus={mockDesktopStatusRunning} />
       );
 
       const reconnectButton = screen.getByRole('button', { name: /reconnect/i });

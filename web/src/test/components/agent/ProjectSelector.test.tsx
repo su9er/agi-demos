@@ -21,6 +21,8 @@ import { ProjectSelector } from '../../../components/agent/ProjectSelector';
 import { useAgentV3Store } from '../../../stores/agentV3';
 import { useProjectStore } from '../../../stores/project';
 import { useTenantStore } from '../../../stores/tenant';
+import { useIsLoadingHistory } from '../../../stores/agent/timelineStore';
+import { useAgentError } from '../../../stores/agent/streamingStore';
 
 // Mock stores
 vi.mock('../../../stores/project', () => ({
@@ -33,6 +35,18 @@ vi.mock('../../../stores/agentV3', () => ({
 
 vi.mock('../../../stores/tenant', () => ({
   useTenantStore: vi.fn(),
+}));
+
+vi.mock('../../../stores/agent/timelineStore', () => ({
+  useIsLoadingHistory: vi.fn(() => false),
+}));
+
+vi.mock('../../../stores/agent/streamingStore', () => ({
+  useAgentError: vi.fn(() => null),
+}));
+
+vi.mock('../../../stores/agent/conversationsStore', () => ({
+  useConversationsStore: vi.fn((selector: any) => selector({ conversations: [] })),
 }));
 
 describe('ProjectSelector', () => {
@@ -67,6 +81,8 @@ describe('ProjectSelector', () => {
     (useProjectStore as any).mockReturnValue(mockProjectStore);
     (useAgentV3Store as any).mockReturnValue(mockAgentStore);
     (useTenantStore as any).mockReturnValue(mockTenantStore);
+    (useIsLoadingHistory as any).mockReturnValue(false);
+    (useAgentError as any).mockReturnValue(null);
   });
 
   describe('Rendering', () => {
@@ -261,6 +277,7 @@ describe('ProjectSelector', () => {
         isLoadingHistory: true,
       };
       (useAgentV3Store as any).mockReturnValue(loadingStore);
+      (useIsLoadingHistory as any).mockReturnValue(true);
 
       render(<ProjectSelector currentProjectId="proj-1" onProjectChange={vi.fn()} />);
 
@@ -274,6 +291,7 @@ describe('ProjectSelector', () => {
         error: 'Failed to load conversations',
       };
       (useAgentV3Store as any).mockReturnValue(errorStore);
+      (useAgentError as any).mockReturnValue('Failed to load conversations');
 
       render(<ProjectSelector currentProjectId="proj-1" onProjectChange={vi.fn()} />);
 

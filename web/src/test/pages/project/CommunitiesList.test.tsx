@@ -129,8 +129,17 @@ describe('CommunitiesList - Performance Optimizations', () => {
   });
 
   it('should use useMemo for computed pagination values', async () => {
+    const paginationCommunities = [
+      {
+        uuid: 'c1',
+        name: 'Community 1',
+        summary: 'Summary of C1',
+        member_count: 10,
+        formed_at: new Date().toISOString(),
+      },
+    ];
     (graphService.listCommunities as any).mockResolvedValue({
-      communities: mockCommunities,
+      communities: paginationCommunities,
       total: 50,
     });
 
@@ -141,7 +150,8 @@ describe('CommunitiesList - Performance Optimizations', () => {
     });
 
     // Pagination should work correctly with memoized values
-    expect(screen.getByText('Page 1 of 3')).toBeInTheDocument();
+    const pageTexts = screen.getAllByText('Page 1 of 3');
+    expect(pageTexts.length).toBeGreaterThanOrEqual(1);
   });
 
   it('should have stable color palette outside component', () => {

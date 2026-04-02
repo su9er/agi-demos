@@ -143,7 +143,7 @@ describe('SandboxStatusIndicator', () => {
       await Promise.resolve();
     });
 
-    expect(screen.queryByText('运行中')).not.toBeInTheDocument();
+    expect(screen.queryByText('agent.sandbox.status.running')).not.toBeInTheDocument();
 
     await act(async () => {
       resolveProj2?.({
@@ -157,7 +157,7 @@ describe('SandboxStatusIndicator', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('运行中')).toBeInTheDocument();
+      expect(screen.getByText('agent.sandbox.status.running')).toBeInTheDocument();
     });
 
     expect(latestHandler).not.toBeNull();

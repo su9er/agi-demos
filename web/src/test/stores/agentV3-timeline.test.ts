@@ -12,6 +12,9 @@ import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { useAgentV3Store } from '../../stores/agentV3';
+import { useTimelineStore } from '../../stores/agent/timelineStore';
+import { useStreamingStore } from '../../stores/agent/streamingStore';
+import { useExecutionStore } from '../../stores/agent/executionStore';
 
 import type { TimelineEvent } from '../../types/agent';
 
@@ -25,60 +28,86 @@ vi.mock('../../services/agentService', () => ({
         timeline: [],
         total: 0,
         has_more: false,
-        first_sequence: null,
-        last_sequence: null,
+        first_time_us: null,
+        first_counter: null,
+        last_time_us: null,
+        last_counter: null,
       })
     ),
     createConversation: vi.fn(() => Promise.resolve({ id: 'new-conv', project_id: 'proj-123' })),
     deleteConversation: vi.fn(() => Promise.resolve()),
     getExecutionStatus: vi.fn(() => Promise.resolve({ is_running: false, last_sequence: 0 })),
+    connect: vi.fn(() => Promise.resolve()),
+    isConnected: vi.fn(() => true),
+    subscribe: vi.fn(),
+    listConversations: vi.fn(() =>
+      Promise.resolve({ items: [], has_more: false, total: 0 })
+    ),
   },
 }));
 
+vi.mock('../../stores/contextStore', () => ({
+  useContextStore: {
+    getState: vi.fn(() => ({
+      fetchContextStatus: vi.fn(() => Promise.resolve()),
+    })),
+  },
+}));
+
+vi.mock('../../services/planService', () => ({
+  planService: {
+    getMode: vi.fn(() => Promise.resolve({ mode: 'act' })),
+  },
+}));
+
+vi.mock('../../services/client/httpClient', () => ({
+  httpClient: {
+    get: vi.fn(() => Promise.resolve({ tasks: [] })),
+  },
+}));
+
+vi.mock('../../utils/conversationDB', () => ({
+  saveConversationState: vi.fn(() => Promise.resolve()),
+  loadConversationState: vi.fn(() => Promise.resolve(null)),
+  deleteConversationState: vi.fn(() => Promise.resolve()),
+}));
+
+function getTimeline() {
+  return useTimelineStore.getState().agentTimeline;
+}
+
 describe('agentV3 Store - Timeline Field', () => {
   beforeEach(() => {
-    // Reset store before each test
     useAgentV3Store.setState({
       conversations: [],
       activeConversationId: null,
-      messages: [],
-      timeline: [], // NEW FIELD
-      isLoadingHistory: false,
-      isStreaming: false,
-      streamStatus: 'idle',
-      error: null,
-      agentState: 'idle',
-      currentThought: '',
-      activeToolCalls: new Map(),
-      pendingToolsStack: [],
-      workPlan: null,
-      isPlanMode: false,
-      pendingDecision: null,
-      doomLoopDetected: null,
+      conversationStates: new Map(),
     });
+
+    useTimelineStore.getState().resetAgentTimeline();
+    useStreamingStore.getState().resetAgentStreaming();
+    useExecutionStore.getState().resetAgentExecution();
+
+    vi.clearAllMocks();
   });
 
   describe('State Structure', () => {
     it('should have timeline field in state', () => {
-      const { result } = renderHook(() => useAgentV3Store());
-
-      // Verify timeline field exists
-      expect(Array.isArray(result.current.timeline)).toBe(true);
+      renderHook(() => useAgentV3Store());
+      expect(Array.isArray(getTimeline())).toBe(true);
     });
 
     it('should initialize timeline as empty array', () => {
-      const { result } = renderHook(() => useAgentV3Store());
-
-      expect(result.current.timeline).toEqual([]);
-      expect(result.current.timeline.length).toBe(0);
+      renderHook(() => useAgentV3Store());
+      expect(getTimeline()).toEqual([]);
+      expect(getTimeline().length).toBe(0);
     });
 
     it('should maintain both timeline and messages for backward compatibility', () => {
-      const { result } = renderHook(() => useAgentV3Store());
-
-      // Both fields should exist
-      expect(Array.isArray(result.current.timeline)).toBe(true);
-      expect(Array.isArray(result.current.messages)).toBe(true);
+      renderHook(() => useAgentV3Store());
+      const tls = useTimelineStore.getState();
+      expect(Array.isArray(tls.agentTimeline)).toBe(true);
+      expect(Array.isArray(tls.agentMessages)).toBe(true);
     });
   });
 
@@ -90,7 +119,8 @@ describe('agentV3 Store - Timeline Field', () => {
         {
           id: 'user-1',
           type: 'user_message',
-          sequenceNumber: 1,
+          eventTimeUs: Date.now() * 1000,
+          eventCounter: 1,
           timestamp: Date.now(),
           content: 'Hello',
           role: 'user',
@@ -98,7 +128,8 @@ describe('agentV3 Store - Timeline Field', () => {
         {
           id: 'assistant-1',
           type: 'assistant_message',
-          sequenceNumber: 2,
+          eventTimeUs: Date.now() * 1000 + 1000,
+          eventCounter: 2,
           timestamp: Date.now() + 1000,
           content: 'Hi there!',
           role: 'assistant',
@@ -106,7 +137,8 @@ describe('agentV3 Store - Timeline Field', () => {
         {
           id: 'thought-1',
           type: 'thought',
-          sequenceNumber: 3,
+          eventTimeUs: Date.now() * 1000 + 2000,
+          eventCounter: 3,
           timestamp: Date.now() + 2000,
           content: 'I should help...',
         },
@@ -119,45 +151,42 @@ describe('agentV3 Store - Timeline Field', () => {
         timeline: mockTimeline,
         total: 3,
         has_more: false,
-        first_sequence: 1,
-        last_sequence: 3,
-      });
+        first_time_us: mockTimeline[0].eventTimeUs,
+        first_counter: 1,
+        last_time_us: mockTimeline[2].eventTimeUs,
+        last_counter: 3,
+      } as any);
 
       await act(async () => {
-        // Set active conversation first (required by loadMessages)
         useAgentV3Store.setState({ activeConversationId: 'conv-123' });
         await result.current.loadMessages('conv-123', 'proj-123');
       });
 
-      // Timeline should be stored
-      expect(result.current.timeline).toEqual(mockTimeline);
-      expect(result.current.timeline.length).toBe(3);
+      const timeline = getTimeline();
+      expect(timeline).toEqual(mockTimeline);
+      expect(timeline.length).toBe(3);
     });
 
     it('should clear timeline when loading new conversation', async () => {
       const { result } = renderHook(() => useAgentV3Store());
 
-      // Set initial timeline (from a previous conversation)
       act(() => {
-        useAgentV3Store.setState({
-          activeConversationId: 'old-conv', // Different from what we'll load
-          timeline: [
-            {
-              id: 'old-1',
-              type: 'user_message',
-              eventTimeUs: Date.now() * 1000,
-              eventCounter: 1,
-              timestamp: Date.now(),
-              content: 'Old message',
-              role: 'user',
-            } as TimelineEvent,
-          ],
-        });
+        useAgentV3Store.setState({ activeConversationId: 'old-conv' });
+        useTimelineStore.getState().setAgentTimeline([
+          {
+            id: 'old-1',
+            type: 'user_message',
+            eventTimeUs: Date.now() * 1000,
+            eventCounter: 1,
+            timestamp: Date.now(),
+            content: 'Old message',
+            role: 'user',
+          } as TimelineEvent,
+        ]);
       });
 
-      expect(result.current.timeline.length).toBe(1);
+      expect(getTimeline().length).toBe(1);
 
-      // Load new conversation (empty timeline)
       vi.mocked(
         (await import('../../services/agentService')).agentService
       ).getConversationMessages.mockResolvedValue({
@@ -169,28 +198,27 @@ describe('agentV3 Store - Timeline Field', () => {
         first_counter: null,
         last_time_us: null,
         last_counter: null,
-      });
+      } as any);
 
       await act(async () => {
-        // Need to set activeConversationId to match what we're loading
         useAgentV3Store.setState({ activeConversationId: 'conv-456' });
         await result.current.loadMessages('conv-456', 'proj-123');
       });
 
-      // Timeline should be cleared
-      expect(result.current.timeline).toEqual([]);
+      expect(getTimeline()).toEqual([]);
     });
   });
 
   describe('Streaming - Timeline Append', () => {
     it('should append thought events to timeline during streaming', () => {
-      const { result } = renderHook(() => useAgentV3Store());
+      renderHook(() => useAgentV3Store());
 
       const initialTimeline: TimelineEvent[] = [
         {
           id: 'user-1',
           type: 'user_message',
-          sequenceNumber: 1,
+          eventTimeUs: Date.now() * 1000,
+          eventCounter: 1,
           timestamp: Date.now(),
           content: 'Help me',
           role: 'user',
@@ -198,56 +226,54 @@ describe('agentV3 Store - Timeline Field', () => {
       ];
 
       act(() => {
-        useAgentV3Store.setState({ timeline: initialTimeline });
+        useTimelineStore.getState().setAgentTimeline(initialTimeline);
       });
 
-      // Simulate streaming thought event
       const thoughtEvent: TimelineEvent = {
         id: 'thought-1',
         type: 'thought',
-        sequenceNumber: 2,
+        eventTimeUs: Date.now() * 1000 + 1000,
+        eventCounter: 2,
         timestamp: Date.now() + 1000,
         content: 'I should help the user',
       };
 
       act(() => {
-        useAgentV3Store.setState((state) => ({
-          timeline: [...state.timeline, thoughtEvent],
-        }));
+        useTimelineStore.getState().setAgentTimeline([...initialTimeline, thoughtEvent]);
       });
 
-      expect(result.current.timeline.length).toBe(2);
-      expect(result.current.timeline[1]).toEqual(thoughtEvent);
+      expect(getTimeline().length).toBe(2);
+      expect(getTimeline()[1]).toEqual(thoughtEvent);
     });
 
     it('should append act events to timeline during streaming', () => {
-      const { result } = renderHook(() => useAgentV3Store());
+      renderHook(() => useAgentV3Store());
 
       const actEvent: TimelineEvent = {
         id: 'act-1',
         type: 'act',
-        sequenceNumber: 2,
+        eventTimeUs: Date.now() * 1000,
+        eventCounter: 2,
         timestamp: Date.now(),
         toolName: 'web_search',
         toolInput: { query: 'test' },
       };
 
       act(() => {
-        useAgentV3Store.setState((state) => ({
-          timeline: [...state.timeline, actEvent],
-        }));
+        useTimelineStore.getState().setAgentTimeline([actEvent]);
       });
 
-      expect(result.current.timeline).toContainEqual(actEvent);
+      expect(getTimeline()).toContainEqual(actEvent);
     });
 
     it('should append observe events to timeline during streaming', () => {
-      const { result } = renderHook(() => useAgentV3Store());
+      renderHook(() => useAgentV3Store());
 
       const observeEvent: TimelineEvent = {
         id: 'observe-1',
         type: 'observe',
-        sequenceNumber: 3,
+        eventTimeUs: Date.now() * 1000,
+        eventCounter: 3,
         timestamp: Date.now(),
         toolName: 'web_search',
         toolOutput: 'Search results',
@@ -255,29 +281,29 @@ describe('agentV3 Store - Timeline Field', () => {
       };
 
       act(() => {
-        useAgentV3Store.setState((state) => ({
-          timeline: [...state.timeline, observeEvent],
-        }));
+        useTimelineStore.getState().setAgentTimeline([observeEvent]);
       });
 
-      expect(result.current.timeline).toContainEqual(observeEvent);
+      expect(getTimeline()).toContainEqual(observeEvent);
     });
 
     it('should maintain event order by sequenceNumber', () => {
-      const { result } = renderHook(() => useAgentV3Store());
+      renderHook(() => useAgentV3Store());
 
       const events: TimelineEvent[] = [
         {
           id: 'event-3',
           type: 'thought',
-          sequenceNumber: 3,
+          eventTimeUs: 3000,
+          eventCounter: 3,
           timestamp: 3000,
           content: 'Third',
         },
         {
           id: 'event-1',
           type: 'user_message',
-          sequenceNumber: 1,
+          eventTimeUs: 1000,
+          eventCounter: 1,
           timestamp: 1000,
           content: 'First',
           role: 'user',
@@ -285,7 +311,8 @@ describe('agentV3 Store - Timeline Field', () => {
         {
           id: 'event-2',
           type: 'assistant_message',
-          sequenceNumber: 2,
+          eventTimeUs: 2000,
+          eventCounter: 2,
           timestamp: 2000,
           content: 'Second',
           role: 'assistant',
@@ -293,26 +320,23 @@ describe('agentV3 Store - Timeline Field', () => {
       ];
 
       act(() => {
-        useAgentV3Store.setState((state) => ({
-          timeline: [...state.timeline, ...events],
-        }));
+        useTimelineStore.getState().setAgentTimeline(events);
       });
 
-      // Should be stored in insertion order, not sorted
-      expect(result.current.timeline.length).toBe(3);
+      expect(getTimeline().length).toBe(3);
     });
   });
 
   describe('Timeline Consistency', () => {
     it('should have consistent event types between API and streaming', () => {
-      const { result } = renderHook(() => useAgentV3Store());
+      renderHook(() => useAgentV3Store());
 
-      // Event types from API
       const apiEvents: TimelineEvent[] = [
         {
           id: 'api-1',
           type: 'user_message',
-          sequenceNumber: 1,
+          eventTimeUs: Date.now() * 1000,
+          eventCounter: 1,
           timestamp: Date.now(),
           content: 'From API',
           role: 'user',
@@ -320,14 +344,16 @@ describe('agentV3 Store - Timeline Field', () => {
         {
           id: 'api-2',
           type: 'thought',
-          sequenceNumber: 2,
+          eventTimeUs: Date.now() * 1000 + 1,
+          eventCounter: 2,
           timestamp: Date.now(),
           content: 'From API thought',
         },
         {
           id: 'api-3',
           type: 'act',
-          sequenceNumber: 3,
+          eventTimeUs: Date.now() * 1000 + 2,
+          eventCounter: 3,
           timestamp: Date.now(),
           toolName: 'search',
           toolInput: { query: 'test' },
@@ -335,7 +361,8 @@ describe('agentV3 Store - Timeline Field', () => {
         {
           id: 'api-4',
           type: 'observe',
-          sequenceNumber: 4,
+          eventTimeUs: Date.now() * 1000 + 3,
+          eventCounter: 4,
           timestamp: Date.now(),
           toolName: 'search',
           toolOutput: 'result',
@@ -344,29 +371,28 @@ describe('agentV3 Store - Timeline Field', () => {
       ];
 
       act(() => {
-        useAgentV3Store.setState({ timeline: apiEvents });
+        useTimelineStore.getState().setAgentTimeline(apiEvents);
       });
 
-      // All event types should be stored
-      expect(result.current.timeline.length).toBe(4);
-
-      // Verify types
-      expect(result.current.timeline[0].type).toBe('user_message');
-      expect(result.current.timeline[1].type).toBe('thought');
-      expect(result.current.timeline[2].type).toBe('act');
-      expect(result.current.timeline[3].type).toBe('observe');
+      const timeline = getTimeline();
+      expect(timeline.length).toBe(4);
+      expect(timeline[0].type).toBe('user_message');
+      expect(timeline[1].type).toBe('thought');
+      expect(timeline[2].type).toBe('act');
+      expect(timeline[3].type).toBe('observe');
     });
   });
 
   describe('Backward Compatibility', () => {
     it('should still provide messages field derived from timeline', () => {
-      const { result } = renderHook(() => useAgentV3Store());
+      renderHook(() => useAgentV3Store());
 
       const timeline: TimelineEvent[] = [
         {
           id: 'user-1',
           type: 'user_message',
-          sequenceNumber: 1,
+          eventTimeUs: Date.now() * 1000,
+          eventCounter: 1,
           timestamp: Date.now(),
           content: 'Hello',
           role: 'user',
@@ -374,11 +400,10 @@ describe('agentV3 Store - Timeline Field', () => {
       ];
 
       act(() => {
-        useAgentV3Store.setState({ timeline });
+        useTimelineStore.getState().setAgentTimeline(timeline);
       });
 
-      // messages field should still exist
-      expect(Array.isArray(result.current.messages)).toBe(true);
+      expect(Array.isArray(useTimelineStore.getState().agentMessages)).toBe(true);
     });
   });
 
@@ -387,12 +412,11 @@ describe('agentV3 Store - Timeline Field', () => {
       const { result } = renderHook(() => useAgentV3Store());
 
       const baseTime = Date.now() * 1000;
-      // Mock API returning unsorted timeline (simulating potential backend issue)
       const unsortedTimeline: TimelineEvent[] = [
         {
           id: 'assistant-2',
           type: 'assistant_message',
-          eventTimeUs: baseTime + 2000000, // 3rd
+          eventTimeUs: baseTime + 2000000,
           eventCounter: 3,
           timestamp: Date.now() + 2000,
           content: 'Second response',
@@ -401,7 +425,7 @@ describe('agentV3 Store - Timeline Field', () => {
         {
           id: 'user-1',
           type: 'user_message',
-          eventTimeUs: baseTime, // 1st
+          eventTimeUs: baseTime,
           eventCounter: 1,
           timestamp: Date.now(),
           content: 'First message',
@@ -410,7 +434,7 @@ describe('agentV3 Store - Timeline Field', () => {
         {
           id: 'assistant-1',
           type: 'assistant_message',
-          eventTimeUs: baseTime + 1000000, // 2nd
+          eventTimeUs: baseTime + 1000000,
           eventCounter: 2,
           timestamp: Date.now() + 1000,
           content: 'First response',
@@ -429,28 +453,27 @@ describe('agentV3 Store - Timeline Field', () => {
         first_counter: 1,
         last_time_us: baseTime + 2000000,
         last_counter: 3,
-      });
+      } as any);
 
       await act(async () => {
         useAgentV3Store.setState({ activeConversationId: 'conv-123' });
         await result.current.loadMessages('conv-123', 'proj-123');
       });
 
-      // Timeline should be sorted by eventTimeUs
-      expect(result.current.timeline.length).toBe(3);
-      expect(result.current.timeline[0].eventCounter).toBe(1);
-      expect(result.current.timeline[1].eventCounter).toBe(2);
-      expect(result.current.timeline[2].eventCounter).toBe(3);
-      expect(result.current.timeline[0].type).toBe('user_message');
-      expect(result.current.timeline[1].type).toBe('assistant_message');
-      expect(result.current.timeline[2].type).toBe('assistant_message');
+      const timeline = getTimeline();
+      expect(timeline.length).toBe(3);
+      expect(timeline[0].eventCounter).toBe(1);
+      expect(timeline[1].eventCounter).toBe(2);
+      expect(timeline[2].eventCounter).toBe(3);
+      expect(timeline[0].type).toBe('user_message');
+      expect(timeline[1].type).toBe('assistant_message');
+      expect(timeline[2].type).toBe('assistant_message');
     });
 
     it('should maintain sort order when loading earlier messages', async () => {
       const { result } = renderHook(() => useAgentV3Store());
 
       const baseTime = Date.now() * 1000;
-      // Set initial state with some timeline events
       const existingTimeline: TimelineEvent[] = [
         {
           id: 'user-3',
@@ -473,15 +496,13 @@ describe('agentV3 Store - Timeline Field', () => {
       ];
 
       act(() => {
-        useAgentV3Store.setState({
-          activeConversationId: 'conv-123',
-          timeline: existingTimeline,
-          earliestTimeUs: baseTime + 5000000,
-          earliestCounter: 5,
-        });
+        useAgentV3Store.setState({ activeConversationId: 'conv-123' });
+        const tls = useTimelineStore.getState();
+        tls.setAgentTimeline(existingTimeline);
+        tls.setAgentHasEarlier(true);
+        tls.setAgentEarliestPointers(baseTime + 5000000, 5);
       });
 
-      // Mock earlier messages API response
       const earlierTimeline: TimelineEvent[] = [
         {
           id: 'user-1',
@@ -514,18 +535,18 @@ describe('agentV3 Store - Timeline Field', () => {
         first_counter: 1,
         last_time_us: baseTime + 2000000,
         last_counter: 2,
-      });
+      } as any);
 
       await act(async () => {
         await result.current.loadEarlierMessages('conv-123', 'proj-123');
       });
 
-      // Combined timeline should be sorted
-      expect(result.current.timeline.length).toBe(4);
-      expect(result.current.timeline[0].eventCounter).toBe(1);
-      expect(result.current.timeline[1].eventCounter).toBe(2);
-      expect(result.current.timeline[2].eventCounter).toBe(5);
-      expect(result.current.timeline[3].eventCounter).toBe(6);
+      const timeline = getTimeline();
+      expect(timeline.length).toBe(4);
+      expect(timeline[0].eventCounter).toBe(1);
+      expect(timeline[1].eventCounter).toBe(2);
+      expect(timeline[2].eventCounter).toBe(5);
+      expect(timeline[3].eventCounter).toBe(6);
     });
   });
 });

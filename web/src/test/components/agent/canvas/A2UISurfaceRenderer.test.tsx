@@ -66,18 +66,8 @@ describe('A2UISurfaceRenderer', () => {
 
   it('renders fenced multi-line JSON objects', () => {
     const messages = `\`\`\`json
-{
-  "beginRendering": {
-    "surfaceId": "s1",
-    "root": "root-1"
-  }
-}
-{
-  "surfaceUpdate": {
-    "surfaceId": "s1",
-    "components": ${JSON.stringify(components)}
-  }
-}
+{"beginRendering":{"surfaceId":"s1","root":"root-1"}}
+{"surfaceUpdate":{"surfaceId":"s1","components":${JSON.stringify(components)}}}
 \`\`\``;
 
     render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);

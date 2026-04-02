@@ -24,19 +24,22 @@ vi.mock('../../../services/agentService', () => ({
 
 const getConversationMessages = vi.mocked(agentService.getConversationMessages);
 
-// Helper to create mock timeline response with pagination metadata
 const createMockResponse = (
   timeline: any[],
   hasMore: boolean,
-  firstSeq: number | null,
-  lastSeq: number | null
+  firstTimeUs: number | null,
+  lastTimeUs: number | null,
+  firstCounter: number | null = firstTimeUs ? 1 : null,
+  lastCounter: number | null = lastTimeUs ? timeline.length : null
 ) => ({
   conversationId: 'mock-conv-id',
   timeline,
   total: timeline.length,
   has_more: hasMore,
-  first_sequence: firstSeq,
-  last_sequence: lastSeq,
+  first_time_us: firstTimeUs,
+  first_counter: firstCounter,
+  last_time_us: lastTimeUs,
+  last_counter: lastCounter,
 });
 
 describe('TimelineStore Pagination Improvements', () => {
@@ -51,20 +54,19 @@ describe('TimelineStore Pagination Improvements', () => {
         {
           id: '1',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          time_us: 1000,
+          counter: 1,
           content: 'Msg 1',
           role: 'user',
         },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(mockTimeline, false, 1, 1)
+        createMockResponse(mockTimeline, false, 1000, 1000, 1, 1)
       );
 
       await useTimelineStore.getState().getTimeline('conv-1', 'proj-1');
 
-      // Verify that API was called with limit=50
       expect(getConversationMessages).toHaveBeenCalledWith('conv-1', 'proj-1', 50);
     });
 
@@ -74,34 +76,42 @@ describe('TimelineStore Pagination Improvements', () => {
           {
             id: '50',
             type: 'user_message',
-            sequenceNumber: 50,
-            timestamp: 50000,
+            time_us: 50000,
+            counter: 50,
             content: 'Msg 50',
             role: 'user',
           },
         ] as any,
-        earliestLoadedSequence: 50,
+        earliestTimeUs: 50000,
+        earliestCounter: 50,
       });
 
       const earlierTimeline = [
         {
           id: '1',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          time_us: 1000,
+          counter: 1,
           content: 'Msg 1',
           role: 'user',
         },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(earlierTimeline, false, 1, 1)
+        createMockResponse(earlierTimeline, false, 1000, 1000, 1, 1)
       );
 
       await useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
 
-      // Verify that API was called with limit=50 and before_sequence=50
-      expect(getConversationMessages).toHaveBeenCalledWith('conv-1', 'proj-1', 50, undefined, 50);
+      expect(getConversationMessages).toHaveBeenCalledWith(
+        'conv-1',
+        'proj-1',
+        50,
+        undefined,
+        undefined,
+        50000,
+        50
+      );
     });
   });
 
@@ -110,23 +120,20 @@ describe('TimelineStore Pagination Improvements', () => {
       const mockTimeline = Array.from({ length: 50 }, (_, i) => ({
         id: `msg-${i + 1}`,
         type: 'user_message',
-        sequenceNumber: i + 1,
-        timestamp: (i + 1) * 1000,
+        time_us: (i + 1) * 1000,
+        counter: i + 1,
         content: `Message ${i + 1}`,
         role: 'user',
       }));
 
-      // API returns has_more=true
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(mockTimeline, true, 1, 50)
+        createMockResponse(mockTimeline, true, 1000, 50000, 1, 50)
       );
 
       await useTimelineStore.getState().getTimeline('conv-1', 'proj-1');
 
       const state = useTimelineStore.getState();
 
-      // Store should track hasEarlier state
-      // This will be added to the store state
       expect(state.timeline).toHaveLength(50);
     });
 
@@ -135,16 +142,15 @@ describe('TimelineStore Pagination Improvements', () => {
         {
           id: '1',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          time_us: 1000,
+          counter: 1,
           content: 'Msg 1',
           role: 'user',
         },
       ];
 
-      // API returns has_more=false
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(mockTimeline, false, 1, 1)
+        createMockResponse(mockTimeline, false, 1000, 1000, 1, 1)
       );
 
       await useTimelineStore.getState().getTimeline('conv-1', 'proj-1');
@@ -154,61 +160,60 @@ describe('TimelineStore Pagination Improvements', () => {
     });
 
     it('should update hasEarlier after loading earlier messages', async () => {
-      // Initial state with 50 messages, has_more=true
       useTimelineStore.setState({
         timeline: Array.from({ length: 50 }, (_, i) => ({
           id: `msg-${i + 51}`,
           type: 'user_message',
-          sequenceNumber: i + 51,
-          timestamp: (i + 51) * 1000,
+          time_us: (i + 51) * 1000,
+          counter: i + 51,
           content: `Message ${i + 51}`,
           role: 'user',
         })) as any,
-        earliestLoadedSequence: 51,
+        earliestTimeUs: 51000,
+        earliestCounter: 51,
       });
 
-      // Load earlier 10 messages (all remaining)
       const earlierTimeline = Array.from({ length: 10 }, (_, i) => ({
         id: `msg-${i + 1}`,
         type: 'user_message',
-        sequenceNumber: i + 1,
-        timestamp: (i + 1) * 1000,
+        time_us: (i + 1) * 1000,
+        counter: i + 1,
         content: `Message ${i + 1}`,
         role: 'user',
       }));
 
-      // No more messages after this
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(earlierTimeline, false, 1, 10)
+        createMockResponse(earlierTimeline, false, 1000, 10000, 1, 10)
       );
 
       await useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
 
       const state = useTimelineStore.getState();
-      expect(state.earliestLoadedSequence).toBe(1);
+      expect(state.earliestTimeUs).toBe(1000);
     });
   });
 
   describe('loadEarlierMessages behavior', () => {
     it('should return true when load was initiated', async () => {
       useTimelineStore.setState({
-        timeline: [{ id: '50', type: 'user_message', sequenceNumber: 50 }] as any,
-        earliestLoadedSequence: 50,
+        timeline: [{ id: '50', type: 'user_message', time_us: 50000, counter: 50 }] as any,
+        earliestTimeUs: 50000,
+        earliestCounter: 50,
       });
 
       const earlierTimeline = [
         {
           id: '1',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          time_us: 1000,
+          counter: 1,
           content: 'Msg 1',
           role: 'user',
         },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(earlierTimeline, false, 1, 1)
+        createMockResponse(earlierTimeline, false, 1000, 1000, 1, 1)
       );
 
       const result = await useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
@@ -226,7 +231,7 @@ describe('TimelineStore Pagination Improvements', () => {
     it('should return false when skipped due to already loading', async () => {
       useTimelineStore.setState({
         isLoadingEarlier: true,
-        earliestLoadedSequence: 50,
+        earliestTimeUs: 50000,
       });
 
       const result = await useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
@@ -241,83 +246,85 @@ describe('TimelineStore Pagination Improvements', () => {
           {
             id: '51',
             type: 'user_message',
-            sequenceNumber: 51,
-            timestamp: 51000,
+            time_us: 51000,
+            counter: 51,
             content: 'Msg 51',
             role: 'user',
           },
           {
             id: '52',
             type: 'user_message',
-            sequenceNumber: 52,
-            timestamp: 52000,
+            time_us: 52000,
+            counter: 52,
             content: 'Msg 52',
             role: 'user',
           },
         ] as any,
-        earliestLoadedSequence: 51,
-        latestLoadedSequence: 52,
+        earliestTimeUs: 51000,
+        earliestCounter: 51,
+        latestTimeUs: 52000,
+        latestCounter: 52,
       });
 
       const earlierTimeline = [
         {
           id: '49',
           type: 'user_message',
-          sequenceNumber: 49,
-          timestamp: 49000,
+          time_us: 49000,
+          counter: 49,
           content: 'Msg 49',
           role: 'user',
         },
         {
           id: '50',
           type: 'user_message',
-          sequenceNumber: 50,
-          timestamp: 50000,
+          time_us: 50000,
+          counter: 50,
           content: 'Msg 50',
           role: 'user',
         },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(earlierTimeline, true, 49, 50)
+        createMockResponse(earlierTimeline, true, 49000, 50000, 49, 50)
       );
 
       await useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
 
       const state = useTimelineStore.getState();
 
-      // Timeline should have 4 events: 49, 50, 51, 52
       expect(state.timeline).toHaveLength(4);
-      expect(state.timeline[0].sequenceNumber).toBe(49);
-      expect(state.timeline[1].sequenceNumber).toBe(50);
-      expect(state.timeline[2].sequenceNumber).toBe(51);
-      expect(state.timeline[3].sequenceNumber).toBe(52);
+      expect(state.timeline[0].id).toBe('49');
+      expect(state.timeline[1].id).toBe('50');
+      expect(state.timeline[2].id).toBe('51');
+      expect(state.timeline[3].id).toBe('52');
     });
 
-    it('should update earliestLoadedSequence after load', async () => {
+    it('should update earliestTimeUs after load', async () => {
       useTimelineStore.setState({
-        timeline: [{ id: '51', type: 'user_message', sequenceNumber: 51 }] as any,
-        earliestLoadedSequence: 51,
+        timeline: [{ id: '51', type: 'user_message', time_us: 51000, counter: 51 }] as any,
+        earliestTimeUs: 51000,
+        earliestCounter: 51,
       });
 
       const earlierTimeline = [
         {
           id: '1',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          time_us: 1000,
+          counter: 1,
           content: 'Msg 1',
           role: 'user',
         },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(earlierTimeline, false, 1, 1)
+        createMockResponse(earlierTimeline, false, 1000, 1000, 1, 1)
       );
 
       await useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
 
-      expect(useTimelineStore.getState().earliestLoadedSequence).toBe(1);
+      expect(useTimelineStore.getState().earliestTimeUs).toBe(1000);
     });
   });
 
@@ -326,14 +333,14 @@ describe('TimelineStore Pagination Improvements', () => {
       const mockTimeline = Array.from({ length: 50 }, (_, i) => ({
         id: `msg-${i + 1}`,
         type: 'user_message',
-        sequenceNumber: i + 1,
-        timestamp: (i + 1) * 1000,
+        time_us: (i + 1) * 1000,
+        counter: i + 1,
         content: `Message ${i + 1}`,
         role: 'user',
       }));
 
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(mockTimeline, true, 1, 50)
+        createMockResponse(mockTimeline, true, 1000, 50000, 1, 50)
       );
 
       await useTimelineStore.getState().getTimeline('conv-1', 'proj-1');
@@ -341,22 +348,22 @@ describe('TimelineStore Pagination Improvements', () => {
       const state = useTimelineStore.getState();
 
       expect(state.timeline).toHaveLength(50);
-      expect(state.earliestLoadedSequence).toBe(1);
-      expect(state.latestLoadedSequence).toBe(50);
+      expect(state.earliestTimeUs).toBe(1000);
+      expect(state.latestTimeUs).toBe(50000);
     });
 
     it('should handle case where fewer than 50 events exist', async () => {
       const mockTimeline = Array.from({ length: 10 }, (_, i) => ({
         id: `msg-${i + 1}`,
         type: 'user_message',
-        sequenceNumber: i + 1,
-        timestamp: (i + 1) * 1000,
+        time_us: (i + 1) * 1000,
+        counter: i + 1,
         content: `Message ${i + 1}`,
         role: 'user',
       }));
 
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(mockTimeline, false, 1, 10)
+        createMockResponse(mockTimeline, false, 1000, 10000, 1, 10)
       );
 
       await useTimelineStore.getState().getTimeline('conv-1', 'proj-1');
@@ -364,66 +371,67 @@ describe('TimelineStore Pagination Improvements', () => {
       const state = useTimelineStore.getState();
 
       expect(state.timeline).toHaveLength(10);
-      expect(state.earliestLoadedSequence).toBe(1);
-      expect(state.latestLoadedSequence).toBe(10);
+      expect(state.earliestTimeUs).toBe(1000);
+      expect(state.latestTimeUs).toBe(10000);
     });
   });
 
   describe('Edge cases', () => {
     it('should handle empty response from loadEarlierMessages', async () => {
       useTimelineStore.setState({
-        timeline: [{ id: '50', type: 'user_message', sequenceNumber: 50 }] as any,
-        earliestLoadedSequence: 50,
+        timeline: [{ id: '50', type: 'user_message', time_us: 50000, counter: 50 }] as any,
+        earliestTimeUs: 50000,
+        earliestCounter: 50,
       });
 
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse([], false, null, null)
+        createMockResponse([], false, null, null, null, null)
       );
 
       await useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
 
       const state = useTimelineStore.getState();
 
-      // Timeline should remain unchanged
       expect(state.timeline).toHaveLength(1);
     });
 
     it('should handle concurrent loadEarlierMessages calls', async () => {
       useTimelineStore.setState({
-        timeline: [{ id: '50', type: 'user_message', sequenceNumber: 50 }] as any,
-        earliestLoadedSequence: 50,
+        timeline: [{ id: '50', type: 'user_message', time_us: 50000, counter: 50 }] as any,
+        earliestTimeUs: 50000,
+        earliestCounter: 50,
       });
 
       const earlierTimeline = [
         {
           id: '1',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          time_us: 1000,
+          counter: 1,
           content: 'Msg 1',
           role: 'user',
         },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
-        createMockResponse(earlierTimeline, false, 1, 1)
+        createMockResponse(earlierTimeline, false, 1000, 1000, 1, 1)
       );
 
-      // Start two concurrent loads
       const promise1 = useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
       const promise2 = useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
 
       await Promise.all([promise1, promise2]);
 
-      // Second call should be skipped due to loading state
       expect(getConversationMessages).toHaveBeenCalledTimes(1);
     });
 
     it('should reset pagination state on reset()', () => {
       useTimelineStore.setState({
-        timeline: [{ id: '1', type: 'user_message', sequenceNumber: 1 }] as any,
-        earliestLoadedSequence: 1,
-        latestLoadedSequence: 100,
+        timeline: [{ id: '1', type: 'user_message' }] as any,
+        earliestTimeUs: 1000,
+        earliestCounter: 1,
+        latestTimeUs: 100000,
+        latestCounter: 100,
       });
 
       useTimelineStore.getState().reset();
@@ -431,8 +439,8 @@ describe('TimelineStore Pagination Improvements', () => {
       const state = useTimelineStore.getState();
 
       expect(state.timeline).toEqual([]);
-      expect(state.earliestLoadedSequence).toBe(null);
-      expect(state.latestLoadedSequence).toBe(null);
+      expect(state.earliestTimeUs).toBe(null);
+      expect(state.latestTimeUs).toBe(null);
     });
   });
 });

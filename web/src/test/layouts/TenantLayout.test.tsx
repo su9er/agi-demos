@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { TenantLayout } from '../../layouts/TenantLayout';
-import { _useTenantStore } from '../../stores/tenant';
 import { screen, render, waitFor } from '../utils';
-// Define mock state at module level (before vi.mock calls)
+
 let mockTenantState: any = {
   tenants: [{ id: 't1', name: 'Test Tenant' }],
   currentTenant: { id: 't1', name: 'Test Tenant' },
@@ -24,7 +23,6 @@ let mockTenantState: any = {
   clearError: vi.fn(),
 };
 
-// Create a function that returns a Zustand-like store
 function createMockStore() {
   const getState = () => mockTenantState;
   const setState = (partial: any) => {
@@ -33,11 +31,9 @@ function createMockStore() {
   };
   const subscribe = vi.fn();
 
-  // Create hook function
   const storeHook = ((selector?: any) =>
     selector ? selector(mockTenantState) : mockTenantState) as any;
 
-  // Attach methods
   storeHook.getState = getState;
   storeHook.setState = setState;
   storeHook.subscribe = subscribe;
@@ -45,7 +41,6 @@ function createMockStore() {
   return storeHook;
 }
 
-// Mock i18n - must be before component imports
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => {
@@ -72,39 +67,83 @@ vi.mock('react-i18next', () => ({
       };
       return translations[key] || key;
     },
+    i18n: { language: 'en', changeLanguage: vi.fn() },
   }),
 }));
 
-// Mock stores - must be at module level for vi.mock hoisting
-vi.mock('../../stores/auth', () => ({
-  useAuthStore: vi.fn(() => ({
+vi.mock('../../stores/auth', () => {
+  const state = {
     user: { name: 'Test User', email: 'test@example.com' },
     logout: vi.fn(),
-  })),
-}));
+    isAuthenticated: true,
+    token: 'test-token',
+  };
+  const hook = ((selector?: any) => (selector ? selector(state) : state)) as any;
+  hook.getState = () => state;
+  hook.setState = vi.fn();
+  hook.subscribe = vi.fn();
+  return {
+    useAuthStore: hook,
+    useUser: () => state.user,
+    useAuthActions: () => ({ login: vi.fn(), logout: state.logout }),
+  };
+});
 
-vi.mock('../../stores/project', () => ({
-  useProjectStore: vi.fn(() => ({
-    currentProject: null,
-    projects: [],
-  })),
-}));
+vi.mock('../../stores/project', () => {
+  const state = { currentProject: null, projects: [] };
+  const hook = ((selector?: any) => (selector ? selector(state) : state)) as any;
+  hook.getState = () => state;
+  hook.setState = vi.fn();
+  hook.subscribe = vi.fn();
+  return { useProjectStore: hook };
+});
 
 vi.mock('../../stores/tenant', () => ({
   useTenantStore: createMockStore(),
 }));
 
-vi.mock('../../components/shared/ui/WorkspaceSwitcher', () => ({
-  WorkspaceSwitcher: () => <div data-testid="workspace-switcher">MockSwitcher</div>,
-}));
-vi.mock('../../components/shared/ui/ThemeToggle', () => ({
-  ThemeToggle: () => <div data-testid="theme-toggle">Theme</div>,
-}));
-vi.mock('../../components/shared/ui/LanguageSwitcher', () => ({
-  LanguageSwitcher: () => <div data-testid="lang-toggle">Lang</div>,
+vi.mock('@/components/layout/TenantChatSidebar', () => ({
+  TenantChatSidebar: () => <div data-testid="tenant-sidebar">MemStack</div>,
 }));
 
-// Import after mocking to get the mocked version
+vi.mock('@/components/layout/TenantHeader', () => ({
+  __esModule: true,
+  default: () => (
+    <header data-testid="tenant-header">
+      <div data-testid="theme-toggle">Theme</div>
+      <div data-testid="lang-toggle">Lang</div>
+      <div data-testid="workspace-switcher">MockSwitcher</div>
+      <span>Overview</span>
+      <span>Projects</span>
+    </header>
+  ),
+}));
+
+vi.mock('@/components/agent/BackgroundSubAgentPanel', () => ({
+  BackgroundSubAgentPanel: () => null,
+}));
+
+vi.mock('@/components/agent/chat/MobileSidebarDrawer', () => ({
+  MobileSidebarDrawer: () => null,
+}));
+
+vi.mock('@/components/common/RouteErrorBoundary', () => ({
+  RouteErrorBoundary: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+}));
+
+vi.mock('@/pages/tenant/TenantCreate', () => ({
+  TenantCreateModal: () => null,
+}));
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useParams: vi.fn(() => ({ tenantId: 't1' })),
+    useLocation: () => ({ pathname: '/tenant/t1/overview' }),
+    Outlet: () => <div data-testid="outlet">Page Content</div>,
+  };
+});
 
 describe('TenantLayout', () => {
   beforeEach(() => {

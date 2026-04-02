@@ -8,6 +8,10 @@ vi.mock('../../stores/auth', () => ({
   useAuthStore: vi.fn(),
 }));
 
+vi.mock('@/components/shared/ui/LanguageSwitcher', () => ({
+  LanguageSwitcher: () => <div data-testid="lang-switcher">Lang</div>,
+}));
+
 describe('Login', () => {
   const mockLogin = vi.fn();
 

@@ -29,13 +29,19 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { agentService } from '../../../services/agentService';
 import { useTimelineStore, initialState } from '../../../stores/agent/timelineStore';
 // Helper to create mock timeline response matching the full type
-const createMockResponse = (timeline: any[], total: number) => ({
+const createMockResponse = (
+  timeline: any[],
+  total: number,
+  overrides?: { has_more?: boolean; first_time_us?: number | null; first_counter?: number | null; last_time_us?: number | null; last_counter?: number | null }
+) => ({
   conversationId: 'mock-conv-id',
   timeline,
   total,
-  has_more: false,
-  first_sequence: timeline[0]?.sequenceNumber ?? null,
-  last_sequence: timeline[timeline.length - 1]?.sequenceNumber ?? null,
+  has_more: overrides?.has_more ?? false,
+  first_time_us: overrides?.first_time_us ?? (timeline[0]?.time_us ?? null),
+  first_counter: overrides?.first_counter ?? (timeline[0]?.counter ?? null),
+  last_time_us: overrides?.last_time_us ?? (timeline[timeline.length - 1]?.time_us ?? null),
+  last_counter: overrides?.last_counter ?? (timeline[timeline.length - 1]?.counter ?? null),
 });
 
 // Mock agent service
@@ -81,9 +87,11 @@ describe('TimelineStore', () => {
     });
 
     it('should have null pagination pointers initially', () => {
-      const { earliestLoadedSequence, latestLoadedSequence } = useTimelineStore.getState();
-      expect(earliestLoadedSequence).toBe(null);
-      expect(latestLoadedSequence).toBe(null);
+      const { earliestTimeUs, earliestCounter, latestTimeUs, latestCounter } = useTimelineStore.getState();
+      expect(earliestTimeUs).toBe(null);
+      expect(earliestCounter).toBe(null);
+      expect(latestTimeUs).toBe(null);
+      expect(latestCounter).toBe(null);
     });
   });
 
@@ -94,8 +102,10 @@ describe('TimelineStore', () => {
         timeline: [{ id: '1', type: 'user_message', sequenceNumber: 1 } as any],
         timelineLoading: true,
         timelineError: 'Error',
-        earliestLoadedSequence: 10,
-        latestLoadedSequence: 20,
+        earliestTimeUs: 1000,
+        earliestCounter: 1,
+        latestTimeUs: 2000,
+        latestCounter: 2,
       });
 
       // Verify state is set
@@ -110,23 +120,27 @@ describe('TimelineStore', () => {
         timeline,
         timelineLoading,
         timelineError,
-        earliestLoadedSequence,
-        latestLoadedSequence,
+        earliestTimeUs,
+        earliestCounter,
+        latestTimeUs,
+        latestCounter,
       } = useTimelineStore.getState();
       expect(timeline).toEqual([]);
       expect(timelineLoading).toBe(false);
       expect(timelineError).toBe(null);
-      expect(earliestLoadedSequence).toBe(null);
-      expect(latestLoadedSequence).toBe(null);
+      expect(earliestTimeUs).toBe(null);
+      expect(earliestCounter).toBe(null);
+      expect(latestTimeUs).toBe(null);
+      expect(latestCounter).toBe(null);
     });
   });
 
   describe('getTimeline', () => {
     it('should fetch timeline successfully', async () => {
       const mockTimeline = [
-        { id: '1', type: 'user_message', sequenceNumber: 1 },
-        { id: '2', type: 'assistant_message', sequenceNumber: 2 },
-        { id: '3', type: 'tool_execution', sequenceNumber: 3 },
+        { id: '1', type: 'user_message', sequenceNumber: 1, time_us: 1000, counter: 1 },
+        { id: '2', type: 'assistant_message', sequenceNumber: 2, time_us: 2000, counter: 2 },
+        { id: '3', type: 'tool_execution', sequenceNumber: 3, time_us: 3000, counter: 3 },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
@@ -139,15 +153,19 @@ describe('TimelineStore', () => {
         timeline,
         timelineLoading,
         timelineError,
-        earliestLoadedSequence,
-        latestLoadedSequence,
+        earliestTimeUs,
+        earliestCounter,
+        latestTimeUs,
+        latestCounter,
       } = useTimelineStore.getState();
 
       expect(timeline).toEqual(mockTimeline);
       expect(timelineLoading).toBe(false);
       expect(timelineError).toBe(null);
-      expect(earliestLoadedSequence).toBe(1);
-      expect(latestLoadedSequence).toBe(3);
+      expect(earliestTimeUs).toBe(1000);
+      expect(earliestCounter).toBe(1);
+      expect(latestTimeUs).toBe(3000);
+      expect(latestCounter).toBe(3);
     });
 
     it('should set loading state during fetch', async () => {
@@ -174,12 +192,12 @@ describe('TimelineStore', () => {
 
       await useTimelineStore.getState().getTimeline('conv-1', 'proj-1');
 
-      const { timeline, earliestLoadedSequence, latestLoadedSequence } =
+      const { timeline, earliestTimeUs, latestTimeUs } =
         useTimelineStore.getState();
 
       expect(timeline).toEqual([]);
-      expect(earliestLoadedSequence).toBe(null);
-      expect(latestLoadedSequence).toBe(null);
+      expect(earliestTimeUs).toBe(null);
+      expect(latestTimeUs).toBe(null);
     });
 
     it('should handle fetch error', async () => {
@@ -211,12 +229,14 @@ describe('TimelineStore', () => {
     it('should replace existing timeline on new fetch', async () => {
       // Set existing timeline
       useTimelineStore.setState({
-        timeline: [{ id: 'old', type: 'user_message', sequenceNumber: 1 }] as any,
-        earliestLoadedSequence: 1,
-        latestLoadedSequence: 1,
+        timeline: [{ id: 'old', type: 'user_message', sequenceNumber: 1, time_us: 1000, counter: 1 }] as any,
+        earliestTimeUs: 1000,
+        earliestCounter: 1,
+        latestTimeUs: 1000,
+        latestCounter: 1,
       });
 
-      const newTimeline = [{ id: 'new', type: 'assistant_message', sequenceNumber: 2 }];
+      const newTimeline = [{ id: 'new', type: 'assistant_message', sequenceNumber: 2, time_us: 2000, counter: 2 }];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
         createMockResponse(newTimeline as any, 1)
@@ -224,18 +244,18 @@ describe('TimelineStore', () => {
 
       await useTimelineStore.getState().getTimeline('conv-2', 'proj-1');
 
-      const { timeline, earliestLoadedSequence, latestLoadedSequence } =
+      const { timeline, earliestTimeUs, latestTimeUs } =
         useTimelineStore.getState();
 
       expect(timeline).toEqual(newTimeline);
-      expect(earliestLoadedSequence).toBe(2);
-      expect(latestLoadedSequence).toBe(2);
+      expect(earliestTimeUs).toBe(2000);
+      expect(latestTimeUs).toBe(2000);
     });
   });
 
   describe('addTimelineEvent', () => {
     it('should add event to timeline', () => {
-      const event = { id: '1', type: 'user_message', sequenceNumber: 0 } as any;
+      const event = { id: '1', type: 'user_message', sequenceNumber: 1 } as any;
 
       useTimelineStore.getState().addTimelineEvent(event);
 
@@ -243,10 +263,9 @@ describe('TimelineStore', () => {
       expect(timeline).toHaveLength(1);
       expect(timeline[0].id).toBe('1');
       expect(timeline[0].type).toBe('user_message');
-      expect(timeline[0].sequenceNumber).toBe(1); // Auto-assigned
     });
 
-    it('should assign sequence number to new event', () => {
+    it('should append event to existing timeline', () => {
       useTimelineStore.setState({
         timeline: [
           { id: '1', type: 'user_message', sequenceNumber: 1 },
@@ -254,20 +273,22 @@ describe('TimelineStore', () => {
         ] as any,
       });
 
-      const newEvent = { id: '3', type: 'user_message', sequenceNumber: 0 } as any;
+      const newEvent = { id: '3', type: 'user_message', sequenceNumber: 3 } as any;
       useTimelineStore.getState().addTimelineEvent(newEvent);
 
       const { timeline } = useTimelineStore.getState();
-      expect(timeline[2].sequenceNumber).toBe(3); // Max existing + 1
+      expect(timeline).toHaveLength(3);
+      expect(timeline[2].id).toBe('3');
     });
 
-    it('should assign sequence 1 to first event', () => {
-      const event = { id: '1', type: 'user_message', sequenceNumber: 0 } as any;
+    it('should append single event to empty timeline', () => {
+      const event = { id: '1', type: 'user_message', sequenceNumber: 1 } as any;
 
       useTimelineStore.getState().addTimelineEvent(event);
 
       const { timeline } = useTimelineStore.getState();
-      expect(timeline[0].sequenceNumber).toBe(1);
+      expect(timeline).toHaveLength(1);
+      expect(timeline[0].id).toBe('1');
     });
 
     it('should append event to end of timeline', () => {
@@ -278,7 +299,7 @@ describe('TimelineStore', () => {
         ] as any,
       });
 
-      const newEvent = { id: '3', type: 'tool_execution', sequenceNumber: 0 } as any;
+      const newEvent = { id: '3', type: 'tool_execution', sequenceNumber: 3 } as any;
       useTimelineStore.getState().addTimelineEvent(newEvent);
 
       const { timeline } = useTimelineStore.getState();
@@ -357,16 +378,18 @@ describe('TimelineStore', () => {
     it('should load earlier messages successfully', async () => {
       useTimelineStore.setState({
         timeline: [
-          { id: '3', type: 'assistant_message', sequenceNumber: 3 },
-          { id: '4', type: 'user_message', sequenceNumber: 4 },
+          { id: '3', type: 'assistant_message', time_us: 3000, counter: 3 },
+          { id: '4', type: 'user_message', time_us: 4000, counter: 4 },
         ] as any,
-        earliestLoadedSequence: 3,
-        latestLoadedSequence: 4,
+        earliestTimeUs: 3000,
+        earliestCounter: 3,
+        latestTimeUs: 4000,
+        latestCounter: 4,
       });
 
       const earlierEvents = [
-        { id: '1', type: 'user_message', sequenceNumber: 1 },
-        { id: '2', type: 'assistant_message', sequenceNumber: 2 },
+        { id: '1', type: 'user_message', time_us: 1000, counter: 1 },
+        { id: '2', type: 'assistant_message', time_us: 2000, counter: 2 },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
@@ -375,13 +398,13 @@ describe('TimelineStore', () => {
 
       await useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
 
-      const { timeline, earliestLoadedSequence, timelineLoading, timelineError } =
+      const { timeline, earliestTimeUs, timelineLoading, timelineError } =
         useTimelineStore.getState();
 
       expect(timeline).toHaveLength(4);
       expect(timeline[0].id).toBe('1');
       expect(timeline[3].id).toBe('4');
-      expect(earliestLoadedSequence).toBe(1);
+      expect(earliestTimeUs).toBe(1000);
       expect(timelineLoading).toBe(false);
       expect(timelineError).toBe(null);
     });
@@ -396,7 +419,7 @@ describe('TimelineStore', () => {
     it('should not load if already loading', async () => {
       useTimelineStore.setState({
         isLoadingEarlier: true,
-        earliestLoadedSequence: 10,
+        earliestTimeUs: 10000,
       });
 
       const result = await useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
@@ -407,8 +430,9 @@ describe('TimelineStore', () => {
 
     it('should handle load error', async () => {
       useTimelineStore.setState({
-        timeline: [{ id: '2', type: 'assistant_message', sequenceNumber: 2 }] as any,
-        earliestLoadedSequence: 2,
+        timeline: [{ id: '2', type: 'assistant_message', time_us: 2000, counter: 2 }] as any,
+        earliestTimeUs: 2000,
+        earliestCounter: 2,
       });
 
       const error = { response: { data: { detail: 'Load failed' } } };
@@ -422,10 +446,11 @@ describe('TimelineStore', () => {
       expect(useTimelineStore.getState().timelineLoading).toBe(false);
     });
 
-    it('should pass before_sequence parameter to service', async () => {
+    it('should pass time-based pagination parameters to service', async () => {
       useTimelineStore.setState({
-        timeline: [{ id: '10', type: 'user_message', sequenceNumber: 10 }] as any,
-        earliestLoadedSequence: 10,
+        timeline: [{ id: '10', type: 'user_message', time_us: 10000, counter: 10 }] as any,
+        earliestTimeUs: 10000,
+        earliestCounter: 10,
       });
 
       vi.mocked(getConversationMessages).mockResolvedValue(createMockResponse([] as any, 0));
@@ -435,53 +460,56 @@ describe('TimelineStore', () => {
       expect(getConversationMessages).toHaveBeenCalledWith(
         'conv-1',
         'proj-1',
-        50, // limit (changed from 100 to 50)
-        undefined, // from_sequence
-        10 // before_sequence
+        50,        // limit
+        undefined, // fromTimeUs
+        undefined, // fromCounter
+        10000,     // beforeTimeUs
+        10         // beforeCounter
       );
     });
   });
 
   describe('Pagination State', () => {
-    it('should set earliest and latest sequence from timeline', async () => {
+    it('should set earliest and latest time pointers from timeline', async () => {
       const timeline = [
-        { id: '1', type: 'user_message', sequenceNumber: 5 },
-        { id: '2', type: 'assistant_message', sequenceNumber: 6 },
-        { id: '3', type: 'tool_execution', sequenceNumber: 7 },
+        { id: '1', type: 'user_message', time_us: 5000, counter: 5 },
+        { id: '2', type: 'assistant_message', time_us: 6000, counter: 6 },
+        { id: '3', type: 'tool_execution', time_us: 7000, counter: 7 },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(createMockResponse(timeline as any, 3));
 
       await useTimelineStore.getState().getTimeline('conv-1', 'proj-1');
 
-      const { earliestLoadedSequence, latestLoadedSequence } = useTimelineStore.getState();
+      const { earliestTimeUs, latestTimeUs } = useTimelineStore.getState();
 
-      expect(earliestLoadedSequence).toBe(5);
-      expect(latestLoadedSequence).toBe(7);
+      expect(earliestTimeUs).toBe(5000);
+      expect(latestTimeUs).toBe(7000);
     });
 
     it('should handle single event timeline', async () => {
-      const timeline = [{ id: '1', type: 'user_message', sequenceNumber: 5 }];
+      const timeline = [{ id: '1', type: 'user_message', time_us: 5000, counter: 5 }];
 
       vi.mocked(getConversationMessages).mockResolvedValue(createMockResponse(timeline as any, 1));
 
       await useTimelineStore.getState().getTimeline('conv-1', 'proj-1');
 
-      const { earliestLoadedSequence, latestLoadedSequence } = useTimelineStore.getState();
+      const { earliestTimeUs, latestTimeUs } = useTimelineStore.getState();
 
-      expect(earliestLoadedSequence).toBe(5);
-      expect(latestLoadedSequence).toBe(5);
+      expect(earliestTimeUs).toBe(5000);
+      expect(latestTimeUs).toBe(5000);
     });
 
     it('should update pagination after loading earlier messages', async () => {
       useTimelineStore.setState({
-        timeline: [{ id: '5', type: 'assistant_message', sequenceNumber: 5 }] as any,
-        earliestLoadedSequence: 5,
+        timeline: [{ id: '5', type: 'assistant_message', time_us: 5000, counter: 5 }] as any,
+        earliestTimeUs: 5000,
+        earliestCounter: 5,
       });
 
       const earlierEvents = [
-        { id: '3', type: 'user_message', sequenceNumber: 3 },
-        { id: '4', type: 'assistant_message', sequenceNumber: 4 },
+        { id: '3', type: 'user_message', time_us: 3000, counter: 3 },
+        { id: '4', type: 'assistant_message', time_us: 4000, counter: 4 },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
@@ -490,7 +518,7 @@ describe('TimelineStore', () => {
 
       await useTimelineStore.getState().loadEarlierMessages('conv-1', 'proj-1');
 
-      expect(useTimelineStore.getState().earliestLoadedSequence).toBe(3);
+      expect(useTimelineStore.getState().earliestTimeUs).toBe(3000);
     });
   });
 
@@ -498,15 +526,15 @@ describe('TimelineStore', () => {
     it('should handle rapid addTimelineEvent calls', () => {
       const store = useTimelineStore.getState();
 
-      store.addTimelineEvent({ id: '1', type: 'user_message', sequenceNumber: 0 } as any);
-      store.addTimelineEvent({ id: '2', type: 'assistant_message', sequenceNumber: 0 } as any);
-      store.addTimelineEvent({ id: '3', type: 'tool_execution', sequenceNumber: 0 } as any);
+      store.addTimelineEvent({ id: '1', type: 'user_message' } as any);
+      store.addTimelineEvent({ id: '2', type: 'assistant_message' } as any);
+      store.addTimelineEvent({ id: '3', type: 'tool_execution' } as any);
 
       const { timeline } = useTimelineStore.getState();
       expect(timeline).toHaveLength(3);
-      expect(timeline[0].sequenceNumber).toBe(1);
-      expect(timeline[1].sequenceNumber).toBe(2);
-      expect(timeline[2].sequenceNumber).toBe(3);
+      expect(timeline[0].id).toBe('1');
+      expect(timeline[1].id).toBe('2');
+      expect(timeline[2].id).toBe('3');
     });
 
     it('should handle getTimeline called while loading', async () => {
@@ -549,11 +577,11 @@ describe('TimelineStore', () => {
       expect(useTimelineStore.getState().timeline).toEqual(newTimeline);
     });
 
-    it('should handle timeline with gaps in sequence numbers', async () => {
+    it('should handle timeline with gaps in time values', async () => {
       const timelineWithGaps = [
-        { id: '1', type: 'user_message', sequenceNumber: 1 },
-        { id: '3', type: 'assistant_message', sequenceNumber: 3 }, // Gap: 2 is missing
-        { id: '5', type: 'tool_execution', sequenceNumber: 5 }, // Gap: 4 is missing
+        { id: '1', type: 'user_message', time_us: 1000, counter: 1 },
+        { id: '3', type: 'assistant_message', time_us: 3000, counter: 3 },
+        { id: '5', type: 'tool_execution', time_us: 5000, counter: 5 },
       ];
 
       vi.mocked(getConversationMessages).mockResolvedValue(
@@ -562,43 +590,41 @@ describe('TimelineStore', () => {
 
       await useTimelineStore.getState().getTimeline('conv-1', 'proj-1');
 
-      const { earliestLoadedSequence, latestLoadedSequence } = useTimelineStore.getState();
+      const { earliestTimeUs, latestTimeUs } = useTimelineStore.getState();
 
-      // Should use actual first and last, not filled gaps
-      expect(earliestLoadedSequence).toBe(1);
-      expect(latestLoadedSequence).toBe(5);
+      expect(earliestTimeUs).toBe(1000);
+      expect(latestTimeUs).toBe(5000);
     });
   });
 
   describe('State Immutability', () => {
     it('should reset properly after multiple state changes', async () => {
-      // Set up various state
       useTimelineStore.setState({
-        timeline: [{ id: '1', type: 'user_message', sequenceNumber: 1 }] as any,
+        timeline: [{ id: '1', type: 'user_message' }] as any,
         timelineLoading: true,
         isLoadingEarlier: true,
         timelineError: 'Error',
-        earliestLoadedSequence: 10,
-        latestLoadedSequence: 20,
+        earliestTimeUs: 10000,
+        earliestCounter: 10,
+        latestTimeUs: 20000,
+        latestCounter: 20,
       });
 
-      // Reset
       useTimelineStore.getState().reset();
 
-      // Verify all state reset
       const {
         timeline,
         timelineLoading,
         timelineError,
-        earliestLoadedSequence,
-        latestLoadedSequence,
+        earliestTimeUs,
+        latestTimeUs,
       } = useTimelineStore.getState();
 
       expect(timeline).toEqual([]);
       expect(timelineLoading).toBe(false);
       expect(timelineError).toBe(null);
-      expect(earliestLoadedSequence).toBe(null);
-      expect(latestLoadedSequence).toBe(null);
+      expect(earliestTimeUs).toBe(null);
+      expect(latestTimeUs).toBe(null);
     });
   });
 });

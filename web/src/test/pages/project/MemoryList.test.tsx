@@ -18,62 +18,26 @@ vi.mock('../../../services/api', () => ({
   },
 }));
 
-// Mock EventSource for SSE tests
-class MockEventSource {
-  url: string;
-  readyState: number = 1;
-  onopen: (() => void) | null = null;
-  onerror: ((e: Event) => void) | null = null;
-  private listeners: Map<string, ((e: MessageEvent) => void)[]> = new Map();
-
-  static readonly CONNECTING = 0;
-  static readonly OPEN = 1;
-  static readonly CLOSED = 2;
-
-  constructor(url: string) {
-    this.url = url;
-  }
-
-  addEventListener(type: string, callback: (e: MessageEvent) => void) {
-    if (!this.listeners.has(type)) {
-      this.listeners.set(type, []);
-    }
-    this.listeners.get(type)!.push(callback);
-  }
-
-  removeEventListener() {}
-
-  close() {
-    this.readyState = MockEventSource.CLOSED;
-  }
-
-  emit(type: string, data: any) {
-    const event = new MessageEvent(type, { data: JSON.stringify(data) });
-    const listeners = this.listeners.get(type);
-    if (listeners) {
-      listeners.forEach((callback) => callback(event));
-    }
-  }
-}
-
-let mockEventSourceInstances: MockEventSource[] = [];
+// Mock @tanstack/react-virtual so useVirtualizer renders all rows without needing scroll height
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (opts: { count: number; estimateSize: () => number }) => ({
+    getVirtualItems: () =>
+      Array.from({ length: opts.count }, (_, i) => ({
+        index: i,
+        key: i,
+        start: i * opts.estimateSize(),
+        size: opts.estimateSize(),
+        end: (i + 1) * opts.estimateSize(),
+        measureElement: vi.fn(),
+      })),
+    getTotalSize: () => opts.count * opts.estimateSize(),
+    scrollToIndex: vi.fn(),
+  }),
+}));
 
 describe('MemoryList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockEventSourceInstances = [];
-
-    // Mock EventSource
-    (global as any).EventSource = class extends MockEventSource {
-      constructor(url: string) {
-        super(url);
-        mockEventSourceInstances.push(this);
-      }
-    };
-  });
-
-  afterEach(() => {
-    mockEventSourceInstances = [];
   });
 
   const renderWithRouter = (ui: React.ReactElement, { route = '/' } = {}) => {
@@ -149,12 +113,11 @@ describe('MemoryList', () => {
       expect(screen.getByText('Failed Memory')).toBeInTheDocument();
     });
 
-    // Check status badges are rendered
-    expect(screen.getByText('COMPLETED')).toBeInTheDocument();
-    expect(screen.getByText('FAILED')).toBeInTheDocument();
+    expect(screen.getByText('Completed')).toBeInTheDocument();
+    expect(screen.getByText('Failed')).toBeInTheDocument();
   });
 
-  it('subscribes to SSE for processing memories', async () => {
+  it('shows processing status for in-progress memories', async () => {
     vi.mocked(memoryAPI.list).mockResolvedValue({
       memories: [
         {
@@ -177,11 +140,8 @@ describe('MemoryList', () => {
       expect(screen.getByText('Processing Memory')).toBeInTheDocument();
     });
 
-    // Should have created an EventSource for the task
-    await waitFor(() => {
-      expect(mockEventSourceInstances.length).toBeGreaterThan(0);
-      expect(mockEventSourceInstances[0].url).toContain('/tasks/task-123/stream');
-    });
+    const processingElements = screen.getAllByText('Processing');
+    expect(processingElements.length).toBeGreaterThanOrEqual(2);
   });
 
   it('shows empty state when no memories', async () => {

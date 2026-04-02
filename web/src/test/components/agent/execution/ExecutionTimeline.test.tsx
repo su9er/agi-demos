@@ -369,8 +369,9 @@ describe('ExecutionTimeline (Compound Components)', () => {
         />
       );
 
-      // Step 1 is completed, should have check icon
-      expect(screen.getByTestId('icon-check')).toBeInTheDocument();
+      // Step 1 is completed, should have check icon (lucide Check renders with class lucide-check)
+      const checkIcon = document.querySelector('.lucide-check');
+      expect(checkIcon).toBeInTheDocument();
     });
 
     it('should show active step with pulse animation', async () => {
@@ -574,7 +575,8 @@ describe('ExecutionTimeline (Compound Components)', () => {
         />
       );
 
-      expect(screen.getByTestId('icon-close')).toBeInTheDocument();
+      const xIcon = document.querySelector('.lucide-x');
+      expect(xIcon).toBeInTheDocument();
     });
 
     it('should apply red styling for failed steps', async () => {
@@ -810,7 +812,7 @@ describe('ExecutionTimeline (Compound Components)', () => {
       );
 
       // There should be at least one expand icon (steps 1 and 3 are collapsed by default when currentStepNumber is not provided)
-      const expandIcons = screen.getAllByTestId('icon-expand_more');
+      const expandIcons = document.querySelectorAll('.lucide-chevron-down, .lucide-chevron-right');
       expect(expandIcons.length).toBeGreaterThan(0);
     });
   });

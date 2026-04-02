@@ -8,6 +8,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { useAgentV3Store } from '../../../stores/agentV3';
+import { useStreamingStore } from '../../../stores/agent/streamingStore';
 
 import { MessageArea } from '../../../components/agent/MessageArea';
 
@@ -68,10 +69,10 @@ describe('MessageArea Compound Component', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    useAgentV3Store.setState({
-      streamingAssistantContent: '',
-      streamingThought: '',
-      isThinkingStreaming: false,
+    useStreamingStore.setState({
+      agentStreamingAssistantContent: '',
+      agentStreamingThought: '',
+      agentIsThinkingStreaming: false,
     });
   });
 
@@ -84,7 +85,7 @@ describe('MessageArea Compound Component', () => {
     });
 
     it('should render with streaming content', () => {
-      useAgentV3Store.setState({ streamingAssistantContent: 'Streaming...' });
+      useStreamingStore.setState({ agentStreamingAssistantContent: 'Streaming...' });
       render(<MessageArea {...defaultProps} isStreaming />);
 
       expect(screen.getByTestId('markdown')).toBeInTheDocument();
@@ -159,7 +160,7 @@ describe('MessageArea Compound Component', () => {
 
   describe('StreamingContent Sub-Component', () => {
     it('should render streaming thought when thinking', () => {
-      useAgentV3Store.setState({ streamingThought: 'Thinking...', isThinkingStreaming: true });
+      useStreamingStore.setState({ agentStreamingThought: 'Thinking...', agentIsThinkingStreaming: true });
       render(<MessageArea {...defaultProps} isStreaming />);
 
       expect(screen.getByTestId('streaming-thought')).toBeInTheDocument();
@@ -167,9 +168,9 @@ describe('MessageArea Compound Component', () => {
     });
 
     it('should render streaming content when streaming', () => {
-      useAgentV3Store.setState({
-        streamingAssistantContent: 'Response...',
-        isThinkingStreaming: false,
+      useStreamingStore.setState({
+        agentStreamingAssistantContent: 'Response...',
+        agentIsThinkingStreaming: false,
       });
       render(<MessageArea {...defaultProps} isStreaming />);
 

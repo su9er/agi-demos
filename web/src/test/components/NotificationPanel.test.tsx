@@ -50,14 +50,14 @@ describe('NotificationPanel', () => {
     it('should render bell icon', () => {
       render(<NotificationPanel />);
 
-      const bellButton = screen.getByRole('button', { name: /通知/i });
+      const bellButton = screen.getByRole('button', { name: /notifications/i });
       expect(bellButton).toBeInTheDocument();
     });
 
     it('should not show unread badge when unreadCount is 0', () => {
       render(<NotificationPanel />);
 
-      const bellButton = screen.getByRole('button', { name: /通知/i });
+      const bellButton = screen.getByRole('button', { name: /notifications/i });
       expect(bellButton.textContent).not.toContain('+');
     });
 
@@ -66,7 +66,7 @@ describe('NotificationPanel', () => {
 
       render(<NotificationPanel />);
 
-      const bellButton = screen.getByRole('button', { name: '3' });
+      const bellButton = screen.getByTitle('通知');
       expect(bellButton).toBeInTheDocument();
       expect(bellButton.textContent).toContain('3');
     });
@@ -76,7 +76,7 @@ describe('NotificationPanel', () => {
 
       render(<NotificationPanel />);
 
-      const bellButton = screen.getByRole('button', { name: '9+' });
+      const bellButton = screen.getByTitle('通知');
       expect(bellButton).toBeInTheDocument();
       expect(bellButton.textContent).toContain('9+');
     });
@@ -86,7 +86,7 @@ describe('NotificationPanel', () => {
     it('should open panel when bell icon is clicked', () => {
       render(<NotificationPanel />);
 
-      const bellButton = screen.getByRole('button', { name: /通知/i });
+      const bellButton = screen.getByRole('button', { name: /notifications/i });
       fireEvent.click(bellButton);
 
       expect(screen.getByText('通知')).toBeInTheDocument();
@@ -95,13 +95,12 @@ describe('NotificationPanel', () => {
     it('should close panel when X button is clicked', () => {
       render(<NotificationPanel />);
 
-      const bellButton = screen.getByRole('button', { name: /通知/i });
+      const bellButton = screen.getByRole('button', { name: /notifications/i });
       fireEvent.click(bellButton);
 
       // Get all buttons, the close button is the second one
-      const buttons = screen.getAllByRole('button');
-      const closeButton = buttons.find((btn) => btn.querySelector('svg.lucide-x'));
-      fireEvent.click(closeButton!);
+      const closeButton = screen.getByRole('button', { name: /close/i });
+      fireEvent.click(closeButton);
 
       // Panel should be closed
       expect(screen.queryByText('通知')).not.toBeInTheDocument();
@@ -110,7 +109,7 @@ describe('NotificationPanel', () => {
     it('should close panel when clicking outside', () => {
       render(<NotificationPanel />);
 
-      const bellButton = screen.getByRole('button', { name: /通知/i });
+      const bellButton = screen.getByRole('button', { name: /notifications/i });
       fireEvent.click(bellButton);
 
       // Verify panel is open
@@ -130,7 +129,7 @@ describe('NotificationPanel', () => {
 
       render(<NotificationPanel />);
 
-      const bellButton = screen.getByRole('button', { name: /通知/i });
+      const bellButton = screen.getByRole('button', { name: /notifications/i });
       fireEvent.click(bellButton);
 
       // Check for the loading spinner container
@@ -144,7 +143,7 @@ describe('NotificationPanel', () => {
     it('should show empty state when no notifications', () => {
       render(<NotificationPanel />);
 
-      const bellButton = screen.getByRole('button', { name: /通知/i });
+      const bellButton = screen.getByRole('button', { name: /notifications/i });
       fireEvent.click(bellButton);
 
       expect(screen.getByText('暂无通知')).toBeInTheDocument();
@@ -265,7 +264,7 @@ describe('NotificationPanel', () => {
 
       render(<NotificationPanel />);
 
-      const bellButton = screen.getByRole('button', { name: /通知/i });
+      const bellButton = screen.getByRole('button', { name: /notifications/i });
       fireEvent.click(bellButton);
 
       const deleteButtons = screen.getAllByTitle('删除');

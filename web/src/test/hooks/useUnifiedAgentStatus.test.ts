@@ -16,26 +16,32 @@ import {
   useUnifiedAgentStatus,
   type ProjectAgentLifecycleState,
 } from '../../hooks/useUnifiedAgentStatus';
-// Mock stores
-vi.mock('../../stores/agentV3', () => ({
-  useAgentV3Store: vi.fn(),
+
+// Mock the specific selector hooks that useUnifiedAgentStatus actually imports
+vi.mock('../../stores/agent/executionStore', () => ({
+  useAgentState: vi.fn(),
+  useActiveToolCalls: vi.fn(),
 }));
 
 vi.mock('../../stores/agent/streamingStore', () => ({
-  useStreamingStore: vi.fn(),
+  useIsStreaming: vi.fn(),
+}));
+
+vi.mock('../../stores/agent/timelineStore', () => ({
+  useTimeline: vi.fn(),
 }));
 
 vi.mock('../../stores/sandbox', () => ({
   useSandboxStore: vi.fn(),
 }));
 
-// Mock useAgentLifecycleState hook
 vi.mock('../../hooks/useAgentLifecycleState', () => ({
   useAgentLifecycleState: vi.fn(),
 }));
 
-import { useStreamingStore } from '../../stores/agent/streamingStore';
-import { useAgentV3Store } from '../../stores/agentV3';
+import { useAgentState, useActiveToolCalls } from '../../stores/agent/executionStore';
+import { useIsStreaming } from '../../stores/agent/streamingStore';
+import { useTimeline } from '../../stores/agent/timelineStore';
 import { useSandboxStore } from '../../stores/sandbox';
 
 import type { LifecycleStateData } from '../../types/agent';
@@ -43,23 +49,6 @@ import type { LifecycleStateData } from '../../types/agent';
 describe('useUnifiedAgentStatus - TDD RED Phase', () => {
   const mockProjectId = 'test-project-123';
   const mockTenantId = 'test-tenant-456';
-
-  // Default mock states
-  const defaultAgentV3State = {
-    agentState: 'idle' as const,
-    isStreaming: false,
-    activeToolCalls: new Map(),
-    timeline: [],
-  };
-
-  const defaultStreamingState = {
-    isStreaming: false,
-    streamStatus: 'idle' as const,
-  };
-
-  const defaultSandboxState = {
-    activeSandboxId: null,
-  };
 
   const defaultLifecycleState: LifecycleStateData = {
     lifecycleState: 'ready',
@@ -75,19 +64,13 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
   };
 
   const setupMocks = (lifecycleState: LifecycleStateData | null = defaultLifecycleState) => {
-    vi.mocked(useAgentV3Store).mockImplementation((selector) => {
-      const state = defaultAgentV3State;
-      return selector(state);
-    });
-
-    vi.mocked(useStreamingStore).mockImplementation((selector) => {
-      const state = defaultStreamingState;
-      return selector(state);
-    });
-
+    vi.mocked(useAgentState).mockReturnValue('idle');
+    vi.mocked(useActiveToolCalls).mockReturnValue(new Map());
+    vi.mocked(useIsStreaming).mockReturnValue(false);
+    vi.mocked(useTimeline).mockReturnValue([]);
     vi.mocked(useSandboxStore).mockImplementation((selector) => {
-      const state = defaultSandboxState;
-      return selector(state);
+      const state = { activeSandboxId: null };
+      return selector(state as any);
     });
 
     vi.mocked(useAgentLifecycleState).mockReturnValue({
@@ -198,11 +181,7 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
 
       setupMocks(errorLifecycleState);
 
-      // Agent store shows 'idle' state (lower priority)
-      vi.mocked(useAgentV3Store).mockImplementation((selector) => {
-        const state = { ...defaultAgentV3State, agentState: 'thinking' as const };
-        return selector(state);
-      });
+      vi.mocked(useAgentState).mockReturnValue('thinking');
 
       const { result } = renderHook(() =>
         useUnifiedAgentStatus({ projectId: mockProjectId, tenantId: mockTenantId, enabled: true })
@@ -289,15 +268,12 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
     });
 
     it('should count active tool calls from agent store', () => {
-      const _activeToolCalls = new Map([
+      const activeToolCalls = new Map([
         ['read', { status: 'running', startTime: Date.now() }],
         ['write', { status: 'running', startTime: Date.now() }],
       ]);
 
-      vi.mocked(useAgentV3Store).mockImplementation((selector) => {
-        const state = { ...defaultAgentV3StateiveToolCalls };
-        return selector(state);
-      });
+      vi.mocked(useActiveToolCalls).mockReturnValue(activeToolCalls as any);
 
       const { result } = renderHook(() =>
         useUnifiedAgentStatus({ projectId: mockProjectId, tenantId: mockTenantId, enabled: false })
@@ -326,11 +302,8 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
   describe('Connection Status', () => {
     it('should show sandbox connected when activeSandboxId exists', () => {
       vi.mocked(useSandboxStore).mockImplementation((selector) => {
-        const state = {
-          ...defaultSandboxState,
-          activeSandboxId: 'sandbox-123',
-        };
-        return selector(state);
+        const state = { activeSandboxId: 'sandbox-123' };
+        return selector(state as any);
       });
 
       const { result } = renderHook(() =>
@@ -342,11 +315,8 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
 
     it('should show sandbox disconnected when no active sandbox', () => {
       vi.mocked(useSandboxStore).mockImplementation((selector) => {
-        const state = {
-          ...defaultSandboxState,
-          activeSandboxId: null,
-        };
-        return selector(state);
+        const state = { activeSandboxId: null };
+        return selector(state as any);
       });
 
       const { result } = renderHook(() =>
@@ -356,13 +326,17 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
       expect(result.current.status.connection.sandbox).toBe(false);
     });
 
-    it('should derive WebSocket connection from streaming status', () => {
-      vi.mocked(useStreamingStore).mockImplementation((selector) => {
-        const state = {
-          ...defaultStreamingState,
-          streamStatus: 'streaming' as const,
-        };
-        return selector(state);
+    it('should derive WebSocket connection from lifecycle connection state', () => {
+      vi.mocked(useAgentLifecycleState).mockReturnValue({
+        lifecycleState: defaultLifecycleState,
+        isConnected: true,
+        error: null,
+        status: {
+          label: 'Ready',
+          color: 'text-emerald-500',
+          icon: 'CheckCircle',
+          description: 'Agent ready',
+        },
       });
 
       const { result } = renderHook(() =>
@@ -374,10 +348,10 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
   });
 
   describe('Loading and Error States', () => {
-    it('should pass through isLoading from useAgentLifecycleState', () => {
+    it('should compute isLoading as !isConnected from useAgentLifecycleState', () => {
       vi.mocked(useAgentLifecycleState).mockReturnValue({
         lifecycleState: defaultLifecycleState,
-        isConnected: true,
+        isConnected: false,
         error: null,
         status: {
           label: 'Ready',
@@ -385,7 +359,6 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
           icon: 'CheckCircle',
           description: 'Agent ready',
         },
-        isLoading: true,
       });
 
       const { result } = renderHook(() =>
@@ -407,7 +380,6 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
           icon: 'HelpCircle',
           description: 'Agent state unknown',
         },
-        isLoading: false,
       });
 
       const { result } = renderHook(() =>
@@ -421,10 +393,7 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
 
   describe('Agent State Integration', () => {
     it('should include agent state from agentV3 store', () => {
-      vi.mocked(useAgentV3Store).mockImplementation((selector) => {
-        const state = { ...defaultAgentV3State, agentState: 'acting' as const };
-        return selector(state);
-      });
+      vi.mocked(useAgentState).mockReturnValue('acting');
 
       const { result } = renderHook(() =>
         useUnifiedAgentStatus({ projectId: mockProjectId, tenantId: mockTenantId, enabled: false })
@@ -445,10 +414,7 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
       const agentStates = ['idle', 'thinking', 'acting', 'observing', 'awaiting_input'] as const;
 
       for (const agentState of agentStates) {
-        vi.mocked(useAgentV3Store).mockImplementation((selector) => {
-          const state = { ...defaultAgentV3State, agentState };
-          return selector(state);
-        });
+        vi.mocked(useAgentState).mockReturnValue(agentState);
 
         const { result } = renderHook(() =>
           useUnifiedAgentStatus({
@@ -465,15 +431,39 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
 
   describe('Edge Cases', () => {
     it('should handle empty projectId gracefully', () => {
+      vi.mocked(useAgentLifecycleState).mockReturnValue({
+        lifecycleState: null,
+        isConnected: false,
+        error: null,
+        status: {
+          label: 'Unknown',
+          color: 'text-gray-500',
+          icon: 'HelpCircle',
+          description: 'Agent state unknown',
+        },
+      });
+
       const { result } = renderHook(() =>
         useUnifiedAgentStatus({ projectId: '', tenantId: mockTenantId, enabled: true })
       );
 
       expect(result.current.status.lifecycle).toBe('uninitialized');
-      expect(result.current.isLoading).toBe(false);
+      expect(result.current.isLoading).toBe(true);
     });
 
     it('should handle undefined projectId gracefully', () => {
+      vi.mocked(useAgentLifecycleState).mockReturnValue({
+        lifecycleState: null,
+        isConnected: false,
+        error: null,
+        status: {
+          label: 'Unknown',
+          color: 'text-gray-500',
+          icon: 'HelpCircle',
+          description: 'Agent state unknown',
+        },
+      });
+
       const { result } = renderHook(() =>
         useUnifiedAgentStatus({
           projectId: undefined as unknown as string,
@@ -511,22 +501,7 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
 
   describe('Streaming Status Integration', () => {
     it('should reflect streaming status from streamingStore', () => {
-      vi.mocked(useAgentV3Store).mockImplementation((selector) => {
-        const state = {
-          ...defaultAgentV3State,
-          isStreaming: true,
-        };
-        return selector(state);
-      });
-
-      vi.mocked(useStreamingStore).mockImplementation((selector) => {
-        const state = {
-          ...defaultStreamingState,
-          isStreaming: true,
-          streamStatus: 'streaming' as const,
-        };
-        return selector(state);
-      });
+      vi.mocked(useIsStreaming).mockReturnValue(true);
 
       const { result } = renderHook(() =>
         useUnifiedAgentStatus({ projectId: mockProjectId, tenantId: mockTenantId, enabled: false })
@@ -536,23 +511,8 @@ describe('useUnifiedAgentStatus - TDD RED Phase', () => {
     });
 
     it('should derive agent state from streaming when active', () => {
-      vi.mocked(useAgentV3Store).mockImplementation((selector) => {
-        const state = {
-          ...defaultAgentV3State,
-          agentState: 'thinking' as const,
-          isStreaming: true,
-        };
-        return selector(state);
-      });
-
-      vi.mocked(useStreamingStore).mockImplementation((selector) => {
-        const state = {
-          ...defaultStreamingState,
-          isStreaming: true,
-          streamStatus: 'streaming' as const,
-        };
-        return selector(state);
-      });
+      vi.mocked(useAgentState).mockReturnValue('thinking');
+      vi.mocked(useIsStreaming).mockReturnValue(true);
 
       const { result } = renderHook(() =>
         useUnifiedAgentStatus({ projectId: mockProjectId, tenantId: mockTenantId, enabled: false })

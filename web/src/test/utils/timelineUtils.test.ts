@@ -8,7 +8,6 @@ import {
   compareTimelineEvents,
   sortTimelineBySequence,
   isTimelineSorted,
-  getNextSequenceNumber,
   mergeTimelines,
 } from '../../utils/timelineUtils';
 
@@ -16,20 +15,22 @@ import type { TimelineEvent } from '../../types/agent';
 
 describe('timelineUtils', () => {
   describe('compareTimelineEvents', () => {
-    it('should sort by sequence number when both are valid', () => {
+    it('should sort by eventTimeUs when both are valid', () => {
       const a: TimelineEvent = {
         id: 'a',
         type: 'user_message',
-        sequenceNumber: 1,
-        timestamp: 1000,
+        eventTimeUs: 1000,
+        eventCounter: 0,
+        timestamp: 1,
         content: 'First',
         role: 'user',
       };
       const b: TimelineEvent = {
         id: 'b',
         type: 'user_message',
-        sequenceNumber: 2,
-        timestamp: 2000,
+        eventTimeUs: 2000,
+        eventCounter: 0,
+        timestamp: 2,
         content: 'Second',
         role: 'user',
       };
@@ -39,60 +40,66 @@ describe('timelineUtils', () => {
       expect(compareTimelineEvents(a, a)).toBe(0);
     });
 
-    it('should place null sequence numbers at the end', () => {
-      const withSeq: TimelineEvent = {
+    it('should place null eventTimeUs at the end', () => {
+      const withTime: TimelineEvent = {
         id: 'a',
         type: 'user_message',
-        sequenceNumber: 1,
-        timestamp: 1000,
-        content: 'With sequence',
+        eventTimeUs: 1000,
+        eventCounter: 0,
+        timestamp: 1,
+        content: 'With time',
         role: 'user',
       };
-      const withoutSeq: TimelineEvent = {
+      const withoutTime: TimelineEvent = {
         id: 'b',
         type: 'thought',
-        sequenceNumber: null as any,
-        timestamp: 500,
-        content: 'Without sequence',
+        eventTimeUs: null as any,
+        eventCounter: 0,
+        timestamp: 0,
+        content: 'Without time',
       };
 
-      expect(compareTimelineEvents(withSeq, withoutSeq)).toBeLessThan(0);
-      expect(compareTimelineEvents(withoutSeq, withSeq)).toBeGreaterThan(0);
+      expect(compareTimelineEvents(withTime, withoutTime)).toBeLessThan(0);
+      expect(compareTimelineEvents(withoutTime, withTime)).toBeGreaterThan(0);
     });
 
-    it('should place undefined sequence numbers at the end', () => {
-      const withSeq: TimelineEvent = {
+    it('should place undefined eventTimeUs at the end', () => {
+      const withTime: TimelineEvent = {
         id: 'a',
         type: 'user_message',
-        sequenceNumber: 1,
-        timestamp: 1000,
-        content: 'With sequence',
+        eventTimeUs: 1000,
+        eventCounter: 0,
+        timestamp: 1,
+        content: 'With time',
         role: 'user',
       };
-      const withoutSeq: TimelineEvent = {
+      const withoutTime: TimelineEvent = {
         id: 'b',
         type: 'thought',
-        sequenceNumber: undefined as any,
-        timestamp: 500,
-        content: 'Without sequence',
+        eventTimeUs: undefined as any,
+        eventCounter: 0,
+        timestamp: 0,
+        content: 'Without time',
       };
 
-      expect(compareTimelineEvents(withSeq, withoutSeq)).toBeLessThan(0);
-      expect(compareTimelineEvents(withoutSeq, withSeq)).toBeGreaterThan(0);
+      expect(compareTimelineEvents(withTime, withoutTime)).toBeLessThan(0);
+      expect(compareTimelineEvents(withoutTime, withTime)).toBeGreaterThan(0);
     });
 
-    it('should fall back to timestamp when both sequence numbers are invalid', () => {
+    it('should fall back to timestamp when both eventTimeUs are invalid', () => {
       const a: TimelineEvent = {
         id: 'a',
         type: 'thought',
-        sequenceNumber: null as any,
+        eventTimeUs: null as any,
+        eventCounter: 0,
         timestamp: 1000,
         content: 'First by timestamp',
       };
       const b: TimelineEvent = {
         id: 'b',
         type: 'thought',
-        sequenceNumber: undefined as any,
+        eventTimeUs: undefined as any,
+        eventCounter: 0,
         timestamp: 2000,
         content: 'Second by timestamp',
       };
@@ -101,18 +108,20 @@ describe('timelineUtils', () => {
       expect(compareTimelineEvents(b, a)).toBeGreaterThan(0);
     });
 
-    it('should fall back to id when both sequence numbers and timestamps are equal', () => {
+    it('should fall back to id when both eventTimeUs and timestamps are equal', () => {
       const a: TimelineEvent = {
         id: 'a',
         type: 'thought',
-        sequenceNumber: null as any,
+        eventTimeUs: null as any,
+        eventCounter: 0,
         timestamp: 1000,
         content: 'A',
       };
       const b: TimelineEvent = {
         id: 'b',
         type: 'thought',
-        sequenceNumber: null as any,
+        eventTimeUs: null as any,
+        eventCounter: 0,
         timestamp: 1000,
         content: 'B',
       };
@@ -121,51 +130,80 @@ describe('timelineUtils', () => {
       expect(compareTimelineEvents(b, a)).toBeGreaterThan(0);
     });
 
-    it('should handle NaN sequence numbers', () => {
-      const withSeq: TimelineEvent = {
+    it('should handle NaN eventTimeUs', () => {
+      const withTime: TimelineEvent = {
         id: 'a',
         type: 'user_message',
-        sequenceNumber: 1,
-        timestamp: 1000,
-        content: 'With sequence',
+        eventTimeUs: 1000,
+        eventCounter: 0,
+        timestamp: 1,
+        content: 'With time',
         role: 'user',
       };
       const withNaN: TimelineEvent = {
         id: 'b',
         type: 'thought',
-        sequenceNumber: NaN,
-        timestamp: 500,
+        eventTimeUs: NaN,
+        eventCounter: 0,
+        timestamp: 0,
         content: 'With NaN',
       };
 
-      expect(compareTimelineEvents(withSeq, withNaN)).toBeLessThan(0);
-      expect(compareTimelineEvents(withNaN, withSeq)).toBeGreaterThan(0);
+      expect(compareTimelineEvents(withTime, withNaN)).toBeLessThan(0);
+      expect(compareTimelineEvents(withNaN, withTime)).toBeGreaterThan(0);
+    });
+
+    it('should compare by eventCounter when eventTimeUs are equal', () => {
+      const a: TimelineEvent = {
+        id: 'a',
+        type: 'user_message',
+        eventTimeUs: 1000,
+        eventCounter: 1,
+        timestamp: 1,
+        content: 'First',
+        role: 'user',
+      };
+      const b: TimelineEvent = {
+        id: 'b',
+        type: 'user_message',
+        eventTimeUs: 1000,
+        eventCounter: 2,
+        timestamp: 1,
+        content: 'Second',
+        role: 'user',
+      };
+
+      expect(compareTimelineEvents(a, b)).toBeLessThan(0);
+      expect(compareTimelineEvents(b, a)).toBeGreaterThan(0);
     });
   });
 
   describe('sortTimelineBySequence', () => {
-    it('should sort timeline by sequence number in ascending order', () => {
+    it('should sort timeline by eventTimeUs in ascending order', () => {
       const timeline: TimelineEvent[] = [
         {
           id: 'c',
           type: 'thought',
-          sequenceNumber: 3,
-          timestamp: 3000,
+          eventTimeUs: 3000,
+          eventCounter: 0,
+          timestamp: 3,
           content: 'Third',
         },
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'First',
           role: 'user',
         },
         {
           id: 'b',
           type: 'assistant_message',
-          sequenceNumber: 2,
-          timestamp: 2000,
+          eventTimeUs: 2000,
+          eventCounter: 0,
+          timestamp: 2,
           content: 'Second',
           role: 'assistant',
         },
@@ -173,46 +211,49 @@ describe('timelineUtils', () => {
 
       const sorted = sortTimelineBySequence(timeline);
 
-      expect(sorted[0].sequenceNumber).toBe(1);
-      expect(sorted[1].sequenceNumber).toBe(2);
-      expect(sorted[2].sequenceNumber).toBe(3);
+      expect(sorted[0].eventTimeUs).toBe(1000);
+      expect(sorted[1].eventTimeUs).toBe(2000);
+      expect(sorted[2].eventTimeUs).toBe(3000);
       expect(sorted[0].id).toBe('a');
       expect(sorted[1].id).toBe('b');
       expect(sorted[2].id).toBe('c');
     });
 
-    it('should place events with null/undefined sequence numbers at the end', () => {
+    it('should place events with null/undefined eventTimeUs at the end', () => {
       const timeline: TimelineEvent[] = [
         {
-          id: 'null-seq',
+          id: 'null-time',
           type: 'thought',
-          sequenceNumber: null as any,
+          eventTimeUs: null as any,
+          eventCounter: 0,
           timestamp: 500,
-          content: 'Null sequence',
+          content: 'Null eventTimeUs',
         },
         {
-          id: 'valid-seq',
+          id: 'valid-time',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
-          content: 'Valid sequence',
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
+          content: 'Valid eventTimeUs',
           role: 'user',
         },
         {
-          id: 'undefined-seq',
+          id: 'undefined-time',
           type: 'thought',
-          sequenceNumber: undefined as any,
+          eventTimeUs: undefined as any,
+          eventCounter: 0,
           timestamp: 600,
-          content: 'Undefined sequence',
+          content: 'Undefined eventTimeUs',
         },
       ];
 
       const sorted = sortTimelineBySequence(timeline);
 
-      expect(sorted[0].id).toBe('valid-seq');
+      expect(sorted[0].id).toBe('valid-time');
       // The other two should be at the end, sorted by timestamp
-      expect(sorted[1].id).toBe('null-seq');
-      expect(sorted[2].id).toBe('undefined-seq');
+      expect(sorted[1].id).toBe('null-time');
+      expect(sorted[2].id).toBe('undefined-time');
     });
 
     it('should not mutate the original array', () => {
@@ -220,15 +261,17 @@ describe('timelineUtils', () => {
         {
           id: 'b',
           type: 'thought',
-          sequenceNumber: 2,
-          timestamp: 2000,
+          eventTimeUs: 2000,
+          eventCounter: 0,
+          timestamp: 2,
           content: 'Second',
         },
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'First',
           role: 'user',
         },
@@ -255,8 +298,9 @@ describe('timelineUtils', () => {
         {
           id: 'only',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'Only',
           role: 'user',
         },
@@ -274,17 +318,26 @@ describe('timelineUtils', () => {
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'A',
           role: 'user',
         },
-        { id: 'b', type: 'thought', sequenceNumber: 2, timestamp: 2000, content: 'B' },
+        {
+          id: 'b',
+          type: 'thought',
+          eventTimeUs: 2000,
+          eventCounter: 0,
+          timestamp: 2,
+          content: 'B',
+        },
         {
           id: 'c',
           type: 'assistant_message',
-          sequenceNumber: 3,
-          timestamp: 3000,
+          eventTimeUs: 3000,
+          eventCounter: 0,
+          timestamp: 3,
           content: 'C',
           role: 'assistant',
         },
@@ -295,20 +348,29 @@ describe('timelineUtils', () => {
 
     it('should return false for unsorted timeline', () => {
       const timeline: TimelineEvent[] = [
-        { id: 'b', type: 'thought', sequenceNumber: 2, timestamp: 2000, content: 'B' },
+        {
+          id: 'b',
+          type: 'thought',
+          eventTimeUs: 2000,
+          eventCounter: 0,
+          timestamp: 2,
+          content: 'B',
+        },
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'A',
           role: 'user',
         },
         {
           id: 'c',
           type: 'assistant_message',
-          sequenceNumber: 3,
-          timestamp: 3000,
+          eventTimeUs: 3000,
+          eventCounter: 0,
+          timestamp: 3,
           content: 'C',
           role: 'assistant',
         },
@@ -317,22 +379,31 @@ describe('timelineUtils', () => {
       expect(isTimelineSorted(timeline)).toBe(false);
     });
 
-    it('should skip invalid sequence numbers during check', () => {
+    it('should skip invalid eventTimeUs during check', () => {
       const timeline: TimelineEvent[] = [
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'A',
           role: 'user',
         },
-        { id: 'b', type: 'thought', sequenceNumber: null as any, timestamp: 2000, content: 'B' },
+        {
+          id: 'b',
+          type: 'thought',
+          eventTimeUs: null as any,
+          eventCounter: 0,
+          timestamp: 2,
+          content: 'B',
+        },
         {
           id: 'c',
           type: 'assistant_message',
-          sequenceNumber: 3,
-          timestamp: 3000,
+          eventTimeUs: 3000,
+          eventCounter: 0,
+          timestamp: 3,
           content: 'C',
           role: 'assistant',
         },
@@ -350,8 +421,9 @@ describe('timelineUtils', () => {
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'A',
           role: 'user',
         },
@@ -360,71 +432,25 @@ describe('timelineUtils', () => {
     });
   });
 
-  describe('getNextSequenceNumber', () => {
-    it('should return 1 for empty timeline', () => {
-      expect(getNextSequenceNumber([])).toBe(1);
-    });
-
-    it('should return next number for sorted timeline', () => {
-      const timeline: TimelineEvent[] = [
-        {
-          id: 'a',
-          type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
-          content: 'A',
-          role: 'user',
-        },
-        { id: 'b', type: 'thought', sequenceNumber: 2, timestamp: 2000, content: 'B' },
-      ];
-
-      expect(getNextSequenceNumber(timeline)).toBe(3);
-    });
-
-    it('should handle timeline with gaps', () => {
-      const timeline: TimelineEvent[] = [
-        {
-          id: 'a',
-          type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
-          content: 'A',
-          role: 'user',
-        },
-        { id: 'b', type: 'thought', sequenceNumber: 5, timestamp: 2000, content: 'B' },
-      ];
-
-      expect(getNextSequenceNumber(timeline)).toBe(6);
-    });
-
-    it('should handle timeline with invalid sequence numbers', () => {
-      const timeline: TimelineEvent[] = [
-        {
-          id: 'a',
-          type: 'user_message',
-          sequenceNumber: null as any,
-          timestamp: 1000,
-          content: 'A',
-          role: 'user',
-        },
-        { id: 'b', type: 'thought', sequenceNumber: 2, timestamp: 2000, content: 'B' },
-      ];
-
-      expect(getNextSequenceNumber(timeline)).toBe(3);
-    });
-  });
-
   describe('mergeTimelines', () => {
     it('should merge and sort two timelines', () => {
       const primary: TimelineEvent[] = [
-        { id: 'b', type: 'thought', sequenceNumber: 2, timestamp: 2000, content: 'B' },
+        {
+          id: 'b',
+          type: 'thought',
+          eventTimeUs: 2000,
+          eventCounter: 0,
+          timestamp: 2,
+          content: 'B',
+        },
       ];
       const secondary: TimelineEvent[] = [
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'A',
           role: 'user',
         },
@@ -433,8 +459,8 @@ describe('timelineUtils', () => {
       const merged = mergeTimelines(primary, secondary);
 
       expect(merged).toHaveLength(2);
-      expect(merged[0].sequenceNumber).toBe(1);
-      expect(merged[1].sequenceNumber).toBe(2);
+      expect(merged[0].eventTimeUs).toBe(1000);
+      expect(merged[1].eventTimeUs).toBe(2000);
     });
 
     it('should deduplicate events by id', () => {
@@ -442,8 +468,9 @@ describe('timelineUtils', () => {
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'A',
           role: 'user',
         },
@@ -452,12 +479,20 @@ describe('timelineUtils', () => {
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'A',
           role: 'user',
         },
-        { id: 'b', type: 'thought', sequenceNumber: 2, timestamp: 2000, content: 'B' },
+        {
+          id: 'b',
+          type: 'thought',
+          eventTimeUs: 2000,
+          eventCounter: 0,
+          timestamp: 2,
+          content: 'B',
+        },
       ];
 
       const merged = mergeTimelines(primary, secondary);
@@ -472,8 +507,9 @@ describe('timelineUtils', () => {
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'From Primary',
           role: 'user',
         },
@@ -482,8 +518,9 @@ describe('timelineUtils', () => {
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'From Secondary',
           role: 'user',
         },
@@ -500,8 +537,9 @@ describe('timelineUtils', () => {
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'A',
           role: 'user',
         },
@@ -518,8 +556,9 @@ describe('timelineUtils', () => {
         {
           id: 'a',
           type: 'user_message',
-          sequenceNumber: 1,
-          timestamp: 1000,
+          eventTimeUs: 1000,
+          eventCounter: 0,
+          timestamp: 1,
           content: 'A',
           role: 'user',
         },

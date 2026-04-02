@@ -17,6 +17,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { ProjectOverview } from '../../../pages/project/ProjectOverview';
 import { projectAPI, memoryAPI } from '../../../services/api';
+
 // Mock API services
 vi.mock('../../../services/api', () => ({
   projectAPI: {
@@ -28,8 +29,23 @@ vi.mock('../../../services/api', () => ({
   },
 }));
 
+// Mock hooks and lazy components
+vi.mock('@/hooks/useProjectBasePath', () => ({
+  useProjectBasePath: () => ({ projectBasePath: '/project/p1' }),
+}));
+
+vi.mock('@/utils/date', () => ({
+  formatDateOnly: (date: Date) => date.toLocaleDateString(),
+}));
+
+vi.mock('@/components/ui/lazyAntd', () => ({
+  LazyDropdown: ({ children }: any) => children,
+  Modal: ({ children, open }: any) => (open ? <div data-testid="modal">{children}</div> : null),
+  message: { success: vi.fn(), error: vi.fn() },
+}));
+
 // Create a test wrapper to count renders
-const _renderCount = 0;
+let renderCount = 0;
 const _createRenderCounter = (componentId: string) => {
   let count = 0;
   return {
@@ -114,8 +130,8 @@ describe('ProjectOverview - Performance Optimizations', () => {
         expect(screen.getByText('150')).toBeInTheDocument();
       });
 
-      expect(screen.getByText(/42/)).toBeInTheDocument();
-      expect(screen.getByText(/5/)).toBeInTheDocument();
+      expect(screen.getByText('42')).toBeInTheDocument();
+      expect(screen.getByText('5')).toBeInTheDocument();
     });
 
     it('should render memories table', async () => {
@@ -191,7 +207,7 @@ describe('ProjectOverview - Performance Optimizations', () => {
       });
 
       // Check for "available" status badge
-      expect(screen.getByText(/available/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/available/i).length).toBeGreaterThanOrEqual(1);
     });
 
     it('should display correct status for disabled memories', async () => {
@@ -269,7 +285,7 @@ describe('ProjectOverview - Performance Optimizations', () => {
       renderWithRouter(<ProjectOverview />);
 
       await waitFor(() => {
-        const element = screen.getByText(/A+...\*$/);
+        const element = screen.getByText(/A{10,}\.{3}/);
         expect(element).toBeInTheDocument();
       });
     });

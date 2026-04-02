@@ -507,7 +507,9 @@ describe('usePagination', () => {
       expect(result.current.currentPage).toBe(1);
     });
 
-    it('should handle totalItems decrease while on later page', () => {
+    it('should handle totalItems decrease while on later page', async () => {
+      vi.useFakeTimers();
+
       const { result, rerender } = renderHook(
         ({ totalItems }) => usePagination({ totalItems, itemsPerPage: 10, initialPage: 8 }),
         {
@@ -519,8 +521,13 @@ describe('usePagination', () => {
 
       rerender({ totalItems: 25 });
 
-      // Should clamp to last page
+      await act(async () => {
+        vi.advanceTimersByTime(0);
+      });
+
       expect(result.current.currentPage).toBe(3);
+
+      vi.useRealTimers();
     });
   });
 

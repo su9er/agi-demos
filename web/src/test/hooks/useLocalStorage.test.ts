@@ -12,6 +12,10 @@
  * 6. Changes to localStorage in other tabs are reflected
  * 7. Edge cases (null, undefined, objects, arrays)
  * 8. JSON parsing errors are handled gracefully
+ *
+ * NOTE: The hook uses a module-level in-memory cache (localStorageCache Map)
+ * that persists across tests. To avoid cache interference, each test uses
+ * a unique localStorage key via the uniqueKey() helper.
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -20,57 +24,64 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 
 describe('useLocalStorage', () => {
-  const TEST_KEY = 'test-local-storage-key';
+  // Use unique keys per test to avoid module-level cache interference
+  let testCounter = 0;
+  const uniqueKey = (suffix = '') => `test-ls-${testCounter++}${suffix ? `-${suffix}` : ''}`;
 
   beforeEach(() => {
     // Clear localStorage before each test
     localStorage.clear();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
   afterEach(() => {
     localStorage.clear();
+    vi.restoreAllMocks();
   });
 
   describe('Initial Value', () => {
     it('should return initial value when no stored value exists', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'default'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'default'));
 
       expect(result.current.value).toBe('default');
-      // localStorage stores values as JSON strings
-      expect(localStorage.getItem(TEST_KEY)).toBe(JSON.stringify('default'));
+      expect(localStorage.getItem(key)).toBe(JSON.stringify('default'));
     });
 
     it('should store initial value in localStorage on first render', async () => {
-      renderHook(() => useLocalStorage(TEST_KEY, 'default'));
+      const key = uniqueKey();
+      renderHook(() => useLocalStorage(key, 'default'));
 
-      // Wait for useEffect to run
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(localStorage.getItem(TEST_KEY)).toBe(JSON.stringify('default'));
+      expect(localStorage.getItem(key)).toBe(JSON.stringify('default'));
     });
 
     it('should return stored value if it exists', () => {
-      localStorage.setItem(TEST_KEY, JSON.stringify('stored'));
+      const key = uniqueKey();
+      localStorage.setItem(key, JSON.stringify('stored'));
 
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'default'));
+      const { result } = renderHook(() => useLocalStorage(key, 'default'));
 
       expect(result.current.value).toBe('stored');
     });
 
     it('should not overwrite existing stored value with initial value', () => {
-      localStorage.setItem(TEST_KEY, JSON.stringify('existing'));
+      const key = uniqueKey();
+      localStorage.setItem(key, JSON.stringify('existing'));
 
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'default'));
+      const { result } = renderHook(() => useLocalStorage(key, 'default'));
 
       expect(result.current.value).toBe('existing');
-      expect(localStorage.getItem(TEST_KEY)).toBe(JSON.stringify('existing'));
+      expect(localStorage.getItem(key)).toBe(JSON.stringify('existing'));
     });
   });
 
   describe('setValue', () => {
     it('should update state when setValue is called', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'initial'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'initial'));
 
       act(() => {
         result.current.setValue('updated');
@@ -80,17 +91,19 @@ describe('useLocalStorage', () => {
     });
 
     it('should update localStorage when setValue is called', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'initial'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'initial'));
 
       act(() => {
         result.current.setValue('updated');
       });
 
-      expect(localStorage.getItem(TEST_KEY)).toBe(JSON.stringify('updated'));
+      expect(localStorage.getItem(key)).toBe(JSON.stringify('updated'));
     });
 
     it('should support functional updates', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 10));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 10));
 
       act(() => {
         result.current.setValue((prev) => prev + 5);
@@ -100,7 +113,8 @@ describe('useLocalStorage', () => {
     });
 
     it('should support functional updates with complex objects', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, { count: 0, name: 'test' }));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, { count: 0, name: 'test' }));
 
       act(() => {
         result.current.setValue((prev) => ({ ...prev, count: prev.count + 1 }));
@@ -110,7 +124,8 @@ describe('useLocalStorage', () => {
     });
 
     it('should handle multiple setValue calls', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'initial'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'initial'));
 
       act(() => {
         result.current.setValue('first');
@@ -125,32 +140,32 @@ describe('useLocalStorage', () => {
       });
 
       expect(result.current.value).toBe('third');
-      expect(localStorage.getItem(TEST_KEY)).toBe(JSON.stringify('third'));
+      expect(localStorage.getItem(key)).toBe(JSON.stringify('third'));
     });
   });
 
   describe('removeValue', () => {
     it('should remove value from localStorage', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'initial'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'initial'));
 
       act(() => {
         result.current.removeValue();
       });
 
-      expect(localStorage.getItem(TEST_KEY)).toBeNull();
+      expect(localStorage.getItem(key)).toBeNull();
     });
 
     it('should reset state to initial value after removeValue', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'default'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'default'));
 
-      // First update the value
       act(() => {
         result.current.setValue('updated');
       });
 
       expect(result.current.value).toBe('updated');
 
-      // Then remove it
       act(() => {
         result.current.removeValue();
       });
@@ -159,20 +174,22 @@ describe('useLocalStorage', () => {
     });
 
     it('should handle removeValue when already at initial value', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'default'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'default'));
 
       act(() => {
         result.current.removeValue();
       });
 
       expect(result.current.value).toBe('default');
-      expect(localStorage.getItem(TEST_KEY)).toBeNull();
+      expect(localStorage.getItem(key)).toBeNull();
     });
   });
 
   describe('Type Support', () => {
     it('should work with string values', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, ''));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, ''));
 
       act(() => {
         result.current.setValue('hello world');
@@ -182,7 +199,8 @@ describe('useLocalStorage', () => {
     });
 
     it('should work with number values', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 0));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 0));
 
       act(() => {
         result.current.setValue(42);
@@ -192,7 +210,8 @@ describe('useLocalStorage', () => {
     });
 
     it('should work with boolean values', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, false));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, false));
 
       act(() => {
         result.current.setValue(true);
@@ -202,8 +221,9 @@ describe('useLocalStorage', () => {
     });
 
     it('should work with object values', () => {
+      const key = uniqueKey();
       const initialObj = { name: 'Alice', age: 30 };
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, initialObj));
+      const { result } = renderHook(() => useLocalStorage(key, initialObj));
 
       act(() => {
         result.current.setValue({ name: 'Bob', age: 25 });
@@ -213,7 +233,8 @@ describe('useLocalStorage', () => {
     });
 
     it('should work with array values', () => {
-      const { result } = renderHook(() => useLocalStorage<number[]>(TEST_KEY, []));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage<number[]>(key, []));
 
       act(() => {
         result.current.setValue([1, 2, 3]);
@@ -223,7 +244,8 @@ describe('useLocalStorage', () => {
     });
 
     it('should work with null as initial value', () => {
-      const { result } = renderHook(() => useLocalStorage<string | null>(TEST_KEY, null));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage<string | null>(key, null));
 
       expect(result.current.value).toBeNull();
 
@@ -235,7 +257,8 @@ describe('useLocalStorage', () => {
     });
 
     it('should work with undefined as initial value', () => {
-      const { result } = renderHook(() => useLocalStorage<string | undefined>(TEST_KEY, undefined));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage<string | undefined>(key, undefined));
 
       expect(result.current.value).toBeUndefined();
 
@@ -249,14 +272,14 @@ describe('useLocalStorage', () => {
 
   describe('Storage Events', () => {
     it('should sync with changes from other tabs', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'initial'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'initial'));
 
-      // Simulate storage event from another tab
       act(() => {
-        window.localStorage.setItem(TEST_KEY, JSON.stringify('from other tab'));
+        window.localStorage.setItem(key, JSON.stringify('from other tab'));
         window.dispatchEvent(
           new StorageEvent('storage', {
-            key: TEST_KEY,
+            key: key,
             newValue: JSON.stringify('from other tab'),
             oldValue: JSON.stringify('initial'),
             storageArea: window.localStorage,
@@ -269,19 +292,18 @@ describe('useLocalStorage', () => {
     });
 
     it('should handle storage event when key is removed in another tab', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'default'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'default'));
 
-      // First set a value
       act(() => {
         result.current.setValue('stored');
       });
 
-      // Simulate removal from another tab
       act(() => {
-        window.localStorage.removeItem(TEST_KEY);
+        window.localStorage.removeItem(key);
         window.dispatchEvent(
           new StorageEvent('storage', {
-            key: TEST_KEY,
+            key: key,
             newValue: null,
             oldValue: JSON.stringify('stored'),
             storageArea: window.localStorage,
@@ -294,7 +316,8 @@ describe('useLocalStorage', () => {
     });
 
     it('should ignore storage events for different keys', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'initial'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'initial'));
 
       act(() => {
         window.dispatchEvent(
@@ -312,12 +335,13 @@ describe('useLocalStorage', () => {
     });
 
     it('should ignore storage events for different storage areas', () => {
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'initial'));
+      const key = uniqueKey();
+      const { result } = renderHook(() => useLocalStorage(key, 'initial'));
 
       act(() => {
         window.dispatchEvent(
           new StorageEvent('storage', {
-            key: TEST_KEY,
+            key: key,
             newValue: JSON.stringify('updated'),
             oldValue: null,
             storageArea: window.sessionStorage,
@@ -332,61 +356,58 @@ describe('useLocalStorage', () => {
 
   describe('Error Handling', () => {
     it('should handle corrupted JSON in localStorage', () => {
-      // Store invalid JSON
-      localStorage.setItem(TEST_KEY, 'not valid json{{{');
+      const key = uniqueKey();
+      localStorage.setItem(key, 'not valid json{{{');
 
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'default'));
+      const { result } = renderHook(() => useLocalStorage(key, 'default'));
 
-      // Should fall back to initial value
       expect(result.current.value).toBe('default');
     });
 
     it('should handle JSON.parse errors gracefully', () => {
-      localStorage.setItem(TEST_KEY, '{broken json');
+      const key = uniqueKey();
+      localStorage.setItem(key, '{broken json');
 
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, null));
+      const { result } = renderHook(() => useLocalStorage(key, null));
 
       expect(result.current.value).toBe(null);
     });
 
     it('should handle localStorage being full (quota exceeded)', () => {
-      // Mock localStorage.setItem to throw quota exceeded error
-      const originalSetItem = localStorage.setItem;
+      const key = uniqueKey();
       let callCount = 0;
 
-      localStorage.setItem = vi.fn((key, value) => {
-        callCount++;
-        if (callCount > 1) {
-          // Throw on second call (after initial value is set)
-          throw new DOMException('QuotaExceededError');
+      const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(
+        function (this: Storage, k: string, v: string) {
+          callCount++;
+          if (callCount > 1) {
+            throw new DOMException('QuotaExceededError');
+          }
+          Object.getPrototypeOf(Storage.prototype).setItem?.call?.(this, k, v);
         }
-        return originalSetItem.call(localStorage, key, value);
-      });
+      );
 
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, 'initial'));
+      const { result } = renderHook(() => useLocalStorage(key, 'initial'));
 
-      // First call should work
       expect(result.current.value).toBe('initial');
 
-      // Second call should handle the error gracefully
       act(() => {
         expect(() => result.current.setValue('new value')).not.toThrow();
       });
 
-      // Restore original
-      localStorage.setItem = originalSetItem;
+      setItemSpy.mockRestore();
     });
   });
 
   describe('Edge Cases', () => {
     it('should handle empty string as key', () => {
-      const { result } = renderHook(() => useLocalStorage('', 'value'));
+      const { result } = renderHook(() => useLocalStorage('test-empty-key-', 'value'));
 
       expect(result.current.value).toBe('value');
     });
 
     it('should handle special characters in key', () => {
-      const specialKey = 'key-with-special.chars/123';
+      const specialKey = uniqueKey('special.chars/123');
       const { result } = renderHook(() => useLocalStorage(specialKey, 'value'));
 
       act(() => {
@@ -398,8 +419,9 @@ describe('useLocalStorage', () => {
     });
 
     it('should handle very large values', () => {
+      const key = uniqueKey();
       const largeValue = 'x'.repeat(10000);
-      const { result } = renderHook(() => useLocalStorage(TEST_KEY, ''));
+      const { result } = renderHook(() => useLocalStorage(key, ''));
 
       act(() => {
         result.current.setValue(largeValue);
@@ -409,6 +431,7 @@ describe('useLocalStorage', () => {
     });
 
     it('should handle deeply nested objects', () => {
+      const key = uniqueKey();
       const nestedObj = {
         level1: {
           level2: {
@@ -421,7 +444,7 @@ describe('useLocalStorage', () => {
         },
       };
 
-      const { result } = renderHook(() => useLocalStorage<typeof nestedObj | null>(TEST_KEY, null));
+      const { result } = renderHook(() => useLocalStorage<typeof nestedObj | null>(key, null));
 
       act(() => {
         result.current.setValue(nestedObj);
@@ -431,12 +454,13 @@ describe('useLocalStorage', () => {
     });
 
     it('should handle arrays of objects', () => {
+      const key = uniqueKey();
       const arrayOfObjects = [
         { id: 1, name: 'Alice' },
         { id: 2, name: 'Bob' },
       ];
 
-      const { result } = renderHook(() => useLocalStorage<typeof arrayOfObjects>(TEST_KEY, []));
+      const { result } = renderHook(() => useLocalStorage<typeof arrayOfObjects>(key, []));
 
       act(() => {
         result.current.setValue(arrayOfObjects);
@@ -448,11 +472,16 @@ describe('useLocalStorage', () => {
 
   describe('Multiple Instances', () => {
     it('should handle multiple hooks with different keys independently', () => {
-      const { result: result1 } = renderHook(() => useLocalStorage('key1', 'value1'));
-      const { result: result2 } = renderHook(() => useLocalStorage('key2', 'value2'));
+      const key1 = uniqueKey('multi1');
+      const key2 = uniqueKey('multi2');
+      const { result: result1 } = renderHook(() => useLocalStorage(key1, 'value1'));
+      const { result: result2 } = renderHook(() => useLocalStorage(key2, 'value2'));
 
       act(() => {
         result1.current.setValue('updated1');
+      });
+
+      act(() => {
         result2.current.setValue('updated2');
       });
 
@@ -461,17 +490,15 @@ describe('useLocalStorage', () => {
     });
 
     it('should handle multiple hooks with same key', () => {
-      const { result: result1 } = renderHook(() => useLocalStorage('same-key', 'initial'));
-      const { result: _result2 } = renderHook(() => useLocalStorage('same-key', 'initial'));
+      const key = uniqueKey('shared');
+      const { result: result1 } = renderHook(() => useLocalStorage(key, 'initial'));
+      const { result: _result2 } = renderHook(() => useLocalStorage(key, 'initial'));
 
       act(() => {
         result1.current.setValue('updated');
       });
 
-      // Both should reflect the change since they share the key
       expect(result1.current.value).toBe('updated');
-      // result2 might not update depending on implementation
-      // This documents current behavior
     });
   });
 });

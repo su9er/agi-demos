@@ -12,6 +12,10 @@ import { act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { useAgentV3Store as useAgentStore } from '../../stores/agentV3';
+import { useTimelineStore } from '../../stores/agent/timelineStore';
+import { useStreamingStore } from '../../stores/agent/streamingStore';
+import { useExecutionStore } from '../../stores/agent/executionStore';
+import { createDefaultConversationState } from '../../types/conversationState';
 
 import type { TimelineEvent } from '../../types/agent';
 
@@ -22,8 +26,11 @@ vi.mock('../../services/agentService', () => ({
     getConversationMessages: (...args: unknown[]) => mockGetConversationMessages(...args),
     chat: vi.fn(),
     createConversation: vi.fn(),
-    listConversations: vi.fn(),
-    getExecutionStatus: vi.fn().mockResolvedValue(null),
+    listConversations: vi.fn(() => Promise.resolve({ items: [], has_more: false, total: 0 })),
+    getExecutionStatus: vi.fn().mockResolvedValue({ is_running: false, last_sequence: 0 }),
+    connect: vi.fn(() => Promise.resolve()),
+    isConnected: vi.fn(() => true),
+    subscribe: vi.fn(),
   },
 }));
 
@@ -32,20 +39,27 @@ vi.mock('../../stores/contextStore', () => ({
   useContextStore: {
     getState: () => ({
       fetchContextStatus: vi.fn().mockResolvedValue(null),
+      reset: vi.fn(),
     }),
   },
 }));
 
 vi.mock('../../services/planService', () => ({
   planService: {
-    getMode: vi.fn().mockResolvedValue(null),
+    getMode: vi.fn().mockResolvedValue({ mode: 'act' }),
   },
 }));
 
 vi.mock('../../services/client/httpClient', () => ({
   httpClient: {
-    get: vi.fn().mockResolvedValue(null),
+    get: vi.fn().mockResolvedValue({ tasks: [] }),
   },
+}));
+
+vi.mock('../../utils/conversationDB', () => ({
+  saveConversationState: vi.fn(() => Promise.resolve()),
+  loadConversationState: vi.fn(() => Promise.resolve(null)),
+  deleteConversationState: vi.fn(() => Promise.resolve()),
 }));
 
 describe('Agent Store Pagination (agentV3)', () => {
@@ -55,25 +69,10 @@ describe('Agent Store Pagination (agentV3)', () => {
       conversations: [],
       activeConversationId: null,
       conversationStates: new Map(),
-      timeline: [],
-      messages: [],
-      isLoadingHistory: false,
-      isLoadingEarlier: false,
-      hasEarlier: false,
-      earliestTimeUs: null,
-      earliestCounter: null,
-      isStreaming: false,
-      streamStatus: 'idle',
-      error: null,
-      agentState: 'idle',
-      currentThought: '',
-      streamingThought: '',
-      isThinkingStreaming: false,
-      isPlanMode: false,
-      pendingClarification: null,
-      pendingDecision: null,
-      pendingEnvVarRequest: null,
     });
+    useTimelineStore.getState().resetAgentTimeline();
+    useStreamingStore.getState().resetAgentStreaming();
+    useExecutionStore.getState().resetAgentExecution();
     vi.clearAllMocks();
   });
 
@@ -133,12 +132,12 @@ describe('Agent Store Pagination (agentV3)', () => {
       });
 
       // Assert
-      const state = useAgentStore.getState();
-      expect(state.timeline.length).toBeGreaterThanOrEqual(3);
-      expect(state.hasEarlier).toBe(true);
-      expect(state.earliestTimeUs).toBe(1000000);
-      expect(state.earliestCounter).toBe(1);
-      expect(state.isLoadingHistory).toBe(false);
+      const tls = useTimelineStore.getState();
+      expect(tls.agentTimeline.length).toBeGreaterThanOrEqual(3);
+      expect(tls.agentHasEarlier).toBe(true);
+      expect(tls.agentEarliestTimeUs).toBe(1000000);
+      expect(tls.agentEarliestCounter).toBe(1);
+      expect(tls.agentIsLoadingHistory).toBe(false);
     });
 
     it('should handle empty timeline response', async () => {
@@ -163,11 +162,11 @@ describe('Agent Store Pagination (agentV3)', () => {
       });
 
       // Assert
-      const state = useAgentStore.getState();
-      expect(state.timeline).toEqual([]);
-      expect(state.earliestTimeUs).toBeNull();
-      expect(state.earliestCounter).toBeNull();
-      expect(state.hasEarlier).toBe(false);
+      const tls = useTimelineStore.getState();
+      expect(tls.agentTimeline).toEqual([]);
+      expect(tls.agentEarliestTimeUs).toBeNull();
+      expect(tls.agentEarliestCounter).toBeNull();
+      expect(tls.agentHasEarlier).toBe(false);
     });
   });
 
@@ -191,12 +190,12 @@ describe('Agent Store Pagination (agentV3)', () => {
 
       useAgentStore.setState({
         activeConversationId: 'conv-1',
-        earliestTimeUs: 11000000,
-        earliestCounter: 11,
-        timeline: existingTimeline,
-        hasEarlier: true,
-        isLoadingEarlier: false,
       });
+      const tls = useTimelineStore.getState();
+      tls.setAgentEarliestPointers(11000000, 11);
+      tls.setAgentTimeline(existingTimeline);
+      tls.setAgentHasEarlier(true);
+      tls.setAgentIsLoadingEarlier(false);
 
       const mockEarlierTimeline: TimelineEvent[] = [
         {
@@ -249,13 +248,13 @@ describe('Agent Store Pagination (agentV3)', () => {
       });
 
       // Assert
-      const state = useAgentStore.getState();
+      const tls2 = useTimelineStore.getState();
       expect(result).toBe(true);
-      expect(state.timeline.length).toBe(13); // 10 existing + 3 new
-      expect(state.hasEarlier).toBe(false);
-      expect(state.earliestTimeUs).toBe(1000000);
-      expect(state.earliestCounter).toBe(1);
-      expect(state.isLoadingEarlier).toBe(false);
+      expect(tls2.agentTimeline.length).toBe(13); // 10 existing + 3 new
+      expect(tls2.agentHasEarlier).toBe(false);
+      expect(tls2.agentEarliestTimeUs).toBe(1000000);
+      expect(tls2.agentEarliestCounter).toBe(1);
+      expect(tls2.agentIsLoadingEarlier).toBe(false);
 
       // Verify API was called with time-based pagination params
       expect(mockGetConversationMessages).toHaveBeenCalledWith(
@@ -273,10 +272,10 @@ describe('Agent Store Pagination (agentV3)', () => {
       // Arrange
       useAgentStore.setState({
         activeConversationId: 'conv-1',
-        earliestTimeUs: null,
-        hasEarlier: true,
-        isLoadingEarlier: false,
       });
+      useTimelineStore.getState().setAgentEarliestPointers(null, null);
+      useTimelineStore.getState().setAgentHasEarlier(true);
+      useTimelineStore.getState().setAgentIsLoadingEarlier(false);
 
       // Act
       let result: boolean | undefined;
@@ -293,11 +292,10 @@ describe('Agent Store Pagination (agentV3)', () => {
       // Arrange
       useAgentStore.setState({
         activeConversationId: 'conv-1',
-        earliestTimeUs: 11000000,
-        earliestCounter: 11,
-        hasEarlier: true,
-        isLoadingEarlier: true, // Already loading
       });
+      useTimelineStore.getState().setAgentEarliestPointers(11000000, 11);
+      useTimelineStore.getState().setAgentHasEarlier(true);
+      useTimelineStore.getState().setAgentIsLoadingEarlier(true); // Already loading
 
       // Act
       let result: boolean | undefined;
@@ -314,11 +312,10 @@ describe('Agent Store Pagination (agentV3)', () => {
       // Arrange
       useAgentStore.setState({
         activeConversationId: 'conv-other',
-        earliestTimeUs: 11000000,
-        earliestCounter: 11,
-        hasEarlier: true,
-        isLoadingEarlier: false,
       });
+      useTimelineStore.getState().setAgentEarliestPointers(11000000, 11);
+      useTimelineStore.getState().setAgentHasEarlier(true);
+      useTimelineStore.getState().setAgentIsLoadingEarlier(false);
 
       // Act
       let result: boolean | undefined;
@@ -335,11 +332,10 @@ describe('Agent Store Pagination (agentV3)', () => {
       // Arrange
       useAgentStore.setState({
         activeConversationId: 'conv-1',
-        earliestTimeUs: 11000000,
-        earliestCounter: 11,
-        hasEarlier: true,
-        isLoadingEarlier: false,
       });
+      useTimelineStore.getState().setAgentEarliestPointers(11000000, 11);
+      useTimelineStore.getState().setAgentHasEarlier(true);
+      useTimelineStore.getState().setAgentIsLoadingEarlier(false);
       mockGetConversationMessages.mockRejectedValue(new Error('Network error'));
 
       // Act
@@ -350,8 +346,7 @@ describe('Agent Store Pagination (agentV3)', () => {
 
       // Assert
       expect(result).toBe(false);
-      const state = useAgentStore.getState();
-      expect(state.isLoadingEarlier).toBe(false);
+      expect(useTimelineStore.getState().agentIsLoadingEarlier).toBe(false);
     });
   });
 
@@ -413,22 +408,9 @@ describe('Agent Store Pagination (agentV3)', () => {
 
   describe('setActiveConversation - resets pagination state', () => {
     it('should reset pagination state when switching conversations', () => {
-      // Arrange - Set initial pagination state
+      // Arrange - Set initial pagination state via sub-stores
       useAgentStore.setState({
         activeConversationId: 'conv-1',
-        earliestTimeUs: 10000000,
-        earliestCounter: 10,
-        hasEarlier: true,
-        timeline: [
-          {
-            id: 'msg-1',
-            type: 'user_message',
-            sequenceNumber: 10,
-            timestamp: 10000,
-            content: 'Msg',
-            role: 'user',
-          } as TimelineEvent,
-        ],
         conversations: [
           {
             id: 'conv-1',
@@ -442,6 +424,20 @@ describe('Agent Store Pagination (agentV3)', () => {
           } as any,
         ],
       });
+      useTimelineStore.getState().setAgentEarliestPointers(10000000, 10);
+      useTimelineStore.getState().setAgentHasEarlier(true);
+      useTimelineStore.getState().setAgentTimeline([
+        {
+          id: 'msg-1',
+          type: 'user_message',
+          sequenceNumber: 10,
+          timestamp: 10000,
+          content: 'Msg',
+          role: 'user',
+          eventTimeUs: 10000000,
+          eventCounter: 10,
+        } as TimelineEvent,
+      ]);
 
       // Act - switch to a different conversation
       act(() => {
@@ -450,33 +446,33 @@ describe('Agent Store Pagination (agentV3)', () => {
 
       // Assert
       const state = useAgentStore.getState();
+      const tls = useTimelineStore.getState();
       expect(state.activeConversationId).toBe('conv-2');
       // Pagination state should be reset for the new conversation
       // (setActiveConversation restores from conversationStates cache or defaults)
       // Since conv-2 was never loaded, these should be defaults
-      expect(state.hasEarlier).toBe(false);
-      expect(state.earliestTimeUs).toBeNull();
-      expect(state.earliestCounter).toBeNull();
+      expect(tls.agentHasEarlier).toBe(false);
+      expect(tls.agentEarliestTimeUs).toBeNull();
+      expect(tls.agentEarliestCounter).toBeNull();
     });
 
     it('should restore cached pagination state for previously visited conversation', () => {
-      // Arrange - Set up conversation states cache
+      // Arrange - Set up conversation states cache with full ConversationState
       const cachedState = new Map();
-      cachedState.set('conv-2', {
-        hasEarlier: true,
-        earliestTimeUs: 5000000,
-        earliestCounter: 5,
-        timeline: [
-          {
-            id: 'cached-msg',
-            type: 'user_message',
-            content: 'Cached',
-          } as TimelineEvent,
-        ],
-        messages: [],
-        agentState: 'idle',
-        currentThought: '',
-      });
+      const conv2State = createDefaultConversationState();
+      conv2State.hasEarlier = true;
+      conv2State.earliestTimeUs = 5000000;
+      conv2State.earliestCounter = 5;
+      conv2State.timeline = [
+        {
+          id: 'cached-msg',
+          type: 'user_message',
+          content: 'Cached',
+          eventTimeUs: 5000000,
+          eventCounter: 5,
+        } as TimelineEvent,
+      ];
+      cachedState.set('conv-2', conv2State);
 
       useAgentStore.setState({
         activeConversationId: 'conv-1',
@@ -494,10 +490,11 @@ describe('Agent Store Pagination (agentV3)', () => {
 
       // Assert
       const state = useAgentStore.getState();
+      const tls = useTimelineStore.getState();
       expect(state.activeConversationId).toBe('conv-2');
-      expect(state.hasEarlier).toBe(true);
-      expect(state.earliestTimeUs).toBe(5000000);
-      expect(state.earliestCounter).toBe(5);
+      expect(tls.agentHasEarlier).toBe(true);
+      expect(tls.agentEarliestTimeUs).toBe(5000000);
+      expect(tls.agentEarliestCounter).toBe(5);
     });
   });
 });

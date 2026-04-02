@@ -59,6 +59,10 @@ describe('agentService - WebSocket Token Handling', () => {
     // Disconnect any existing connection
     agentService.disconnect();
 
+    // Clear stale connectingPromise from previous rejected connections
+    // (source bug: doConnect rejects without clearing connectingPromise)
+    (agentService as any).wsConnection.connectingPromise = null;
+
     // Mock global WebSocket
     vi.stubGlobal('WebSocket', MockWebSocket);
 
@@ -94,16 +98,15 @@ describe('agentService - WebSocket Token Handling', () => {
       agentService.disconnect();
     });
 
-    it('should connect successfully with legacy token storage', async () => {
-      const expectedToken = 'legacy-websocket-token';
-      localStorage.setItem('token', expectedToken);
+    it('should reject legacy token storage (only memstack-auth-storage is supported)', async () => {
+      const legacyToken = 'legacy-websocket-token';
+      localStorage.setItem('token', legacyToken);
 
-      // Verify getAuthToken returns the token
-      expect(getAuthToken()).toBe(expectedToken);
+      // getAuthToken only reads memstack-auth-storage, not the legacy 'token' key
+      expect(getAuthToken()).toBeNull();
 
-      // Connect should succeed
-      await expect(agentService.connect()).resolves.toBeUndefined();
-      expect(agentService.getStatus()).toBe('connected');
+      // Connect should fail without a valid token
+      await expect(agentService.connect()).rejects.toThrow('No authentication token');
 
       // Cleanup
       agentService.disconnect();

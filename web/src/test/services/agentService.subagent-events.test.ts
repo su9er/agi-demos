@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { agentService } from '@/services/agentService';
+import { routeToHandler } from '@/services/agent/messageRouter';
 
 import type { AgentStreamHandler } from '@/types/agent';
 
 describe('agentService subagent session event routing', () => {
   const route = (eventType: string, data: Record<string, unknown>, handler: AgentStreamHandler) => {
-    (agentService as any).routeToHandler(eventType, data, handler);
+    routeToHandler(eventType, data, handler);
   };
 
   it('routes subagent_announce_retry to onSubAgentStarted', () => {

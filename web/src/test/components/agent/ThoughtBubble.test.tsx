@@ -41,7 +41,8 @@ describe('ThoughtBubble', () => {
     it('should show bulb icon for thinking indicator', () => {
       const { container } = render(<ThoughtBubble thought="Thinking..." level="task" />);
 
-      const icon = container.querySelector('.anticon-bulb');
+      // Component uses Lucide Lightbulb icon, not Ant Design bulb
+      const icon = container.querySelector('svg');
       expect(icon).toBeInTheDocument();
     });
   });
@@ -168,7 +169,7 @@ describe('ThoughtBubble', () => {
       render(<ThoughtBubble thought="Still thinking..." level="task" isThinking={true} />);
 
       const loadingIndicator = screen.getByTestId('thinking-indicator');
-      expect(loadingIndicator).toHaveClass('thinking-animation');
+      expect(loadingIndicator).toHaveClass('animate-pulse');
     });
 
     it('should stop animation when isThinking is false', () => {
@@ -176,7 +177,7 @@ describe('ThoughtBubble', () => {
 
       const icon = screen.getByTestId('thinking-indicator');
       expect(icon).toBeInTheDocument();
-      expect(icon).not.toHaveClass('thinking-animation');
+      expect(icon).not.toHaveClass('animate-pulse');
     });
   });
 

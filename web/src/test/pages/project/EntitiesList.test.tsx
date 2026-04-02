@@ -202,9 +202,14 @@ describe('EntitiesList Compound Component', () => {
 
   describe('Pagination Sub-Component', () => {
     it('should render pagination controls', async () => {
-      // Override mock to return more items for pagination test
       const { graphService } = await import('../../../services/graphService');
-      vi.mocked(graphService.listEntities).mockResolvedValueOnce({
+      vi.mocked(graphService.getEntityTypes).mockResolvedValue({
+        entity_types: [
+          { entity_type: 'Person', count: 10 },
+          { entity_type: 'Organization', count: 5 },
+        ],
+      });
+      vi.mocked(graphService.listEntities).mockResolvedValue({
         items: Array.from({ length: 25 }, (_, i) => ({
           uuid: `${i}`,
           name: `Entity ${i}`,

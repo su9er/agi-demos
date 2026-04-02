@@ -80,7 +80,7 @@ describe('unifiedEventService', () => {
   let unifiedEventService: typeof import('@/services/unifiedEventService').unifiedEventService;
 
   beforeEach(async () => {
-    vi.stubGlobal('WebSocket', WebSocket);
+    vi.stubGlobal('WebSocket', MockWebSocket);
     vi.stubGlobal('crypto', {
       randomUUID: () => 'test-uuid-' + Date.now(),
     });
@@ -238,7 +238,7 @@ describe('unifiedEventService - Topic Management', () => {
   let unifiedEventService: typeof import('@/services/unifiedEventService').unifiedEventService;
 
   beforeEach(async () => {
-    vi.stubGlobal('WebSocket', WebSocket);
+    vi.stubGlobal('WebSocket', MockWebSocket);
     vi.stubGlobal('crypto', {
       randomUUID: () => 'test-uuid-' + Date.now(),
     });

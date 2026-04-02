@@ -67,8 +67,13 @@ describe('MemoryGraph', () => {
     fireEvent.click(screen.getByText('Simulate Node Click'));
     expect(screen.getByText('Test Entity')).toBeInTheDocument();
 
-    // Find close button (using material symbol text)
-    fireEvent.click(screen.getByText('close'));
+    // Close button is a <button> containing an X icon (lucide)
+    const buttons = screen.getAllByRole('button');
+    const closeButton = buttons.find(
+      (btn) => btn.querySelector('.lucide-x') || btn.querySelector('svg')
+    );
+    expect(closeButton).toBeTruthy();
+    fireEvent.click(closeButton!);
 
     expect(screen.queryByText('Test Entity')).not.toBeInTheDocument();
   });

@@ -1,0 +1,187 @@
+/**
+ * Conversation lifecycle actions extracted from agentV3.ts.
+ *
+ * Contains loadConversations, loadMoreConversations, deleteConversation,
+ * renameConversation, and createNewConversation actions.
+ */
+
+import { agentService } from '../../services/agentService';
+import { createDefaultConversationState } from '../../types/conversationState';
+import { deleteConversationState } from '../../utils/conversationDB';
+import { logger } from '../../utils/logger';
+import { tabSync } from '../../utils/tabSync';
+import { useConversationsStore } from './conversationsStore';
+import {
+  clearDeltaBuffers,
+  deleteDeltaBuffer,
+} from './deltaBuffers';
+import { useExecutionStore } from './executionStore';
+import { useAgentHITLStore } from './hitlStore';
+import {
+  touchConversation,
+  cancelPendingSave,
+  removeFromAccessOrder,
+} from './persistence';
+import { useStreamingStore } from './streamingStore';
+import { useTimelineStore } from './timelineStore';
+
+import type { ConversationState } from '../../types/conversationState';
+import type { AgentV3State } from './types';
+import type { StoreApi } from 'zustand';
+
+export interface ConversationLifecycleDeps {
+  get: () => {
+    activeConversationId: string | null;
+    conversations: AgentV3State['conversations'];
+    conversationStates: Map<string, ConversationState>;
+    hasMoreConversations: boolean;
+  };
+  set: StoreApi<AgentV3State>['setState'];
+  resetCanvasForConversationScope: () => void;
+}
+
+export function createConversationLifecycleActions(deps: ConversationLifecycleDeps) {
+  const { get, set, resetCanvasForConversationScope } = deps;
+
+  return {
+    loadConversations: async (projectId: string): Promise<void> => {
+      logger.debug(`[agentV3] loadConversations called for project: ${projectId}`);
+
+      // Prevent duplicate calls for the same project
+      const currentConvos = get().conversations;
+      const firstConvoProject = currentConvos[0]?.project_id;
+      if (currentConvos.length > 0 && firstConvoProject === projectId) {
+        logger.debug(
+          `[agentV3] Conversations already loaded for project ${projectId}, skipping`
+        );
+        return;
+      }
+
+      try {
+        // Delegate to conversationsStore for API call + list management
+        await useConversationsStore.getState().listConversations(projectId);
+        // Sync back to agentV3 state (strangler fig dual-write)
+        const convState = useConversationsStore.getState();
+        set({
+          conversations: convState.conversations,
+          hasMoreConversations: convState.hasMoreConversations,
+          conversationsTotal: convState.conversationsTotal,
+        });
+        logger.debug(`[agentV3] Loaded ${String(convState.conversations.length)} conversations via conversationsStore`);
+      } catch (error) {
+        console.error('[agentV3] Failed to list conversations', error);
+      }
+    },
+
+    loadMoreConversations: async (projectId: string): Promise<void> => {
+      const state = get();
+      if (!state.hasMoreConversations) return;
+
+      try {
+        await useConversationsStore.getState().loadMoreConversations(projectId);
+        const convState = useConversationsStore.getState();
+        set({
+          conversations: convState.conversations,
+          hasMoreConversations: convState.hasMoreConversations,
+          conversationsTotal: convState.conversationsTotal,
+        });
+        logger.debug(`[agentV3] Loaded more conversations via conversationsStore`);
+      } catch (error) {
+        console.error('[agentV3] Failed to load more conversations', error);
+      }
+    },
+
+    deleteConversation: async (conversationId: string, projectId: string): Promise<void> => {
+      try {
+        // Delegate API call + list filtering to conversationsStore
+        await useConversationsStore.getState().deleteConversation(conversationId, projectId);
+
+        agentService.unsubscribe(conversationId);
+        clearDeltaBuffers(conversationId);
+        deleteDeltaBuffer(conversationId);
+        cancelPendingSave(conversationId);
+        removeFromAccessOrder(conversationId);
+
+        const wasActive = get().activeConversationId === conversationId;
+        set((state) => {
+          const newStates = new Map(state.conversationStates);
+          newStates.delete(conversationId);
+
+          return {
+            conversations: useConversationsStore.getState().conversations,
+            conversationStates: newStates,
+            activeConversationId:
+              state.activeConversationId === conversationId ? null : state.activeConversationId,
+          };
+        });
+
+        // Reset sub-stores if we deleted the active conversation
+        if (wasActive) {
+          useTimelineStore.getState().setAgentTimeline([]);
+          useTimelineStore.getState().setAgentMessages([]);
+          useStreamingStore.getState().resetAgentStreaming();
+          useExecutionStore.getState().resetAgentExecution();
+        }
+
+        deleteConversationState(conversationId).catch(console.error);
+        tabSync.broadcastConversationDeleted(conversationId);
+      } catch (error) {
+        console.error('Failed to delete conversation', error);
+        useStreamingStore.getState().setAgentError('Failed to delete conversation');
+      }
+    },
+
+    renameConversation: async (conversationId: string, projectId: string, title: string): Promise<void> => {
+      try {
+        await useConversationsStore.getState().renameConversation(conversationId, projectId, title);
+        set({ conversations: useConversationsStore.getState().conversations });
+        tabSync.broadcastConversationRenamed(conversationId, title);
+      } catch (error) {
+        console.error('Failed to rename conversation', error);
+        useStreamingStore.getState().setAgentError('Failed to rename conversation');
+      }
+    },
+
+    createNewConversation: async (projectId: string): Promise<string | null> => {
+      try {
+        const newConv = await useConversationsStore.getState().createConversation(projectId, 'New Conversation');
+        resetCanvasForConversationScope();
+
+        const newConvState = createDefaultConversationState();
+
+        touchConversation(newConv.id);
+        set((state) => {
+          const newStates = new Map(state.conversationStates);
+          newStates.set(newConv.id, newConvState);
+
+          return {
+            conversations: useConversationsStore.getState().conversations,
+            conversationStates: newStates,
+            activeConversationId: newConv.id,
+          };
+        });
+
+        useTimelineStore.getState().setAgentTimeline([]);
+        useTimelineStore.getState().setAgentMessages([]);
+        useStreamingStore.getState().resetAgentStreaming();
+        useExecutionStore.getState().resetAgentExecution();
+        useAgentHITLStore.getState().syncFromConversation({
+          pendingClarification: null,
+          pendingDecision: null,
+          pendingEnvVarRequest: null,
+          pendingPermission: null,
+          doomLoopDetected: null,
+          costTracking: null,
+          suggestions: [],
+          pinnedEventIds: new Set(),
+        });
+
+        return newConv.id;
+      } catch (error) {
+        console.error('Failed to create conversation', error);
+        useStreamingStore.getState().setAgentError('Failed to create conversation');
+        return null;
+      }
+    },
+  };
+}

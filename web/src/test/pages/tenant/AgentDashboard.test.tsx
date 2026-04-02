@@ -21,6 +21,26 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+// Mock traceStore hooks used by AgentDashboard
+vi.mock('../../../stores/traceStore', () => ({
+  useTraceRuns: () => [],
+  useActiveRunCount: () => 0,
+  useTraceLoading: () => false,
+  useTraceChain: () => null,
+  useTraceChainLoading: () => false,
+  useGetTraceChain: () => vi.fn(),
+  useTraceStore: { getState: () => ({ fetchActiveRunCount: vi.fn() }) },
+}));
+
+// Mock child components that have complex dependencies
+vi.mock('../../../components/agent/multiAgent/TraceChainView', () => ({
+  TraceChainView: () => <div data-testid="trace-chain-view">TraceChainView</div>,
+}));
+
+vi.mock('../../../components/agent/multiAgent/TraceTimeline', () => ({
+  TraceTimeline: () => <div data-testid="trace-timeline">TraceTimeline</div>,
+}));
+
 describe('AgentDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -61,30 +81,34 @@ describe('AgentDashboard', () => {
 
       // Find inactive agent
       const _creativeStrategist = screen.getByText('Creative Strategist').closest('div');
-      const activateButton = screen.getByText('Activate');
+      // Count active badges before toggle
+      const activeBefore = screen.getAllByText('Active').length;
+      const activateButtons = screen.getAllByText('Activate');
+      const activateButton = activateButtons[0];
 
       fireEvent.click(activateButton);
 
-      // After clicking activate, the button should no longer be visible
-      // and the "Active" badge should appear
-      expect(screen.getByText('Active')).toBeInTheDocument();
+      // After clicking activate, the number of Active badges should increase
+      const activeAfter = screen.getAllByText('Active').length;
+      expect(activeAfter).toBeGreaterThan(activeBefore);
     });
 
     it('should toggle auto-learning setting', () => {
       render(<AgentDashboard />);
 
-      const toggle = screen.getByRole('checkbox', { name: '' });
-      expect(toggle).toBeChecked();
+      const toggles = screen.getAllByRole('checkbox');
+      const autoLearningToggle = toggles[0];
+      expect(autoLearningToggle).toBeChecked();
 
-      fireEvent.click(toggle);
-      expect(toggle).not.toBeChecked();
+      fireEvent.click(autoLearningToggle);
+      expect(autoLearningToggle).not.toBeChecked();
     });
 
     it('should toggle browser access setting', () => {
       render(<AgentDashboard />);
 
       const toggles = screen.getAllByRole('checkbox');
-      const browserToggle = toggles[1]; // Second toggle is for browser access
+      const browserToggle = toggles[1];
       expect(browserToggle).toBeChecked();
 
       fireEvent.click(browserToggle);
@@ -124,8 +148,8 @@ describe('AgentDashboard', () => {
   describe('Accessibility', () => {
     it('should have proper heading hierarchy', () => {
       render(<AgentDashboard />);
-      const h1 = screen.getByText('Configure Your Intelligence Core');
-      expect(h1.tagName).toBe('H1');
+      const heading = screen.getByText('Configure Your Intelligence Core');
+      expect(heading.tagName).toBe('H2');
     });
 
     it('should have accessible toggle buttons', () => {

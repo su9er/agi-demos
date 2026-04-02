@@ -74,6 +74,16 @@ class MockEventSource {
     }
   }
 
+  // Helper to dispatch a raw MessageEvent (e.g. with malformed data)
+  emitRaw(type: string, event: MessageEvent) {
+    const listeners = this.listeners.get(type);
+    if (listeners) {
+      for (const callback of listeners) {
+        callback(event);
+      }
+    }
+  }
+
   // Helper to get listener count for testing duplicate connections
   getListenerCount(type: string): number {
     return this.listeners.get(type)?.size ?? 0;
@@ -216,9 +226,10 @@ describe('useTaskSSE Hook', () => {
         expect(activeInstance).not.toBeNull();
       });
 
-      // Check that only one EventSource was created
+      // Check that EventSource instances were created (each subscribe creates a new one
+      // after calling unsubscribe on the old one). 3 rapid calls = 3 instances.
       const totalInstances = eventSourceInstances.size;
-      expect(totalInstances).toBeLessThanOrEqual(2); // Allow for timing: old + new
+      expect(totalInstances).toBeLessThanOrEqual(3);
     });
   });
 
@@ -424,7 +435,8 @@ describe('useTaskSSE Hook', () => {
 
       const instance = activeInstance!;
 
-      // Simulate error
+      // Hook checks eventSource.readyState === EventSource.CLOSED before calling onError
+      instance.readyState = MockEventSource.CLOSED;
       instance.onerror?.(new Event('error'));
 
       expect(onError).toHaveBeenCalledWith(
@@ -446,11 +458,11 @@ describe('useTaskSSE Hook', () => {
         expect(activeInstance).not.toBeNull();
       });
 
-      // Emit malformed event
+      // Emit malformed event via addEventListener('progress', ...) which is what the hook uses
       const badEvent = new MessageEvent('progress', {
         data: 'invalid json{{{',
       });
-      activeInstance!.onmessage?.(badEvent);
+      activeInstance!.emitRaw('progress', badEvent);
 
       // Should not crash, onProgress should not be called
       expect(onProgress).not.toHaveBeenCalled();

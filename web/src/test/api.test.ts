@@ -40,14 +40,17 @@ describe('API Services', () => {
         access_token: 'test-token',
         token_type: 'bearer',
       };
-      const mockUser = {
-        id: 'user-1',
+      const mockBackendUser = {
+        user_id: 'user-1',
         email: 'test@example.com',
+        name: 'Test User',
+        roles: ['user'],
+        is_active: true,
+        created_at: '2024-01-01T00:00:00Z',
       };
 
-      // httpClient.post returns data directly, not { data: ... }
       mockApiInstance.post.mockResolvedValueOnce({ data: mockTokenResponse });
-      mockApiInstance.get.mockResolvedValueOnce({ data: mockUser });
+      mockApiInstance.get.mockResolvedValueOnce({ data: mockBackendUser });
 
       const result = await authAPI.login('test@example.com', 'password');
 
@@ -57,15 +60,43 @@ describe('API Services', () => {
         expect.any(Object)
       );
       expect(mockApiInstance.get).toHaveBeenCalledWith('/auth/me', expect.any(Object));
-      expect(result).toEqual({ token: 'test-token', user: mockUser });
+      expect(result).toEqual({
+        token: 'test-token',
+        user: {
+          id: 'user-1',
+          email: 'test@example.com',
+          name: 'Test User',
+          roles: ['user'],
+          is_active: true,
+          created_at: '2024-01-01T00:00:00Z',
+          profile: undefined,
+          must_change_password: undefined,
+        },
+        must_change_password: false,
+      });
     });
 
     it('verifyToken should return user', async () => {
-      const mockData = { id: '1' };
-      mockApiInstance.get.mockResolvedValue({ data: mockData });
+      const mockBackendUser = {
+        user_id: '1',
+        email: 'test@example.com',
+        name: 'Test User',
+        roles: ['user'],
+        is_active: true,
+        created_at: '2024-01-01T00:00:00Z',
+      };
+      mockApiInstance.get.mockResolvedValue({ data: mockBackendUser });
       const result = await authAPI.verifyToken('token');
       expect(mockApiInstance.get).toHaveBeenCalledWith('/auth/me', undefined);
-      expect(result).toEqual(mockData);
+      expect(result).toEqual({
+        id: '1',
+        email: 'test@example.com',
+        name: 'Test User',
+        roles: ['user'],
+        is_active: true,
+        created_at: '2024-01-01T00:00:00Z',
+        profile: undefined,
+      });
     });
   });
 

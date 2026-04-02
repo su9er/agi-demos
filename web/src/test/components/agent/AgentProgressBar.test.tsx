@@ -5,11 +5,39 @@
  * including work plan steps and current execution status.
  */
 
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import React, { Suspense } from 'react';
+
+import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
 
 import '@testing-library/jest-dom/vitest';
 import { AgentProgressBar } from '../../../components/agent/AgentProgressBar';
+
+// Mock lazyAntd to provide synchronous versions of lazy components
+vi.mock('../../../components/ui/lazyAntd', async () => {
+  const antd = await import('antd');
+  return {
+    ...antd,
+    LazyProgress: antd.Progress,
+    LazySpace: antd.Space,
+    LazyTooltip: antd.Tooltip,
+    Typography: antd.Typography,
+    DefaultFallback: () => <div>Loading...</div>,
+  };
+});
+
+// Mock useThemeColors hook
+vi.mock('../../../hooks/useThemeColor', () => ({
+  useThemeColors: () => ({
+    success: '#52c41a',
+    info: '#1890ff',
+    border: '#d9d9d9',
+    error: '#ff4d4f',
+    errorLight: '#ffccc7',
+    successLight: '#b7eb8f',
+    infoLight: '#91d5ff',
+  }),
+}));
 
 describe('AgentProgressBar', () => {
   describe('Rendering', () => {

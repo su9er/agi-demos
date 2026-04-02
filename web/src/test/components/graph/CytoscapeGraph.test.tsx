@@ -14,10 +14,64 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Import mocks FIRST before component imports
 import '../../mocks/cytoscape';
 
+const { graphService } = vi.hoisted(() => {
+  const graphService = {
+    getGraphData: vi.fn(() =>
+      Promise.resolve({
+        elements: {
+          nodes: [
+            {
+              data: {
+                id: 'n1',
+                label: 'Entity',
+                name: 'Test Entity',
+                uuid: 'u1',
+                entity_type: 'Person',
+              },
+            },
+            {
+              data: {
+                id: 'n2',
+                label: 'Community',
+                name: 'Test Community',
+                uuid: 'u2',
+                member_count: 5,
+              },
+            },
+          ],
+          edges: [{ data: { id: 'e1', source: 'n1', target: 'n2', label: 'MEMBER_OF' } }],
+        },
+      })
+    ),
+    getSubgraph: vi.fn(() =>
+      Promise.resolve({
+        elements: {
+          nodes: [
+            {
+              data: {
+                id: 'n1',
+                label: 'Entity',
+                name: 'Test Entity',
+                uuid: 'u1',
+                entity_type: 'Person',
+              },
+            },
+          ],
+          edges: [],
+        },
+      })
+    ),
+  };
+  return { graphService };
+});
+
+vi.mock('@/services/graphService', () => ({
+  graphService,
+}));
+
 import { CytoscapeGraph } from '@/components/graph/CytoscapeGraph';
 import type { GraphConfig, NodeData } from '@/components/graph/CytoscapeGraph/types';
 
-import { graphService } from '../../mocks/graphService';
 import { useThemeStore } from '../../mocks/themeStore';
 import { render, screen, fireEvent, waitFor } from '../../utils';
 
@@ -258,7 +312,24 @@ describe('CytoscapeGraph - TDD Refactoring', () => {
     });
 
     it('should support subgraphNodeIds with legacy API', async () => {
-      // graphService is imported from mocks
+      const mockGraphData = {
+        elements: {
+          nodes: [
+            {
+              data: {
+                id: 'n1',
+                label: 'Entity',
+                name: 'Test Entity',
+                uuid: 'u1',
+                entity_type: 'Person',
+              },
+            },
+          ],
+          edges: [],
+        },
+      };
+      graphService.getGraphData.mockResolvedValue(mockGraphData);
+      graphService.getSubgraph.mockResolvedValue(mockGraphData);
 
       render(<CytoscapeGraph projectId="p1" subgraphNodeIds={['n1', 'n2']} />);
 
@@ -320,7 +391,21 @@ describe('CytoscapeGraph - TDD Refactoring', () => {
     });
 
     it('should trigger data reload on reload button click', async () => {
-      // graphService is imported from mocks
+      graphService.getGraphData.mockResolvedValue({
+        elements: {
+          nodes: [
+            {
+              data: {
+                id: 'n1',
+                label: 'Entity',
+                name: 'Test Entity',
+                uuid: 'u1',
+              },
+            },
+          ],
+          edges: [],
+        },
+      });
 
       render(<CytoscapeGraph config={{ data: { projectId: 'p1' } }} />);
 
@@ -405,8 +490,9 @@ describe('CytoscapeGraph - TDD Refactoring', () => {
         expect(screen.getByText('Test Entity')).toBeInTheDocument();
       });
 
-      const closeButton = screen.getByText('close');
-      fireEvent.click(closeButton);
+      const closeButton = document.querySelector('.lucide-x')?.closest('button');
+      expect(closeButton).toBeInTheDocument();
+      fireEvent.click(closeButton!);
 
       expect(onClose).toHaveBeenCalled();
     });

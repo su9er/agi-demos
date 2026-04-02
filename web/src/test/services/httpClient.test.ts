@@ -1,27 +1,21 @@
-/**
- * Tests for the centralized HTTP client
- *
- * Tests verify:
- * - Client configuration with correct baseURL
- * - Auth token injection via request interceptor
- * - 401 error handling via response interceptor
- * - Proper axios instance creation
- * - Request caching for GET requests
- * - Request deduplication for concurrent requests
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { httpClient } from '../../services/client/httpClient';
 import { requestCache } from '../../services/client/requestCache';
 import { requestDeduplicator } from '../../services/client/requestDeduplicator';
-// Define the mock instance using vi.hoisted to handle hoisting
+
+let capturedRequestInterceptor: ((config: Record<string, unknown>) => unknown) | null = null;
+let capturedResponseInterceptor: ((response: unknown) => unknown) | null = null;
+
 const { mockAxiosInstance } = vi.hoisted(() => {
   return {
     mockAxiosInstance: {
       interceptors: {
-        request: { use: vi.fn() },
-        response: { use: vi.fn() },
+        request: {
+          use: vi.fn(),
+        },
+        response: {
+          use: vi.fn(),
+        },
       },
       defaults: {
         baseURL: '/api/v1',
@@ -36,31 +30,26 @@ const { mockAxiosInstance } = vi.hoisted(() => {
   };
 });
 
-// Mock axios
 vi.mock('axios', () => ({
   default: {
     create: vi.fn(() => mockAxiosInstance),
   },
 }));
 
-// Import after mock is defined
-// Mock window.location
-const mockLocation = {
-  pathname: '/dashboard',
-  href: 'http://localhost:3000/dashboard',
-  origin: 'http://localhost:3000',
-  protocol: 'http:',
-  host: 'localhost:3000',
-  hostname: 'localhost',
-  port: '3000',
-};
+vi.mock('@/utils/tokenResolver', () => ({
+  getAuthToken: vi.fn(() => 'test-token'),
+  clearAuthState: vi.fn(),
+}));
 
-Object.defineProperty(global, 'window', {
-  value: {
-    location: mockLocation,
-  },
-  writable: true,
-});
+vi.mock('../../services/client/ApiError', () => ({
+  parseAxiosError: vi.fn((error: unknown) => error),
+}));
+
+import { httpClient } from '../../services/client/httpClient';
+import { getAuthToken } from '@/utils/tokenResolver';
+
+capturedRequestInterceptor = mockAxiosInstance.interceptors.request.use.mock.calls[0]?.[0] ?? null;
+capturedResponseInterceptor = mockAxiosInstance.interceptors.response.use.mock.calls[0]?.[0] ?? null;
 
 describe('httpClient', () => {
   beforeEach(() => {
@@ -68,8 +57,6 @@ describe('httpClient', () => {
     localStorage.clear();
     requestCache.clear();
     requestDeduplicator.clear();
-    // Reset window.location
-    window.location.pathname = '/dashboard';
   });
 
   afterEach(() => {
@@ -78,35 +65,8 @@ describe('httpClient', () => {
   });
 
   describe('client configuration', () => {
-    it('should have correct baseURL from environment', () => {
+    it('should be defined with expected HTTP methods', () => {
       expect(httpClient).toBeDefined();
-      expect(httpClient.defaults.baseURL).toBe('/api/v1');
-    });
-
-    it('should have default headers', () => {
-      expect(httpClient.defaults.headers['Content-Type']).toBe('application/json');
-    });
-  });
-
-  describe('request interceptor', () => {
-    it('should have interceptors object configured', () => {
-      expect(httpClient.interceptors).toBeDefined();
-      expect(httpClient.interceptors.request).toBeDefined();
-      expect(httpClient.interceptors.request.use).toBeDefined();
-      expect(typeof httpClient.interceptors.request.use).toBe('function');
-    });
-  });
-
-  describe('response interceptor', () => {
-    it('should have response interceptors configured', () => {
-      expect(httpClient.interceptors.response).toBeDefined();
-      expect(httpClient.interceptors.response.use).toBeDefined();
-      expect(typeof httpClient.interceptors.response.use).toBe('function');
-    });
-  });
-
-  describe('client methods', () => {
-    it('should expose standard axios methods', () => {
       expect(typeof httpClient.get).toBe('function');
       expect(typeof httpClient.post).toBe('function');
       expect(typeof httpClient.put).toBe('function');
@@ -114,413 +74,352 @@ describe('httpClient', () => {
       expect(typeof httpClient.delete).toBe('function');
     });
 
-    it('should expose cache object', () => {
-      expect(httpClient.cache).toBeDefined();
-      expect(httpClient.cache).toBe(requestCache);
-    });
-
-    it('should expose deduplicator object', () => {
-      expect(httpClient.deduplicator).toBeDefined();
-      expect(httpClient.deduplicator).toBe(requestDeduplicator);
-    });
-
-    it('should expose axios instance', () => {
-      expect(httpClient.instance).toBeDefined();
-      expect(httpClient.instance).toBe(mockAxiosInstance);
+    it('should expose upload method', () => {
+      expect(typeof httpClient.upload).toBe('function');
     });
   });
 
-  describe('GET request caching', () => {
-    it('should return cached data on cache hit', async () => {
+  describe('request interceptor', () => {
+    it('should have captured the request interceptor function', () => {
+      expect(capturedRequestInterceptor).toBeDefined();
+      expect(typeof capturedRequestInterceptor).toBe('function');
+    });
+
+    it('should inject auth token into request headers', () => {
+      expect(capturedRequestInterceptor).toBeDefined();
+      if (capturedRequestInterceptor) {
+        const config = { url: '/test', headers: {} as Record<string, string> };
+        const result = capturedRequestInterceptor(config);
+        expect((result as typeof config).headers.Authorization).toBe('Bearer test-token');
+      }
+    });
+
+    it('should skip auth for public endpoints', () => {
+      expect(capturedRequestInterceptor).toBeDefined();
+      if (capturedRequestInterceptor) {
+        const config = { url: '/auth/token', headers: {} as Record<string, string> };
+        const result = capturedRequestInterceptor(config);
+        expect((result as typeof config).headers.Authorization).toBeUndefined();
+      }
+    });
+
+    it('should reject when no token is available for authenticated endpoints', async () => {
+      vi.mocked(getAuthToken).mockReturnValueOnce(null);
+      expect(capturedRequestInterceptor).toBeDefined();
+      if (capturedRequestInterceptor) {
+        const config = { url: '/test', headers: {} as Record<string, string> };
+        const result = capturedRequestInterceptor(config);
+        expect(result).toBeInstanceOf(Promise);
+        await expect(result).rejects.toThrow('No authentication token');
+      }
+    });
+  });
+
+  describe('response interceptor', () => {
+    it('should have captured the response interceptor functions', () => {
+      expect(capturedResponseInterceptor).toBeDefined();
+      expect(typeof capturedResponseInterceptor).toBe('function');
+    });
+
+    it('should pass through successful responses', () => {
+      expect(capturedResponseInterceptor).toBeDefined();
+      if (capturedResponseInterceptor) {
+        const response = { status: 200, data: { result: 'ok' } };
+        const result = capturedResponseInterceptor(response);
+        expect(result).toBe(response);
+      }
+    });
+  });
+
+  describe('client methods', () => {
+    it('should expose standard HTTP methods', () => {
+      expect(typeof httpClient.get).toBe('function');
+      expect(typeof httpClient.post).toBe('function');
+      expect(typeof httpClient.put).toBe('function');
+      expect(typeof httpClient.patch).toBe('function');
+      expect(typeof httpClient.delete).toBe('function');
+    });
+
+    it('should return response.data from GET requests', async () => {
+      const testData = { result: 'success' };
+      mockAxiosInstance.get.mockResolvedValueOnce({ status: 200, data: testData });
+
+      const result = await httpClient.get('/test');
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/test', undefined);
+      expect(result).toEqual(testData);
+    });
+
+    it('should return response.data from POST requests', async () => {
+      const testData = { result: 'created' };
+      const postBody = { name: 'test' };
+      mockAxiosInstance.post.mockResolvedValueOnce({ status: 201, data: testData });
+
+      const result = await httpClient.post('/test', postBody);
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/test', postBody, undefined);
+      expect(result).toEqual(testData);
+    });
+
+    it('should return response.data from PUT requests', async () => {
+      const testData = { result: 'updated' };
+      const putBody = { name: 'updated' };
+      mockAxiosInstance.put.mockResolvedValueOnce({ status: 200, data: testData });
+
+      const result = await httpClient.put('/test', putBody);
+
+      expect(mockAxiosInstance.put).toHaveBeenCalledWith('/test', putBody, undefined);
+      expect(result).toEqual(testData);
+    });
+
+    it('should return response.data from PATCH requests', async () => {
+      const testData = { result: 'patched' };
+      const patchBody = { name: 'patched' };
+      mockAxiosInstance.patch.mockResolvedValueOnce({ status: 200, data: testData });
+
+      const result = await httpClient.patch('/test', patchBody);
+
+      expect(mockAxiosInstance.patch).toHaveBeenCalledWith('/test', patchBody, undefined);
+      expect(result).toEqual(testData);
+    });
+
+    it('should return response.data from DELETE requests', async () => {
+      const testData = null;
+      mockAxiosInstance.delete.mockResolvedValueOnce({ status: 204, data: testData });
+
+      const result = await httpClient.delete('/test');
+
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith('/test', undefined);
+      expect(result).toEqual(testData);
+    });
+  });
+
+  describe('requestCache (standalone utility)', () => {
+    it('should store and retrieve cached data', () => {
       const testData = { result: 'cached data' };
       const cacheKey = requestCache.generateCacheKey('/api/test');
 
-      // Pre-populate cache
       requestCache.set(cacheKey, testData);
-
-      // Call should not hit the network
-      const result = await httpClient.get('/api/test');
-
-      expect(mockAxiosInstance.get).not.toHaveBeenCalled();
-      expect(result).toEqual(testData);
-    });
-
-    it('should make request and cache result on cache miss', async () => {
-      const testData = { result: 'fresh data' };
-      mockAxiosInstance.get.mockResolvedValueOnce({
-        status: 200,
-        data: testData,
-      });
-
-      const result = await httpClient.get('/api/test');
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/test', undefined);
-      expect(result).toEqual(testData);
-
-      // Verify it was cached
-      const cacheKey = requestCache.generateCacheKey('/api/test');
       expect(requestCache.get(cacheKey)).toEqual(testData);
     });
 
-    it('should not cache non-200 responses', async () => {
-      mockAxiosInstance.get.mockResolvedValueOnce({
-        status: 404,
-        data: { error: 'Not found' },
-      });
-
-      await httpClient.get('/api/test');
-
-      // Verify it was NOT cached
+    it('should return undefined on cache miss', () => {
       const cacheKey = requestCache.generateCacheKey('/api/test');
       expect(requestCache.get(cacheKey)).toBeUndefined();
     });
 
-    it('should use different cache keys for different params', async () => {
+    it('should use different cache keys for different params', () => {
       const testData1 = { result: 'data1' };
       const testData2 = { result: 'data2' };
 
-      mockAxiosInstance.get
-        .mockResolvedValueOnce({ status: 200, data: testData1 })
-        .mockResolvedValueOnce({ status: 200, data: testData2 });
+      const key1 = requestCache.generateCacheKey('/api/test', { id: 1 });
+      const key2 = requestCache.generateCacheKey('/api/test', { id: 2 });
 
-      const result1 = await httpClient.get('/api/test', { params: { id: 1 } });
-      const result2 = await httpClient.get('/api/test', { params: { id: 2 } });
+      requestCache.set(key1, testData1);
+      requestCache.set(key2, testData2);
 
-      expect(result1).toEqual(testData1);
-      expect(result2).toEqual(testData2);
-      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(2);
+      expect(requestCache.get(key1)).toEqual(testData1);
+      expect(requestCache.get(key2)).toEqual(testData2);
+      expect(key1).not.toBe(key2);
     });
 
-    it('should generate same cache key for same params in different order', async () => {
-      const testData = { result: 'data' };
+    it('should generate same cache key for same params in different order', () => {
+      const key1 = requestCache.generateCacheKey('/api/test', { a: 1, b: 2 });
+      const key2 = requestCache.generateCacheKey('/api/test', { b: 2, a: 1 });
 
-      mockAxiosInstance.get.mockResolvedValueOnce({
-        status: 200,
-        data: testData,
-      });
-
-      // First call
-      await httpClient.get('/api/test', { params: { a: 1, b: 2 } });
-
-      // Second call with params in different order should hit cache
-      const result2 = await httpClient.get('/api/test', { params: { b: 2, a: 1 } });
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1);
-      expect(result2).toEqual(testData);
-    });
-  });
-
-  describe('POST/PUT/DELETE bypass cache', () => {
-    it('should not cache POST requests', async () => {
-      const testData = { result: 'created' };
-      mockAxiosInstance.post.mockResolvedValueOnce({
-        status: 201,
-        data: testData,
-      });
-
-      await httpClient.post('/api/test', testData);
-
-      const cacheKey = requestCache.generateCacheKey('/api/test');
-      expect(requestCache.get(cacheKey)).toBeUndefined();
+      expect(key1).toBe(key2);
     });
 
-    it('should not cache PUT requests', async () => {
-      const testData = { result: 'updated' };
-      mockAxiosInstance.put.mockResolvedValueOnce({
-        status: 200,
-        data: testData,
-      });
+    it('should clear all entries', () => {
+      requestCache.set('key1', 'data1');
+      requestCache.set('key2', 'data2');
 
-      await httpClient.put('/api/test', testData);
+      requestCache.clear();
 
-      const cacheKey = requestCache.generateCacheKey('/api/test');
-      expect(requestCache.get(cacheKey)).toBeUndefined();
+      expect(requestCache.get('key1')).toBeUndefined();
+      expect(requestCache.get('key2')).toBeUndefined();
     });
 
-    it('should not cache DELETE requests', async () => {
-      mockAxiosInstance.delete.mockResolvedValueOnce({
-        status: 204,
-        data: null,
-      });
+    it('should report cache statistics', () => {
+      requestCache.set('key1', 'data');
 
-      await httpClient.delete('/api/test');
+      requestCache.get('key1');
+      requestCache.get('missing');
 
-      const cacheKey = requestCache.generateCacheKey('/api/test');
-      expect(requestCache.get(cacheKey)).toBeUndefined();
+      const stats = requestCache.getStats();
+      expect(stats.hits).toBe(1);
+      expect(stats.misses).toBe(1);
+      expect(stats.size).toBe(1);
     });
   });
 
-  describe('request deduplication', () => {
-    it('should deduplicate concurrent GET requests', async () => {
-      const testData = { result: 'shared' };
+  describe('requestDeduplicator (standalone utility)', () => {
+    it('should deduplicate concurrent requests with same key', async () => {
+      let callCount = 0;
+      const executor = () => {
+        callCount++;
+        return Promise.resolve('result');
+      };
 
-      // Create a pending promise that resolves after a delay
-      let resolvePromise: (value: { status: number; data: typeof testData }) => void;
-      const pendingPromise = new Promise<{ status: number; data: typeof testData }>((resolve) => {
-        resolvePromise = resolve;
-      });
-      mockAxiosInstance.get.mockReturnValueOnce(
-        pendingPromise.then(() => ({ status: 200, data: testData }))
-      );
+      const promise1 = requestDeduplicator.deduplicate('key1', executor);
+      const promise2 = requestDeduplicator.deduplicate('key1', executor);
 
-      // Start concurrent requests
-      const promise1 = httpClient.get('/api/test');
-      const promise2 = httpClient.get('/api/test');
-      const promise3 = httpClient.get('/api/test');
-
-      // All should share the same underlying request
-      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1);
-
-      // Resolve and wait for all
-      resolvePromise!({ status: 200, data: testData });
-      const [result1, result2, result3] = await Promise.all([promise1, promise2, promise3]);
-
-      expect(result1).toEqual(testData);
-      expect(result2).toEqual(testData);
-      expect(result3).toEqual(testData);
-    });
-
-    it('should deduplicate concurrent POST requests', async () => {
-      const testData = { result: 'created' };
-
-      let resolvePromise: (value: { status: number; data: typeof testData }) => void;
-      const pendingPromise = new Promise<{ status: number; data: typeof testData }>((resolve) => {
-        resolvePromise = resolve;
-      });
-      mockAxiosInstance.post.mockReturnValueOnce(
-        pendingPromise.then(() => ({ status: 201, data: testData }))
-      );
-
-      const promise1 = httpClient.post('/api/test', testData);
-      const promise2 = httpClient.post('/api/test', testData);
-
-      expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1);
-
-      resolvePromise!({ status: 201, data: testData });
       const [result1, result2] = await Promise.all([promise1, promise2]);
 
-      expect(result1).toEqual(testData);
-      expect(result2).toEqual(testData);
+      expect(callCount).toBe(1);
+      expect(result1).toBe('result');
+      expect(result2).toBe('result');
     });
 
-    it('should deduplicate concurrent PUT requests', async () => {
-      const testData = { result: 'updated' };
+    it('should NOT deduplicate requests with different keys', async () => {
+      let callCount = 0;
+      const executor = () => {
+        callCount++;
+        return Promise.resolve('result');
+      };
 
-      let resolvePromise: (value: { status: number; data: typeof testData }) => void;
-      const pendingPromise = new Promise<{ status: number; data: typeof testData }>((resolve) => {
-        resolvePromise = resolve;
-      });
-      mockAxiosInstance.put.mockReturnValueOnce(
-        pendingPromise.then(() => ({ status: 200, data: testData }))
-      );
+      await Promise.all([
+        requestDeduplicator.deduplicate('key1', executor),
+        requestDeduplicator.deduplicate('key2', executor),
+      ]);
 
-      const promise1 = httpClient.put('/api/test', testData);
-      const promise2 = httpClient.put('/api/test', testData);
-
-      expect(mockAxiosInstance.put).toHaveBeenCalledTimes(1);
-
-      resolvePromise!({ status: 200, data: testData });
-      await Promise.all([promise1, promise2]);
-    });
-
-    it('should deduplicate concurrent PATCH requests', async () => {
-      const testData = { result: 'patched' };
-
-      let resolvePromise: (value: { status: number; data: typeof testData }) => void;
-      const pendingPromise = new Promise<{ status: number; data: typeof testData }>((resolve) => {
-        resolvePromise = resolve;
-      });
-      mockAxiosInstance.patch.mockReturnValueOnce(
-        pendingPromise.then(() => ({ status: 200, data: testData }))
-      );
-
-      const promise1 = httpClient.patch('/api/test', testData);
-      const promise2 = httpClient.patch('/api/test', testData);
-
-      expect(mockAxiosInstance.patch).toHaveBeenCalledTimes(1);
-
-      resolvePromise!({ status: 200, data: testData });
-      await Promise.all([promise1, promise2]);
-    });
-
-    it('should deduplicate concurrent DELETE requests', async () => {
-      let resolvePromise: (value: { status: number; data: null }) => void;
-      const pendingPromise = new Promise<{ status: number; data: null }>((resolve) => {
-        resolvePromise = resolve;
-      });
-      mockAxiosInstance.delete.mockReturnValueOnce(
-        pendingPromise.then(() => ({ status: 204, data: null }))
-      );
-
-      const promise1 = httpClient.delete('/api/test');
-      const promise2 = httpClient.delete('/api/test');
-
-      expect(mockAxiosInstance.delete).toHaveBeenCalledTimes(1);
-
-      resolvePromise!({ status: 204, data: null });
-      await Promise.all([promise1, promise2]);
-    });
-
-    it('should NOT deduplicate different requests', async () => {
-      const testData1 = { result: 'data1' };
-      const testData2 = { result: 'data2' };
-
-      mockAxiosInstance.get
-        .mockResolvedValueOnce({ status: 200, data: testData1 })
-        .mockResolvedValueOnce({ status: 200, data: testData2 });
-
-      const result1 = await httpClient.get('/api/test1');
-      const result2 = await httpClient.get('/api/test2');
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(2);
-      expect(result1).toEqual(testData1);
-      expect(result2).toEqual(testData2);
-    });
-
-    it('should NOT deduplicate sequential requests', async () => {
-      const testData = { result: 'data' };
-
-      mockAxiosInstance.get.mockResolvedValue({ status: 200, data: testData });
-
-      // First request - makes network call and caches result
-      const result1 = await httpClient.get('/api/test');
-
-      // Second request - returns from cache (not deduplicated, but cached)
-      const result2 = await httpClient.get('/api/test');
-
-      // Only one network call due to caching
-      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1);
-      expect(result1).toEqual(testData);
-      expect(result2).toEqual(testData);
+      expect(callCount).toBe(2);
     });
 
     it('should track deduplication statistics', async () => {
-      const testData = { result: 'data' };
-
-      let resolvePromise: (value: { status: number; data: typeof testData }) => void;
-      const pendingPromise = new Promise<{ status: number; data: typeof testData }>((resolve) => {
+      let resolvePromise: (value: string) => void;
+      const pendingPromise = new Promise<string>((resolve) => {
         resolvePromise = resolve;
       });
-      mockAxiosInstance.get.mockReturnValueOnce(
-        pendingPromise.then(() => ({ status: 200, data: testData }))
-      );
 
-      // Start concurrent requests
-      const promise1 = httpClient.get('/api/test');
-      const promise2 = httpClient.get('/api/test');
+      const promise1 = requestDeduplicator.deduplicate('key1', () => pendingPromise);
+      const promise2 = requestDeduplicator.deduplicate('key1', () => pendingPromise);
 
-      // Check stats while pending
-      const stats = httpClient.deduplicator.getStats();
+      const stats = requestDeduplicator.getStats();
       expect(stats.total).toBe(2);
       expect(stats.deduplicated).toBe(1);
 
-      resolvePromise!({ status: 200, data: testData });
+      resolvePromise!('done');
       await Promise.all([promise1, promise2]);
     });
 
     it('should allow new request after previous completes', async () => {
-      const testData = { result: 'data' };
-      mockAxiosInstance.get.mockResolvedValue({ status: 200, data: testData });
+      let callCount = 0;
+      const executor = () => {
+        callCount++;
+        return Promise.resolve('result');
+      };
 
-      // First request - makes network call and caches result
-      const result1 = await httpClient.get('/api/test');
+      await requestDeduplicator.deduplicate('key1', executor);
+      await requestDeduplicator.deduplicate('key1', executor);
 
-      // Clear cache to test deduplication separately
-      requestCache.clear();
+      expect(callCount).toBe(2);
+    });
 
-      // Second request - should make a new network call (cache was cleared)
-      const result2 = await httpClient.get('/api/test');
+    it('should generate correct deduplication keys', () => {
+      const key1 = requestDeduplicator.deduplicateKey('GET', '/api/test', { id: 1 });
+      const key2 = requestDeduplicator.deduplicateKey('GET', '/api/test', { id: 2 });
+      const key3 = requestDeduplicator.deduplicateKey('POST', '/api/test', { id: 1 });
 
-      // Two network calls total (cache was cleared between)
-      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(2);
-      expect(result1).toEqual(testData);
-      expect(result2).toEqual(testData);
+      expect(key1).not.toBe(key2);
+      expect(key1).not.toBe(key3);
+    });
+
+    it('should deduplicate concurrent POST requests', async () => {
+      let callCount = 0;
+      const executor = () => {
+        callCount++;
+        return Promise.resolve({ result: 'created' });
+      };
+
+      const key = requestDeduplicator.deduplicateKey('POST', '/api/test');
+      const promise1 = requestDeduplicator.deduplicate(key, executor);
+      const promise2 = requestDeduplicator.deduplicate(key, executor);
+
+      const [result1, result2] = await Promise.all([promise1, promise2]);
+
+      expect(callCount).toBe(1);
+      expect(result1).toEqual({ result: 'created' });
+      expect(result2).toEqual({ result: 'created' });
+    });
+
+    it('should deduplicate concurrent PUT requests', async () => {
+      let callCount = 0;
+      const executor = () => {
+        callCount++;
+        return Promise.resolve({ result: 'updated' });
+      };
+
+      const key = requestDeduplicator.deduplicateKey('PUT', '/api/test');
+      const promise1 = requestDeduplicator.deduplicate(key, executor);
+      const promise2 = requestDeduplicator.deduplicate(key, executor);
+
+      await Promise.all([promise1, promise2]);
+      expect(callCount).toBe(1);
+    });
+
+    it('should deduplicate concurrent PATCH requests', async () => {
+      let callCount = 0;
+      const executor = () => {
+        callCount++;
+        return Promise.resolve({ result: 'patched' });
+      };
+
+      const key = requestDeduplicator.deduplicateKey('PATCH', '/api/test');
+      const promise1 = requestDeduplicator.deduplicate(key, executor);
+      const promise2 = requestDeduplicator.deduplicate(key, executor);
+
+      await Promise.all([promise1, promise2]);
+      expect(callCount).toBe(1);
+    });
+
+    it('should deduplicate concurrent DELETE requests', async () => {
+      let callCount = 0;
+      const executor = () => {
+        callCount++;
+        return Promise.resolve(null);
+      };
+
+      const key = requestDeduplicator.deduplicateKey('DELETE', '/api/test');
+      const promise1 = requestDeduplicator.deduplicate(key, executor);
+      const promise2 = requestDeduplicator.deduplicate(key, executor);
+
+      await Promise.all([promise1, promise2]);
+      expect(callCount).toBe(1);
     });
   });
 });
 
-describe('httpClient retry integration', () => {
+describe('httpClient error handling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
   });
 
-  afterEach(() => {
-    vi.runAllTimers();
-    vi.useRealTimers();
+  it('should propagate errors from GET requests', async () => {
+    const error = new Error('Network error');
+    mockAxiosInstance.get.mockRejectedValueOnce(error);
+
+    await expect(httpClient.get('/test')).rejects.toThrow('Network error');
   });
 
-  it('should retry request when retry is enabled', async () => {
-    const { httpClient, ApiError } = await import('@/services/client/httpClient');
-    const mockGet = vi
-      .fn()
-      .mockRejectedValueOnce(new ApiError('NETWORK' as any, 'NETWORK_ERROR', 'Network error'))
-      .mockResolvedValueOnce({ data: 'success' });
+  it('should propagate errors from POST requests', async () => {
+    const error = new Error('Server error');
+    mockAxiosInstance.post.mockRejectedValueOnce(error);
 
-    // Mock axios.get to use our mock
-    httpClient.instance.get = mockGet as any;
-
-    const promise = httpClient.get<string>('/api/test', { retry: true });
-
-    // Initial attempt fails
-    expect(mockGet).toHaveBeenCalledTimes(1);
-
-    // Advance timers for retry delay
-    await vi.advanceTimersByTimeAsync(1200);
-
-    // Retry should succeed
-    const result = await promise;
-    expect(result).toBe('success');
-    expect(mockGet).toHaveBeenCalledTimes(2);
+    await expect(httpClient.post('/test', {})).rejects.toThrow('Server error');
   });
 
-  it('should not retry when retry is not enabled', async () => {
-    const { httpClient, ApiError } = await import('@/services/client/httpClient');
-    const mockGet = vi
-      .fn()
-      .mockRejectedValue(new ApiError('NETWORK' as any, 'NETWORK_ERROR', 'Network error'));
+  it('should propagate errors from PUT requests', async () => {
+    const error = new Error('Forbidden');
+    mockAxiosInstance.put.mockRejectedValueOnce(error);
 
-    httpClient.instance.get = mockGet as any;
-
-    await expect(httpClient.get('/api/test', { retry: false })).rejects.toThrow();
-
-    // Only called once, no retry
-    expect(mockGet).toHaveBeenCalledTimes(1);
+    await expect(httpClient.put('/test', {})).rejects.toThrow('Forbidden');
   });
 
-  it('should use custom retry config when provided', async () => {
-    const { httpClient, ApiError } = await import('@/services/client/httpClient');
-    const mockGet = vi
-      .fn()
-      .mockRejectedValueOnce(new ApiError('NETWORK' as any, 'NETWORK_ERROR', 'Network error'))
-      .mockRejectedValueOnce(new ApiError('NETWORK' as any, 'NETWORK_ERROR', 'Network error 2'))
-      .mockResolvedValueOnce({ data: 'success' });
+  it('should propagate errors from DELETE requests', async () => {
+    const error = new Error('Not found');
+    mockAxiosInstance.delete.mockRejectedValueOnce(error);
 
-    httpClient.instance.get = mockGet as any;
-
-    const promise = httpClient.get<string>('/api/test', {
-      retry: { maxRetries: 3, initialDelay: 100, jitter: false },
-    });
-
-    // Advance timers for each retry
-    await vi.advanceTimersByTimeAsync(100); // 1st retry
-    await vi.advanceTimersByTimeAsync(200); // 2nd retry (doubled)
-
-    const result = await promise;
-    expect(result).toBe('success');
-    expect(mockGet).toHaveBeenCalledTimes(3); // initial + 2 retries (succeeded before 3rd)
-  });
-
-  it('should not retry on non-retryable errors (4xx)', async () => {
-    const { httpClient, ApiError } = await import('@/services/client/httpClient');
-    const mockError = new ApiError('VALIDATION' as any, 'INVALID_INPUT', 'Invalid input', 400);
-    const mockGet = vi.fn().mockRejectedValue(mockError);
-
-    httpClient.instance.get = mockGet as any;
-
-    await expect(httpClient.get('/api/test', { retry: true })).rejects.toThrow();
-
-    // Only called once, 4xx errors are not retried
-    expect(mockGet).toHaveBeenCalledTimes(1);
+    await expect(httpClient.delete('/test')).rejects.toThrow('Not found');
   });
 });

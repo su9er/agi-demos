@@ -152,7 +152,11 @@ describe('ConversationsStore', () => {
         createMockConversation('conv-2', 'proj-1', 'Conversation 2', 'archived'),
       ];
 
-      listConversationsMock.mockResolvedValue(mockConversations);
+      listConversationsMock.mockResolvedValue({
+        items: mockConversations,
+        has_more: false,
+        total: 2,
+      });
 
       await useConversationsStore.getState().listConversations('proj-1');
 
@@ -162,7 +166,7 @@ describe('ConversationsStore', () => {
       expect(conversations).toEqual(mockConversations);
       expect(conversationsLoading).toBe(false);
       expect(conversationsError).toBe(null);
-      expect(listConversationsMock).toHaveBeenCalledWith('proj-1', undefined, 50);
+      expect(listConversationsMock).toHaveBeenCalledWith('proj-1', undefined, 10, 0);
     });
 
     it('should fetch conversations with status filter', async () => {
@@ -170,20 +174,28 @@ describe('ConversationsStore', () => {
         createMockConversation('conv-1', 'proj-1', 'Active Conversation'),
       ];
 
-      listConversationsMock.mockResolvedValue(mockConversations);
+      listConversationsMock.mockResolvedValue({
+        items: mockConversations,
+        has_more: false,
+        total: 1,
+      });
 
       await useConversationsStore.getState().listConversations('proj-1', 'active');
 
-      expect(listConversationsMock).toHaveBeenCalledWith('proj-1', 'active', 50);
+      expect(listConversationsMock).toHaveBeenCalledWith('proj-1', 'active', 10, 0);
     });
 
     it('should fetch conversations with custom limit', async () => {
       const mockConversations: Conversation[] = [];
-      listConversationsMock.mockResolvedValue(mockConversations);
+      listConversationsMock.mockResolvedValue({
+        items: mockConversations,
+        has_more: false,
+        total: 0,
+      });
 
       await useConversationsStore.getState().listConversations('proj-1', undefined, 100);
 
-      expect(listConversationsMock).toHaveBeenCalledWith('proj-1', undefined, 100);
+      expect(listConversationsMock).toHaveBeenCalledWith('proj-1', undefined, 100, 0);
     });
 
     it('should set loading state during fetch', async () => {
@@ -201,7 +213,7 @@ describe('ConversationsStore', () => {
       expect(useConversationsStore.getState().conversationsLoading).toBe(true);
 
       // Resolve and complete
-      resolveConversations!([]);
+      resolveConversations!({ items: [], has_more: false, total: 0 });
       await fetchPromise;
     });
 
@@ -242,7 +254,11 @@ describe('ConversationsStore', () => {
 
       const newConversations: Conversation[] = [createMockConversation('new', 'proj-1', 'New')];
 
-      listConversationsMock.mockResolvedValue(newConversations);
+      listConversationsMock.mockResolvedValue({
+        items: newConversations,
+        has_more: false,
+        total: 1,
+      });
 
       await useConversationsStore.getState().listConversations('proj-1');
 
@@ -608,7 +624,11 @@ describe('ConversationsStore', () => {
 
   describe('Edge Cases', () => {
     it('should handle empty conversations list', async () => {
-      listConversationsMock.mockResolvedValue([]);
+      listConversationsMock.mockResolvedValue({
+        items: [],
+        has_more: false,
+        total: 0,
+      });
 
       await useConversationsStore.getState().listConversations('proj-1');
 

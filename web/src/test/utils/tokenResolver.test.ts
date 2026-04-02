@@ -48,12 +48,11 @@ describe('tokenResolver', () => {
       expect(token).toBe(expectedToken);
     });
 
-    it('should fallback to direct token key for backward compatibility', () => {
-      const expectedToken = 'legacy-token';
-      localStorage.setItem('token', expectedToken);
+    it('should not fallback to direct token key (legacy fallback removed)', () => {
+      localStorage.setItem('token', 'legacy-token');
 
       const token = getAuthToken();
-      expect(token).toBe(expectedToken);
+      expect(token).toBeNull();
     });
 
     it('should prioritize memstack-auth-storage over direct token key', () => {
@@ -75,13 +74,12 @@ describe('tokenResolver', () => {
       expect(token).toBeNull();
     });
 
-    it('should handle invalid JSON in memstack-auth-storage gracefully', () => {
-      const legacyToken = 'legacy-token';
+    it('should return null when memstack-auth-storage has invalid JSON even if legacy key exists', () => {
       localStorage.setItem('memstack-auth-storage', 'invalid-json{{{');
-      localStorage.setItem('token', legacyToken);
+      localStorage.setItem('token', 'legacy-token');
 
       const token = getAuthToken();
-      expect(token).toBe(legacyToken);
+      expect(token).toBeNull();
     });
 
     it('should return null when memstack-auth-storage exists but has no token', () => {

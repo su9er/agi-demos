@@ -330,6 +330,13 @@ describe('useMediaQuery', () => {
 
       rerender({ query: '(min-width: 1024px)' });
 
+      // The hook's useState initializer only runs on mount, so state stays true
+      // until a 'change' event fires. Simulate the change event to update state.
+      act(() => {
+        // @ts-expect-error - MediaQueryList context in test mock
+        listenerCallback?.({ matches: false } as MediaQueryListEvent);
+      });
+
       expect(result.current).toBe(false);
     });
   });

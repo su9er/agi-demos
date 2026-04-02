@@ -7,6 +7,7 @@ import { MessageArea } from '@/components/agent/MessageArea';
 import { AgentSwitcher } from '@/components/agent/AgentSwitcher';
 import { InputToolbar } from '@/components/agent/InputToolbar';
 import { useAgentV3Store } from '@/stores/agentV3';
+import { useStreamingStore } from '@/stores/agent/streamingStore';
 import { useAgentDefinitionStore } from '@/stores/agentDefinitions';
 import { createDefaultConversationState } from '@/types/conversationState';
 
@@ -141,6 +142,12 @@ describe('Agent Workspace hardening', () => {
       conversationStates: new Map([['conv-1', convState]]),
     }));
 
+    useStreamingStore.setState({
+      agentStreamingAssistantContent: '',
+      agentStreamingThought: '',
+      agentIsThinkingStreaming: false,
+    });
+
     useAgentDefinitionStore.setState((state) => ({
       ...state,
       definitions: [
@@ -192,6 +199,12 @@ describe('Agent Workspace hardening', () => {
       ),
     }));
 
+    useStreamingStore.setState({
+      agentStreamingThought: 'thinking...',
+      agentIsThinkingStreaming: false,
+      agentStreamingAssistantContent: 'final answer chunk',
+    });
+
     render(<MessageArea timeline={timeline} isStreaming isLoading={false} />);
 
     expect(screen.queryByTestId('thinking-block')).not.toBeInTheDocument();
@@ -231,6 +244,12 @@ describe('Agent Workspace hardening', () => {
       ),
     }));
 
+    useStreamingStore.setState({
+      agentStreamingThought: 'stale thought',
+      agentIsThinkingStreaming: true,
+      agentStreamingAssistantContent: 'new token',
+    });
+
     render(<MessageArea timeline={timeline} isStreaming isLoading={false} />);
 
     expect(screen.queryByTestId('thinking-block')).not.toBeInTheDocument();
@@ -269,6 +288,12 @@ describe('Agent Workspace hardening', () => {
         )
       ),
     }));
+
+    useStreamingStore.setState({
+      agentStreamingThought: '完整思考内容 full thought content',
+      agentIsThinkingStreaming: false,
+      agentStreamingAssistantContent: '',
+    });
 
     render(<MessageArea timeline={timeline} isStreaming isLoading={false} />);
 
@@ -310,6 +335,12 @@ describe('Agent Workspace hardening', () => {
         )
       ),
     }));
+
+    useStreamingStore.setState({
+      agentStreamingThought: 'thinking...',
+      agentIsThinkingStreaming: true,
+      agentStreamingAssistantContent: '',
+    });
 
     render(<MessageArea timeline={timeline} isStreaming isLoading={false} />);
 

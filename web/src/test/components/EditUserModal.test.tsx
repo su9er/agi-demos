@@ -66,8 +66,8 @@ describe('EditUserModal - Component Tests', () => {
 
       expect(screen.getByText('Test User')).toBeInTheDocument();
       expect(screen.getByText('test@example.com')).toBeInTheDocument();
-      expect(screen.getByText('1/1/2024')).toBeInTheDocument(); // Join date
-      expect(screen.getByText('12/20/2024')).toBeInTheDocument(); // Last login
+      expect(screen.getByText('2024-01-01')).toBeInTheDocument(); // Join date
+      expect(screen.getByText('2024-12-20')).toBeInTheDocument(); // Last login
     });
 
     it('shows "从未" for last login when never logged in', () => {

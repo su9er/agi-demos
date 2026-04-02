@@ -16,6 +16,9 @@ vi.mock('lucide-react', () => ({
   Download: () => <span data-testid="download-icon">Download</span>,
   RefreshCw: () => <span data-testid="refresh-icon">Refresh</span>,
   AlertCircle: () => <span data-testid="alert-icon">Alert</span>,
+  Box: () => <span data-testid="box-icon">Box</span>,
+  Power: () => <span data-testid="power-icon">Power</span>,
+  RotateCcw: () => <span data-testid="rotate-icon">Rotate</span>,
 }));
 
 // Mock i18n
@@ -78,6 +81,15 @@ vi.mock('../../../services/api', () => ({
     post: vi.fn(() => Promise.resolve({ data: {} })),
   },
   projectAPI: mockProjectAPI,
+}));
+
+vi.mock('../../../services/projectSandboxService', () => ({
+  projectSandboxService: {
+    getProjectSandbox: vi.fn(() => Promise.resolve(null)),
+    getStats: vi.fn(() => Promise.resolve(null)),
+    restartSandbox: vi.fn(() => Promise.resolve()),
+    terminateSandbox: vi.fn(() => Promise.resolve()),
+  },
 }));
 
 describe('ProjectSettings Compound Component', () => {

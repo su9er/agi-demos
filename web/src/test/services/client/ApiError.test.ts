@@ -135,10 +135,10 @@ describe('parseResponseError', () => {
 
     const error = await parseResponseError(response);
 
-    // 403 is mapped to AUTHORIZATION (but currently returns AUTHENTICATION)
-    // This test documents current behavior
+    // 403 is mapped to AUTHORIZATION type; isAuthError() only matches AUTHENTICATION
     expect(error.statusCode).toBe(403);
-    expect(error.isAuthError()).toBe(true);
+    expect(error.type).toBe(ApiErrorType.AUTHORIZATION);
+    expect(error.isAuthError()).toBe(false);
   });
 
   it('should parse 404 response as not found error', async () => {

@@ -11,6 +11,9 @@ import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { useAgentV3Store } from '../../stores/agentV3';
+import { useTimelineStore } from '../../stores/agent/timelineStore';
+import { useStreamingStore } from '../../stores/agent/streamingStore';
+import { useExecutionStore } from '../../stores/agent/executionStore';
 
 import type { TimelineEvent } from '../../types/agent';
 
@@ -24,8 +27,10 @@ vi.mock('../../services/agentService', () => ({
         timeline: [],
         total: 0,
         has_more: false,
-        first_sequence: null,
-        last_sequence: null,
+        first_time_us: null,
+        first_counter: null,
+        last_time_us: null,
+        last_counter: null,
       })
     ),
     createConversation: vi.fn(() => Promise.resolve({ id: 'new-conv', project_id: 'proj-123' })),
@@ -41,6 +46,9 @@ vi.mock('../../services/agentService', () => ({
     connect: vi.fn(() => Promise.resolve()),
     isConnected: vi.fn(() => true),
     subscribe: vi.fn(),
+    listConversations: vi.fn(() =>
+      Promise.resolve({ items: [], has_more: false, total: 0 })
+    ),
   },
 }));
 
@@ -71,27 +79,21 @@ vi.mock('../../utils/conversationDB', () => ({
   deleteConversationState: vi.fn(() => Promise.resolve()),
 }));
 
+function getTimeline() {
+  return useTimelineStore.getState().agentTimeline;
+}
+
 describe('agentV3 Store - Timeline Merging During Streaming', () => {
   beforeEach(async () => {
-    // Reset store before each test
     useAgentV3Store.setState({
       conversations: [],
       activeConversationId: null,
-      messages: [],
-      timeline: [],
-      isLoadingHistory: false,
-      isStreaming: false,
-      streamStatus: 'idle',
-      error: null,
-      agentState: 'idle',
-      currentThought: '',
-      activeToolCalls: new Map(),
-      pendingToolsStack: [],
-      isPlanMode: false,
-      pendingDecision: null,
-      doomLoopDetected: null,
       conversationStates: new Map(),
     });
+
+    useTimelineStore.getState().resetAgentTimeline();
+    useStreamingStore.getState().resetAgentStreaming();
+    useExecutionStore.getState().resetAgentExecution();
 
     vi.clearAllMocks();
   });
@@ -100,34 +102,30 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
     it('should merge API timeline with local events when isStreaming is true', async () => {
       const { result } = renderHook(() => useAgentV3Store());
 
-      // Setup: Create a local event that was just added (e.g., user message or tool event)
       const localEvent: TimelineEvent = {
         id: 'local-act-1',
         type: 'act',
-        eventTimeUs: Date.now() * 1000 + 100, // Newer than API events
+        eventTimeUs: Date.now() * 1000 + 100,
         eventCounter: 10,
         timestamp: Date.now(),
         toolName: 'local_tool',
         toolInput: { test: true },
       };
 
-      // Set streaming state with local event - CRITICAL: activeConversationId must match
       act(() => {
         useAgentV3Store.setState({
-          activeConversationId: 'conv-123', // Same as conversation being loaded
-          isStreaming: true,
-          streamStatus: 'streaming',
-          timeline: [localEvent],
-          lastEventTimestamp: Date.now() * 1000,
+          activeConversationId: 'conv-123',
         });
+        useStreamingStore.getState().setAgentIsStreaming(true);
+        useStreamingStore.getState().setAgentStreamStatus('streaming');
+        useTimelineStore.getState().setAgentTimeline([localEvent]);
       });
 
-      // Mock API response with older events (simulating initial load or refresh)
       const apiEvents: TimelineEvent[] = [
         {
           id: 'api-user-1',
           type: 'user_message',
-          eventTimeUs: Date.now() * 1000 - 5000, // Older than local
+          eventTimeUs: Date.now() * 1000 - 5000,
           eventCounter: 1,
           timestamp: Date.now() - 5000,
           content: 'Hello from API',
@@ -136,7 +134,7 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
         {
           id: 'api-assistant-1',
           type: 'assistant_message',
-          eventTimeUs: Date.now() * 1000 - 4000, // Older than local
+          eventTimeUs: Date.now() * 1000 - 4000,
           eventCounter: 2,
           timestamp: Date.now() - 4000,
           content: 'Response from API',
@@ -160,14 +158,10 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
         await result.current.loadMessages('conv-123', 'proj-123');
       });
 
-      // CRITICAL: Timeline should include BOTH API events AND local event
-      const timeline = result.current.timeline;
+      const timeline = getTimeline();
 
-      // The API events should be present
       expect(timeline.find((e) => e.id === 'api-user-1')).toBeDefined();
       expect(timeline.find((e) => e.id === 'api-assistant-1')).toBeDefined();
-
-      // CRITICAL: The local event should NOT be lost
       expect(timeline.find((e) => e.id === 'local-act-1')).toBeDefined();
     });
 
@@ -184,22 +178,19 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
         content: 'Local streaming thought',
       };
 
-      // CRITICAL: activeConversationId must match the conversation being loaded
       act(() => {
         useAgentV3Store.setState({
-          activeConversationId: 'conv-456', // Same as conversation being loaded
-          isStreaming: true,
-          timeline: [localEvent],
-          lastEventTimestamp: localTimestamp,
+          activeConversationId: 'conv-456',
         });
+        useStreamingStore.getState().setAgentIsStreaming(true);
+        useTimelineStore.getState().setAgentTimeline([localEvent]);
       });
 
-      // API returns events older than local
       const apiEvents: TimelineEvent[] = [
         {
           id: 'api-old-1',
           type: 'user_message',
-          eventTimeUs: localTimestamp - 10000, // 10ms older
+          eventTimeUs: localTimestamp - 10000,
           eventCounter: 50,
           timestamp: Date.now() - 10,
           content: 'Old message',
@@ -223,9 +214,8 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
         await result.current.loadMessages('conv-456', 'proj-123');
       });
 
-      const timeline = result.current.timeline;
+      const timeline = getTimeline();
 
-      // Both should be present
       expect(timeline.length).toBeGreaterThanOrEqual(2);
       expect(timeline.find((e) => e.id === 'api-old-1')).toBeDefined();
       expect(timeline.find((e) => e.id === 'local-thought-1')).toBeDefined();
@@ -234,7 +224,6 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
     it('should deduplicate events by ID when merging', async () => {
       const { result } = renderHook(() => useAgentV3Store());
 
-      // Local has an event
       const sharedEvent: TimelineEvent = {
         id: 'shared-1',
         type: 'user_message',
@@ -248,12 +237,11 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
       act(() => {
         useAgentV3Store.setState({
           activeConversationId: 'conv-789',
-          isStreaming: true,
-          timeline: [sharedEvent],
         });
+        useStreamingStore.getState().setAgentIsStreaming(true);
+        useTimelineStore.getState().setAgentTimeline([sharedEvent]);
       });
 
-      // API returns the SAME event (e.g., user message was already persisted)
       const { agentService } = await import('../../services/agentService');
       vi.mocked(agentService.getConversationMessages).mockResolvedValue({
         conversationId: 'conv-789',
@@ -270,9 +258,8 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
         await result.current.loadMessages('conv-789', 'proj-123');
       });
 
-      const timeline = result.current.timeline;
+      const timeline = getTimeline();
 
-      // Should not have duplicates
       const sharedCount = timeline.filter((e) => e.id === 'shared-1').length;
       expect(sharedCount).toBe(1);
     });
@@ -280,16 +267,14 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
     it('should update timeline even when isStreaming is true if there are new server events', async () => {
       const { result } = renderHook(() => useAgentV3Store());
 
-      // CRITICAL: activeConversationId must match the conversation being loaded
       act(() => {
         useAgentV3Store.setState({
-          activeConversationId: 'conv-stream', // Same as conversation being loaded
-          isStreaming: true,
-          timeline: [],
+          activeConversationId: 'conv-stream',
         });
+        useStreamingStore.getState().setAgentIsStreaming(true);
+        useTimelineStore.getState().setAgentTimeline([]);
       });
 
-      // API returns new events
       const newApiEvents: TimelineEvent[] = [
         {
           id: 'new-api-1',
@@ -318,9 +303,9 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
         await result.current.loadMessages('conv-stream', 'proj-123');
       });
 
-      // CRITICAL: Timeline should be updated even during streaming
-      expect(result.current.timeline.length).toBeGreaterThan(0);
-      expect(result.current.timeline.find((e) => e.id === 'new-api-1')).toBeDefined();
+      const timeline = getTimeline();
+      expect(timeline.length).toBeGreaterThan(0);
+      expect(timeline.find((e) => e.id === 'new-api-1')).toBeDefined();
     });
 
     it('should subscribe active conversation even when execution is idle', async () => {
@@ -329,8 +314,6 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
       act(() => {
         useAgentV3Store.setState({
           activeConversationId: 'conv-123',
-          isStreaming: false,
-          timeline: [],
         });
       });
 
@@ -344,7 +327,11 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
         await result.current.loadMessages('conv-123', 'proj-123');
       });
 
-      expect(agentService.subscribe).toHaveBeenCalledWith('conv-123', expect.any(Object));
+      expect(agentService.subscribe).toHaveBeenCalledWith(
+        'conv-123',
+        expect.any(Object),
+        expect.any(Object)
+      );
     });
   });
 });

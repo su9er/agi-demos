@@ -101,7 +101,7 @@ describe('TenantCreateModal', () => {
     it('should call onClose when X button is clicked', async () => {
       render(<TenantCreateModal {...defaultProps} />);
 
-      const closeButton = screen.getByRole('button', { name: '关闭创建工作空间弹窗' }); // X icon button with aria-label
+      const closeButton = screen.getByRole('button', { name: 'Close create workspace dialog' }); // X icon button with aria-label
       await fireEvent.click(closeButton);
 
       expect(mockOnClose).toHaveBeenCalled();

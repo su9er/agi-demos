@@ -91,7 +91,7 @@ describe('StreamingStore', () => {
 
   describe('startStreaming', () => {
     it('should start streaming with connecting status', () => {
-      useStreamingStore.getState().startStreaming();
+      useStreamingStore.getState().startStreaming('connecting');
 
       const { isStreaming, streamStatus } = useStreamingStore.getState();
       expect(isStreaming).toBe(true);
@@ -112,7 +112,7 @@ describe('StreamingStore', () => {
 
       expect(useStreamingStore.getState().assistantDraftContent).toBe('Old content');
 
-      useStreamingStore.getState().startStreaming();
+      useStreamingStore.getState().startStreaming('connecting');
 
       const { assistantDraftContent } = useStreamingStore.getState();
       expect(assistantDraftContent).toBe('');
@@ -123,7 +123,7 @@ describe('StreamingStore', () => {
 
       expect(useStreamingStore.getState().isTextStreaming).toBe(true);
 
-      useStreamingStore.getState().startStreaming();
+      useStreamingStore.getState().startStreaming('connecting');
 
       const { isTextStreaming } = useStreamingStore.getState();
       expect(isTextStreaming).toBe(false);
@@ -321,7 +321,7 @@ describe('StreamingStore', () => {
   describe('Streaming Lifecycle', () => {
     it('should handle complete streaming lifecycle', () => {
       // Start streaming
-      useStreamingStore.getState().startStreaming();
+      useStreamingStore.getState().startStreaming('connecting');
       expect(useStreamingStore.getState().isStreaming).toBe(true);
       expect(useStreamingStore.getState().streamStatus).toBe('connecting');
 
@@ -352,7 +352,7 @@ describe('StreamingStore', () => {
 
     it('should handle error during streaming', () => {
       // Start streaming
-      useStreamingStore.getState().startStreaming();
+      useStreamingStore.getState().startStreaming('connecting');
       useStreamingStore.getState().setStreamStatus('streaming');
 
       // Error occurs
@@ -430,7 +430,7 @@ describe('StreamingStore', () => {
   describe('State Immutability', () => {
     it('should reset properly after multiple state changes', () => {
       // Multiple state changes
-      useStreamingStore.getState().startStreaming();
+      useStreamingStore.getState().startStreaming('connecting');
       useStreamingStore.getState().setStreamStatus('streaming');
       useStreamingStore.getState().onTextStart();
       useStreamingStore.getState().onTextDelta('Content');

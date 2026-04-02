@@ -61,7 +61,8 @@ describe('Component API URL Migration', () => {
 
     it('should construct ws:// URL for http', () => {
       const result = createWebSocketUrl('/terminal/sandbox-123/ws');
-      expect(result).toBe('ws://localhost:3000/api/v1/terminal/sandbox-123/ws');
+      // Dev mode: port 3000 (Vite) is remapped to localhost:8000 (backend)
+      expect(result).toBe('ws://localhost:8000/api/v1/terminal/sandbox-123/ws');
     });
 
     it('should construct wss:// URL for https', () => {
@@ -73,12 +74,14 @@ describe('Component API URL Migration', () => {
 
     it('should handle query parameters', () => {
       const result = createWebSocketUrl('/agent/ws', { token: 'abc123', session_id: 'sess-1' });
-      expect(result).toBe('ws://localhost:3000/api/v1/agent/ws?token=abc123&session_id=sess-1');
+      // Dev mode: port 3000 (Vite) is remapped to localhost:8000 (backend)
+      expect(result).toBe('ws://localhost:8000/api/v1/agent/ws?token=abc123&session_id=sess-1');
     });
 
     it('should remove duplicate /api/v1 prefix from WebSocket URLs', () => {
       const result = createWebSocketUrl('/api/v1/terminal/sandbox-123/ws');
-      expect(result).toBe('ws://localhost:3000/api/v1/terminal/sandbox-123/ws');
+      // Dev mode: port 3000 (Vite) is remapped to localhost:8000 (backend)
+      expect(result).toBe('ws://localhost:8000/api/v1/terminal/sandbox-123/ws');
     });
   });
 });

@@ -1,31 +1,32 @@
-/**
- * AgentLayout Tests
- *
- * Tests for the Agent layout component.
- */
-
-import { _BrowserRouter, Route, Routes, MemoryRouter } from 'react-router-dom';
+import { Route, Routes, MemoryRouter } from 'react-router-dom';
 
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { AgentLayout } from '@/layouts/AgentLayout';
 
-// Mock stores
-vi.mock('@/stores/project', () => ({
-  useProjectStore: () => ({
+vi.mock('@/stores/project', () => {
+  const state = {
     currentProject: { id: 'proj-123', name: 'Test Project' },
     projects: [],
     setCurrentProject: vi.fn(),
     getProject: vi.fn(),
-  }),
-}));
+  };
+  const hook = ((selector?: any) => (selector ? selector(state) : state)) as any;
+  hook.getState = () => state;
+  hook.setState = vi.fn();
+  hook.subscribe = vi.fn();
+  return { useProjectStore: hook };
+});
 
-vi.mock('@/stores/tenant', () => ({
-  useTenantStore: () => ({
-    currentTenant: { id: 'tenant-123', name: 'Test Tenant' },
-  }),
-}));
+vi.mock('@/stores/tenant', () => {
+  const state = { currentTenant: { id: 'tenant-123', name: 'Test Tenant' } };
+  const hook = ((selector?: any) => (selector ? selector(state) : state)) as any;
+  hook.getState = () => state;
+  hook.setState = vi.fn();
+  hook.subscribe = vi.fn();
+  return { useTenantStore: hook };
+});
 
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({
@@ -36,6 +37,26 @@ vi.mock('@/stores/auth', () => ({
 
 vi.mock('@/components/common/RouteErrorBoundary', () => ({
   RouteErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+vi.mock('@/components/layout/AppSidebar', () => ({
+  AgentSidebar: ({ collapsed }: any) => (
+    <aside data-testid="agent-sidebar" data-collapsed={collapsed}>
+      <nav>Sidebar Navigation</nav>
+    </aside>
+  ),
+}));
+
+vi.mock('@/components/mcp-app/AppLauncher', () => ({
+  AppLauncher: () => <div data-testid="app-launcher">AppLauncher</div>,
+}));
+
+vi.mock('@/components/ui/lazyAntd', () => ({
+  LazyTooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+vi.mock('@/hooks/useProjectBasePath', () => ({
+  useProjectBasePath: () => ({ projectBasePath: '/tenant/tenant-123/project/proj-123' }),
 }));
 
 function renderWithRouter(ui: React.ReactElement, initialEntries = ['/project/proj-123/agent']) {
@@ -61,11 +82,10 @@ describe('AgentLayout', () => {
         </Routes>
       );
 
-      // Check that the main layout structure exists
       expect(screen.getByText('Agent Content')).toBeInTheDocument();
     });
 
-    it('should render the brand header', () => {
+    it('should render the sidebar', () => {
       renderWithRouter(
         <Routes>
           <Route path="/project/:projectId/agent" element={<AgentLayout />}>
@@ -74,11 +94,10 @@ describe('AgentLayout', () => {
         </Routes>
       );
 
-      const brandIcon = document.querySelector('svg');
-      expect(brandIcon).toBeTruthy();
+      expect(screen.getByTestId('agent-sidebar')).toBeInTheDocument();
     });
 
-    it('should render navigation items', () => {
+    it('should render breadcrumb navigation', () => {
       renderWithRouter(
         <Routes>
           <Route path="/project/:projectId/agent" element={<AgentLayout />}>
@@ -88,11 +107,8 @@ describe('AgentLayout', () => {
         ['/project/proj-123/agent']
       );
 
-      // Check for navigation items
-      expect(screen.getByText('Back to Project')).toBeInTheDocument();
-      expect(screen.getByText('Project Overview')).toBeInTheDocument();
-      expect(screen.getByText('Memories')).toBeInTheDocument();
-      expect(screen.getByText('Entities')).toBeInTheDocument();
+      expect(screen.getByText('Test Project')).toBeInTheDocument();
+      expect(screen.getByText('Agent')).toBeInTheDocument();
     });
 
     it('should render the top tabs', () => {
@@ -110,8 +126,8 @@ describe('AgentLayout', () => {
     });
   });
 
-  describe('Sidebar Collapse', () => {
-    it('should render expandable sidebar', () => {
+  describe('Sidebar', () => {
+    it('should render the agent sidebar component', () => {
       renderWithRouter(
         <Routes>
           <Route path="/project/:projectId/agent" element={<AgentLayout />}>
@@ -120,23 +136,7 @@ describe('AgentLayout', () => {
         </Routes>
       );
 
-      // Should have collapse toggle button
-      const collapseButton = document.querySelector('button[title*="sidebar" i]');
-      expect(collapseButton).toBeTruthy();
-    });
-  });
-
-  describe('User Profile', () => {
-    it('should display user information', () => {
-      renderWithRouter(
-        <Routes>
-          <Route path="/project/:projectId/agent" element={<AgentLayout />}>
-            <Route path="" element={<div>Content</div>} />
-          </Route>
-        </Routes>
-      );
-
-      expect(screen.getByText('Test User')).toBeInTheDocument();
+      expect(screen.getByTestId('agent-sidebar')).toBeInTheDocument();
     });
   });
 
