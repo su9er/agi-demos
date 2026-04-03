@@ -1,8 +1,10 @@
 import { useTranslation } from 'react-i18next';
 
-import { Button, Input, Popconfirm } from 'antd';
+import { Input, Popconfirm } from 'antd';
 
 import { formatDateTime } from '@/utils/date';
+
+import { EmptyState } from '../EmptyState';
 
 import type { BlackboardPost, BlackboardReply } from '@/types/workspace';
 
@@ -81,7 +83,7 @@ export function DiscussionTab({
           <div className="mt-4 space-y-3">
             <label
               htmlFor="blackboard-post-title"
-              className="block text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted dark:text-text-muted"
+              className="block text-[11px] font-medium uppercase tracking-widest text-text-muted dark:text-text-muted"
             >
               {t('blackboard.postTitle', 'Title')}
             </label>
@@ -98,7 +100,7 @@ export function DiscussionTab({
             />
             <label
               htmlFor="blackboard-post-content"
-              className="block text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted dark:text-text-muted"
+              className="block text-[11px] font-medium uppercase tracking-widest text-text-muted dark:text-text-muted"
             >
               {t('blackboard.postContent', 'Content')}
             </label>
@@ -114,17 +116,18 @@ export function DiscussionTab({
               maxLength={2000}
               showCount
             />
-            <Button
-              type="primary"
+            <button
+              type="button"
               onClick={() => {
                 void handleCreatePost();
               }}
               disabled={creatingPost || !postTitle.trim() || !postContent.trim()}
-              loading={creatingPost}
-              className="min-h-11 w-full sm:w-auto"
+              className="min-h-11 w-full rounded-2xl bg-primary px-5 text-sm font-medium text-white transition motion-reduce:transition-none hover:bg-primary-dark active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
             >
-              {t('blackboard.createPost', 'Create Post')}
-            </Button>
+              {creatingPost
+                ? t('common.loading', 'Loading\u2026')
+                : t('blackboard.createPost', 'Create Post')}
+            </button>
           </div>
         </div>
 
@@ -136,7 +139,7 @@ export function DiscussionTab({
               onClick={() => {
                 setSelectedPostId(post.id);
               }}
-              className={`w-full rounded-3xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+              className={`w-full rounded-2xl border p-4 text-left transition motion-reduce:transition-none active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
                 selectedPostId === post.id
                   ? 'border-primary/30 bg-primary/8'
                   : 'border-border-light bg-surface-muted hover:border-border-separator hover:bg-surface-light dark:border-border-dark dark:bg-surface-dark-alt dark:hover:border-border-dark dark:hover:bg-surface-elevated'
@@ -170,19 +173,19 @@ export function DiscussionTab({
           ))}
 
           {posts.length === 0 && (
-            <div className="rounded-xl border border-dashed border-border-separator bg-surface-light p-6 text-sm text-text-secondary dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
+            <EmptyState>
               {t('blackboard.noPosts', 'No posts yet')}
-            </div>
+            </EmptyState>
           )}
         </div>
       </section>
 
-      <section className="min-w-0 rounded-3xl border border-border-light bg-surface-light p-5 dark:border-border-dark dark:bg-surface-dark-alt">
+      <section className="min-w-0 rounded-2xl border border-border-light bg-surface-light p-5 dark:border-border-dark dark:bg-surface-dark-alt">
         {selectedPost ? (
           <div className="space-y-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted dark:text-text-muted">
+                <div className="text-[11px] uppercase tracking-widest text-text-muted dark:text-text-muted">
                   {t('blackboard.createdBy', 'Created by')}
                 </div>
                 <div className="mt-1 break-all text-xs font-medium text-text-secondary dark:text-text-secondary">
@@ -191,7 +194,7 @@ export function DiscussionTab({
                     t('blackboard.unknownAuthor', 'Unknown author')
                   )}
                 </div>
-                <h3 className="mt-2 break-words text-2xl font-semibold text-text-primary dark:text-text-inverse">
+                <h3 className="mt-2 break-words text-2xl font-semibold tracking-tight text-text-primary dark:text-text-inverse">
                   {selectedPost.title}
                 </h3>
               </div>
@@ -207,7 +210,7 @@ export function DiscussionTab({
                   void handleTogglePin();
                 }}
                 disabled={togglingPostId === selectedPost.id}
-                className="min-h-10 rounded-2xl border border-border-light bg-surface-muted px-4 text-sm text-text-primary transition hover:border-primary/30 hover:bg-primary/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse"
+                className="min-h-10 rounded-2xl border border-border-light bg-surface-muted px-4 text-sm text-text-primary transition motion-reduce:transition-none hover:border-primary/30 hover:bg-primary/8 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse"
               >
                 {selectedPost.is_pinned
                   ? t('blackboard.unpin', 'Unpin')
@@ -225,14 +228,14 @@ export function DiscussionTab({
                 <button
                   type="button"
                   disabled={deletingPostId === selectedPost.id}
-                  className="min-h-10 rounded-2xl border border-error/25 bg-error/10 px-4 text-sm text-status-text-error transition hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-status-text-error-dark"
+                  className="min-h-10 rounded-2xl border border-error/25 bg-error/10 px-4 text-sm text-status-text-error transition motion-reduce:transition-none hover:bg-error/15 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-status-text-error-dark"
                 >
                   {t('blackboard.delete', 'Delete')}
                 </button>
               </Popconfirm>
             </div>
 
-            <article className="rounded-xl bg-surface-muted p-5 text-sm leading-7 text-text-secondary dark:bg-surface-dark-alt dark:text-text-secondary">
+            <article className="max-h-[40vh] overflow-y-auto rounded-xl bg-surface-muted p-5 text-sm leading-7 text-text-secondary dark:bg-surface-dark-alt dark:text-text-secondary">
               {selectedPost.content}
             </article>
 
@@ -263,7 +266,7 @@ export function DiscussionTab({
                       onClick={() => {
                         void handleLoadReplies(selectedPost.id, { manual: true });
                       }}
-                      className="mt-3 rounded-2xl border border-border-light px-4 py-2 text-sm text-text-primary transition hover:border-primary/30 hover:bg-primary/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:text-text-inverse"
+                      className="mt-3 rounded-2xl border border-border-light px-4 py-2 text-sm text-text-primary transition motion-reduce:transition-none hover:border-primary/30 hover:bg-primary/8 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:text-text-inverse"
                     >
                       {t('blackboard.retryReplies', 'Retry loading replies')}
                     </button>
@@ -278,7 +281,7 @@ export function DiscussionTab({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted dark:text-text-muted">
+                          <div className="text-[11px] uppercase tracking-widest text-text-muted dark:text-text-muted">
                             {t('blackboard.createdBy', 'Created by')}
                           </div>
                           <div className="mt-1 break-all text-sm font-medium text-text-primary dark:text-text-inverse">
@@ -302,7 +305,7 @@ export function DiscussionTab({
                           <button
                             type="button"
                             disabled={deletingReplyId === reply.id}
-                            className="rounded-xl border border-border-light px-3 py-2 text-xs text-text-secondary transition hover:border-error/25 hover:bg-error/10 hover:text-status-text-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-border-dark dark:text-text-secondary dark:hover:text-status-text-error-dark"
+                            className="rounded-xl border border-border-light px-3 py-2 text-xs text-text-secondary transition motion-reduce:transition-none hover:border-error/25 hover:bg-error/10 hover:text-status-text-error active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-border-dark dark:text-text-secondary dark:hover:text-status-text-error-dark"
                           >
                             {t('blackboard.delete', 'Delete')}
                           </button>
@@ -315,9 +318,9 @@ export function DiscussionTab({
                   ))}
 
                 {selectedRepliesLoaded && selectedReplies.length === 0 && (
-                  <div className="rounded-xl border border-dashed border-border-separator bg-surface-light p-5 text-sm text-text-secondary dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
+                  <EmptyState>
                     {t('blackboard.noReplies', 'No replies yet')}
-                  </div>
+                  </EmptyState>
                 )}
               </div>
             </div>
@@ -328,7 +331,7 @@ export function DiscussionTab({
               </h4>
               <label
                 htmlFor="blackboard-reply-draft"
-                className="mt-3 block text-xs font-medium uppercase tracking-[0.16em] text-text-muted dark:text-text-muted"
+                className="mt-3 block text-xs font-medium uppercase tracking-widest text-text-muted dark:text-text-muted"
               >
                 {t('blackboard.writeReply', 'Write a reply...')}
               </label>
@@ -346,22 +349,23 @@ export function DiscussionTab({
                 className="mt-3"
               />
               <div className="mt-3 flex justify-end">
-                <Button
-                  type="primary"
+                <button
+                  type="button"
                   onClick={() => {
                     void handleCreateReply();
                   }}
                   disabled={replying || !replyDraft.trim()}
-                  loading={replying}
-                  className="min-h-11"
+                  className="min-h-11 rounded-2xl bg-primary px-5 text-sm font-medium text-white transition motion-reduce:transition-none hover:bg-primary-dark active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {t('blackboard.sendReply', 'Send')}
-                </Button>
+                  {replying
+                    ? t('common.loading', 'Loading\u2026')
+                    : t('blackboard.sendReply', 'Send')}
+                </button>
               </div>
             </div>
           </div>
         ) : (
-          <div className="flex min-h-[320px] items-center justify-center rounded-3xl border border-dashed border-border-separator bg-surface-light text-sm text-text-secondary dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
+          <div className="flex min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-border-separator bg-surface-light text-sm text-text-secondary dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
             {t('blackboard.selectPost', 'Select a post to view details')}
           </div>
         )}

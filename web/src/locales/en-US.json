@@ -347,6 +347,7 @@
     "arrangement": {
       "eyebrow": "Workstation arrangement",
       "syncState": "Live topology sync",
+      "inlineStats": "{{agents}} Agents · {{seats}} Human · {{corridors}} Corridors · {{done}}/{{total}} Tasks",
       "moveMode": "Move mode: click a free hex",
       "description": "Place AI employees, human seats, and corridor nodes on a shared command grid, then jump into the central blackboard whenever coordination needs more depth.",
       "canvasTitle": "Command grid",

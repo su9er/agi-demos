@@ -1,26 +1,20 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 
 import { useShallow } from 'zustand/react/shallow';
 
-import { useWorkspaceActions, useWorkspaceStore } from '@/stores/workspace';
+import { useWorkspaceStore } from '@/stores/workspace';
 
-import { unifiedEventService } from '@/services/unifiedEventService';
-import { workspaceService } from '@/services/workspaceService';
-
-import {
-  clearBlackboardAutoOpenSearchParam,
-  resolveRequestedWorkspaceSelection,
-  syncBlackboardWorkspaceSearchParams,
-} from '@/pages/project/blackboardRouteUtils';
+import { useBlackboardPageActions } from '@/hooks/useBlackboardActions';
+import { useBlackboardLifecycle } from '@/hooks/useBlackboardLifecycle';
+import { useBlackboardSSE } from '@/hooks/useBlackboardSSE';
+import { clearBlackboardAutoOpenSearchParam } from '@/pages/project/blackboardRouteUtils';
 import { buildAgentWorkspacePath } from '@/utils/agentWorkspacePath';
 
+import { BlackboardErrorBoundary } from '@/components/blackboard/BlackboardErrorBoundary';
 import { WorkstationArrangementBoard } from '@/components/blackboard/WorkstationArrangementBoard';
-import { useLazyMessage } from '@/components/ui/lazyAntd';
-
-import type { Workspace } from '@/types/workspace';
 
 const CentralBlackboardModal = lazy(() =>
   import('@/components/blackboard/CentralBlackboardModal').then((module) => ({
@@ -33,7 +27,7 @@ function LoadingShell() {
     <div
       role="status"
       aria-live="polite"
-      className="flex h-full min-h-[420px] items-center justify-center rounded-3xl border border-border-light bg-surface-light dark:border-border-dark dark:bg-surface-dark-alt"
+      className="flex h-full min-h-[420px] items-center justify-center rounded-2xl border border-border-light bg-surface-light dark:border-border-dark dark:bg-surface-dark-alt"
     >
       <div className="flex items-center gap-3 text-sm text-text-secondary dark:text-text-muted">
         <span className="h-3 w-3 animate-spin rounded-full border-2 border-border-separator border-t-primary" />
@@ -47,7 +41,6 @@ export function Blackboard() {
   const { tenantId, projectId } = useParams<{ tenantId: string; projectId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useTranslation();
-  const message = useLazyMessage();
   const requestedWorkspaceId = searchParams.get('workspaceId');
   const shouldAutoOpen = searchParams.get('open') === '1';
 
@@ -80,26 +73,24 @@ export function Blackboard() {
   );
 
   const {
-    loadWorkspaceSurface,
-    clearSelectedHex,
-    createPost,
-    loadReplies,
-    createReply,
-    deletePost,
-    pinPost,
-    unpinPost,
-    deleteReply,
-  } = useWorkspaceActions();
-
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
-  const [workspacesLoading, setWorkspacesLoading] = useState(true);
-  const [workspacesError, setWorkspacesError] = useState<string | null>(null);
-  const [surfaceLoading, setSurfaceLoading] = useState(false);
-  const [boardOpen, setBoardOpen] = useState(false);
-  const workspaceListRequestIdRef = useRef(0);
-  const requestedWorkspaceIdRef = useRef(requestedWorkspaceId);
-  const appliedRequestedWorkspaceIdRef = useRef<string | null>(null);
+    workspaces,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
+    workspacesLoading,
+    workspacesError,
+    surfaceLoading,
+    boardOpen,
+    setBoardOpen,
+    handleRetrySurface,
+  } = useBlackboardLifecycle({
+    tenantId,
+    projectId,
+    requestedWorkspaceId,
+    shouldAutoOpen,
+    searchParams,
+    setSearchParams,
+    currentWorkspaceId: currentWorkspace?.id,
+  });
 
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? currentWorkspace,
@@ -115,324 +106,17 @@ export function Blackboard() {
     [projectId, selectedWorkspaceId, tenantId]
   );
 
-  useEffect(() => {
-    return () => {
-      clearSelectedHex();
-    };
-  }, [clearSelectedHex]);
+  useBlackboardSSE(selectedWorkspaceId);
 
-  useEffect(() => {
-    setBoardOpen(false);
-  }, [selectedWorkspaceId]);
-
-  useEffect(() => {
-    requestedWorkspaceIdRef.current = requestedWorkspaceId;
-  }, [requestedWorkspaceId]);
-
-  const loadWorkspaces = useCallback(async () => {
-    if (!tenantId || !projectId) {
-      return;
-    }
-
-    const requestId = ++workspaceListRequestIdRef.current;
-    setWorkspacesLoading(true);
-    setWorkspacesError(null);
-
-    try {
-      const result = await workspaceService.listByProject(tenantId, projectId);
-      if (requestId !== workspaceListRequestIdRef.current) {
-        return;
-      }
-      setWorkspaces(result);
-      setSelectedWorkspaceId((current) =>
-        requestedWorkspaceIdRef.current &&
-          result.some((workspace) => workspace.id === requestedWorkspaceIdRef.current)
-          ? requestedWorkspaceIdRef.current
-          : result.some((workspace) => workspace.id === current)
-            ? current
-            : (result[0]?.id ?? null)
-      );
-    } catch (loadError: unknown) {
-      if (requestId !== workspaceListRequestIdRef.current) {
-        return;
-      }
-      setWorkspacesError(loadError instanceof Error ? loadError.message : String(loadError));
-    } finally {
-      if (requestId === workspaceListRequestIdRef.current) {
-        setWorkspacesLoading(false);
-      }
-    }
-  }, [projectId, tenantId]);
-
-  useEffect(() => {
-    void loadWorkspaces();
-  }, [loadWorkspaces]);
-
-  const hydrateSurface = useCallback(async () => {
-    if (!tenantId || !projectId || !selectedWorkspaceId) {
-      return;
-    }
-
-    await loadWorkspaceSurface(tenantId, projectId, selectedWorkspaceId);
-  }, [loadWorkspaceSurface, projectId, selectedWorkspaceId, tenantId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadSurface = async () => {
-      setSurfaceLoading(true);
-      try {
-        await hydrateSurface();
-      } catch {
-        // The workspace store exposes the load failure via state.error for this page.
-      } finally {
-        if (!cancelled) {
-          setSurfaceLoading(false);
-        }
-      }
-    };
-
-    void loadSurface();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [hydrateSurface]);
-
-  useEffect(() => {
-    if (!requestedWorkspaceId) {
-      appliedRequestedWorkspaceIdRef.current = null;
-      return;
-    }
-
-    const nextRequestedWorkspaceId = resolveRequestedWorkspaceSelection(
-      requestedWorkspaceId,
-      appliedRequestedWorkspaceIdRef.current,
-      workspaces
-    );
-    if (!nextRequestedWorkspaceId) {
-      return;
-    }
-
-    appliedRequestedWorkspaceIdRef.current = nextRequestedWorkspaceId;
-    setSelectedWorkspaceId(nextRequestedWorkspaceId);
-  }, [requestedWorkspaceId, workspaces]);
-
-  useEffect(() => {
-    if (workspacesLoading || workspaces.length > 0) {
-      return;
-    }
-    if (!searchParams.has('open') && !searchParams.has('workspaceId')) {
-      return;
-    }
-
-    const nextSearchParams = new URLSearchParams(searchParams);
-    nextSearchParams.delete('open');
-    nextSearchParams.delete('workspaceId');
-    setSearchParams(nextSearchParams, { replace: true });
-  }, [searchParams, setSearchParams, workspaces, workspacesLoading]);
-
-  useEffect(() => {
-    const nextSearchParams = syncBlackboardWorkspaceSearchParams(searchParams, {
-      selectedWorkspaceId,
-      workspacesLoading,
-    });
-
-    if (!nextSearchParams) {
-      return;
-    }
-
-    setSearchParams(nextSearchParams, { replace: true });
-  }, [searchParams, selectedWorkspaceId, setSearchParams, workspacesLoading]);
-
-  useEffect(() => {
-    if (
-      !shouldAutoOpen ||
-      !requestedWorkspaceId ||
-      requestedWorkspaceId !== selectedWorkspaceId ||
-      surfaceLoading ||
-      currentWorkspace?.id !== selectedWorkspaceId
-    ) {
-      return;
-    }
-
-    setBoardOpen(true);
-
-    const nextSearchParams = new URLSearchParams(searchParams);
-    nextSearchParams.delete('open');
-    setSearchParams(nextSearchParams, { replace: true });
-  }, [
-    currentWorkspace?.id,
-    requestedWorkspaceId,
-    searchParams,
-    selectedWorkspaceId,
-    setSearchParams,
-    shouldAutoOpen,
-    surfaceLoading,
-  ]);
-
-  const handleRetrySurface = useCallback(async () => {
-    setSurfaceLoading(true);
-    try {
-      await hydrateSurface();
-    } catch {
-      // The workspace store exposes the load failure via state.error for this page.
-    } finally {
-      setSurfaceLoading(false);
-    }
-  }, [hydrateSurface]);
-
-  useEffect(() => {
-    if (!selectedWorkspaceId) {
-      return;
-    }
-
-    const store = useWorkspaceStore.getState();
-    const unsubscribe = unifiedEventService.subscribeWorkspace(selectedWorkspaceId, (event) => {
-      const type = event.type;
-      const data = event.data as Record<string, unknown>;
-
-      if (type.startsWith('workspace.presence.')) {
-        store.handlePresenceEvent({ type, data });
-      } else if (type.startsWith('workspace.agent_status.')) {
-        store.handleAgentStatusEvent({ type, data });
-      } else if (type.startsWith('workspace_task_') || type === 'workspace_task_assigned') {
-        store.handleTaskEvent({ type, data });
-      } else if (type.startsWith('blackboard_')) {
-        store.handleBlackboardEvent({ type, data });
-      } else if (type === 'workspace_message_created') {
-        store.handleChatEvent({ type, data });
-      } else if (type === 'workspace_member_joined' || type === 'workspace_member_left') {
-        store.handleMemberEvent({ type, data });
-      } else if (type === 'workspace_updated' || type === 'workspace_deleted') {
-        store.handleWorkspaceLifecycleEvent({ type, data });
-      } else if (type === 'workspace_agent_bound' || type === 'workspace_agent_unbound') {
-        store.handleAgentBindingEvent({ type, data });
-      } else if (type === 'topology_updated' || type.startsWith('workspace.topology.')) {
-        store.handleTopologyEvent({ type, data });
-      }
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, [selectedWorkspaceId]);
-
-  const handleCreatePost = useCallback(
-    async (data: { title: string; content: string }) => {
-      if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return false;
-      }
-
-      try {
-        await createPost(tenantId, projectId, selectedWorkspaceId, data);
-        return true;
-      } catch (_createError) {
-        message?.error(t('blackboard.errors.createPost', 'Failed to create post'));
-        return false;
-      }
-    },
-    [createPost, message, projectId, selectedWorkspaceId, t, tenantId]
-  );
-
-  const handleCreateReply = useCallback(
-    async (postId: string, content: string) => {
-      if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return false;
-      }
-
-      try {
-        await createReply(tenantId, projectId, selectedWorkspaceId, postId, { content });
-        return true;
-      } catch (_createError) {
-        message?.error(t('blackboard.errors.createReply', 'Failed to create reply'));
-        return false;
-      }
-    },
-    [createReply, message, projectId, selectedWorkspaceId, t, tenantId]
-  );
-
-  const handleLoadReplies = useCallback(
-    async (postId: string) => {
-      if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return false;
-      }
-
-      try {
-        await loadReplies(tenantId, projectId, selectedWorkspaceId, postId);
-        return true;
-      } catch (_loadError) {
-        message?.error(t('blackboard.errors.loadReplies', 'Failed to load replies'));
-        return false;
-      }
-    },
-    [loadReplies, message, projectId, selectedWorkspaceId, t, tenantId]
-  );
-
-  const handleDeletePost = useCallback(
-    async (postId: string) => {
-      if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return false;
-      }
-
-      try {
-        await deletePost(tenantId, projectId, selectedWorkspaceId, postId);
-        return true;
-      } catch (_deleteError) {
-        message?.error(t('blackboard.errors.deletePost', 'Failed to delete post'));
-        return false;
-      }
-    },
-    [deletePost, message, projectId, selectedWorkspaceId, t, tenantId]
-  );
-
-  const handlePinPost = useCallback(
-    async (postId: string) => {
-      if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return;
-      }
-
-      try {
-        await pinPost(tenantId, projectId, selectedWorkspaceId, postId);
-      } catch (_pinError) {
-        message?.error(t('blackboard.errors.pinPost', 'Failed to pin post'));
-        return;
-      }
-    },
-    [message, pinPost, projectId, selectedWorkspaceId, t, tenantId]
-  );
-
-  const handleUnpinPost = useCallback(
-    async (postId: string) => {
-      if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return;
-      }
-
-      try {
-        await unpinPost(tenantId, projectId, selectedWorkspaceId, postId);
-      } catch (_unpinError) {
-        message?.error(t('blackboard.errors.unpinPost', 'Failed to unpin post'));
-        return;
-      }
-    },
-    [message, projectId, selectedWorkspaceId, t, tenantId, unpinPost]
-  );
-
-  const handleDeleteReply = useCallback(
-    async (postId: string, replyId: string) => {
-      if (!tenantId || !projectId || !selectedWorkspaceId) {
-        return;
-      }
-
-      try {
-        await deleteReply(tenantId, projectId, selectedWorkspaceId, postId, replyId);
-      } catch (_deleteError) {
-        message?.error(t('blackboard.errors.deleteReply', 'Failed to delete reply'));
-        return;
-      }
-    },
-    [deleteReply, message, projectId, selectedWorkspaceId, t, tenantId]
-  );
+  const {
+    handleCreatePost,
+    handleCreateReply,
+    handleLoadReplies,
+    handleDeletePost,
+    handlePinPost,
+    handleUnpinPost,
+    handleDeleteReply,
+  } = useBlackboardPageActions({ tenantId, projectId, selectedWorkspaceId });
 
   if (workspacesLoading) {
     return (
@@ -445,7 +129,7 @@ export function Blackboard() {
   if (workspacesError) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-background-light p-4 dark:bg-background-dark sm:p-6">
-        <div className="rounded-3xl border border-error/25 bg-error/10 p-6 text-sm leading-7 text-status-text-error dark:text-status-text-error-dark">
+        <div className="rounded-2xl border border-error/25 bg-error/10 p-6 text-sm leading-7 text-status-text-error dark:text-status-text-error-dark">
           <div className="text-lg font-semibold text-text-primary dark:text-text-inverse">
             {t('common.error', 'Error')}
           </div>
@@ -460,7 +144,7 @@ export function Blackboard() {
   if (workspaces.length === 0) {
     return (
       <div className="flex h-full min-h-0 flex-col justify-center bg-background-light p-4 dark:bg-background-dark sm:p-6">
-        <div className="rounded-3xl border border-dashed border-border-separator bg-surface-light p-8 text-center dark:border-border-dark dark:bg-surface-dark-alt">
+        <div className="rounded-2xl border border-dashed border-border-separator bg-surface-light p-8 text-center dark:border-border-dark dark:bg-surface-dark-alt">
           <div className="text-xl font-semibold text-text-primary dark:text-text-inverse">
             {t('blackboard.noWorkspaces', 'No workspaces found')}
           </div>
@@ -476,63 +160,59 @@ export function Blackboard() {
   }
 
   return (
+    <BlackboardErrorBoundary
+      fallbackLabel={t('blackboard.errorBoundary.title', 'Something went wrong')}
+      retryLabel={t('blackboard.errorBoundary.retry', 'Try again')}
+    >
     <div className="flex h-full min-h-0 flex-col gap-4 bg-background-light p-4 dark:bg-background-dark sm:p-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-3xl min-w-0">
-          <div className="text-[11px] uppercase tracking-[0.34em] text-primary/75 dark:text-primary/80">
-            {t('blackboard.pageEyebrow', 'Project operations board')}
-          </div>
-          <h1 className="mt-2 text-3xl font-semibold text-text-primary dark:text-text-inverse">
-            {t('blackboard.title', 'Blackboard')}
-          </h1>
-          <p className="mt-3 text-sm leading-7 text-text-secondary dark:text-text-muted">
-            {t(
-              'blackboard.pageDescription',
-              'A central command layer for your current workspace: shared goals, task execution, discussions, notes, and team topology in one place.'
-            )}
-          </p>
+      <div className="flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap">
+        <h1 className="sr-only">
+          {t('blackboard.title', 'Blackboard')}
+        </h1>
+
+        <div className="flex w-full items-center sm:w-auto sm:min-w-[260px]">
+          <label htmlFor="workspace-select" className="sr-only">
+            {t('blackboard.workspaceLabel', 'Workspace')}
+          </label>
+          <select
+            id="workspace-select"
+            value={selectedWorkspaceId ?? ''}
+            onChange={(event) => {
+              setSelectedWorkspaceId(event.target.value || null);
+
+              if (shouldAutoOpen) {
+                const nextSearchParams = clearBlackboardAutoOpenSearchParam(searchParams);
+                if (!nextSearchParams) {
+                  return;
+                }
+
+                setSearchParams(nextSearchParams, { replace: true });
+              }
+            }}
+            className="min-h-12 w-full rounded-2xl border border-border-light bg-surface-light px-4 text-sm normal-case tracking-normal text-text-primary transition focus:border-primary/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse"
+          >
+            {workspaces.map((workspace) => (
+              <option
+                key={workspace.id}
+                value={workspace.id}
+                className="bg-surface-light text-text-primary dark:bg-surface-dark dark:text-text-inverse"
+              >
+                {workspace.name}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto lg:items-end">
-          <label className="flex w-full flex-col gap-2 text-xs uppercase tracking-[0.16em] text-text-muted dark:text-text-muted sm:min-w-[260px]">
-            {t('blackboard.workspaceLabel', 'Workspace')}
-            <select
-              value={selectedWorkspaceId ?? ''}
-              onChange={(event) => {
-                setSelectedWorkspaceId(event.target.value || null);
-
-                if (shouldAutoOpen) {
-                  const nextSearchParams = clearBlackboardAutoOpenSearchParam(searchParams);
-                  if (!nextSearchParams) {
-                    return;
-                  }
-
-                  setSearchParams(nextSearchParams, { replace: true });
-                }
-              }}
-              className="min-h-12 rounded-2xl border border-border-light bg-surface-light px-4 text-sm normal-case tracking-normal text-text-primary transition focus:border-primary/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse"
-            >
-              {workspaces.map((workspace) => (
-                <option
-                  key={workspace.id}
-                  value={workspace.id}
-                  className="bg-surface-light text-text-primary dark:bg-surface-dark dark:text-text-inverse"
-                >
-                  {workspace.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:flex-nowrap">
           {selectedWorkspaceId ? (
             <Link
               to={agentWorkspacePath}
-              className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-border-light bg-surface-light px-5 text-sm font-medium text-text-primary transition hover:border-primary/30 hover:bg-primary/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse"
+              className="inline-flex min-h-12 flex-1 items-center justify-center whitespace-nowrap rounded-2xl border border-border-light bg-surface-light px-5 text-sm font-medium text-text-primary transition motion-reduce:transition-none hover:border-primary/30 hover:bg-primary/8 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse sm:flex-none"
             >
               {t('blackboard.openInAgentWorkspace', 'Open in Agent Workspace')}
             </Link>
           ) : (
-            <span className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-border-light px-5 text-sm font-medium text-text-muted dark:border-border-dark dark:text-text-muted">
+            <span className="inline-flex min-h-12 flex-1 items-center justify-center whitespace-nowrap rounded-2xl border border-border-light px-5 text-sm font-medium text-text-muted dark:border-border-dark dark:text-text-muted sm:flex-none">
               {t('blackboard.openInAgentWorkspace', 'Open in Agent Workspace')}
             </span>
           )}
@@ -545,7 +225,7 @@ export function Blackboard() {
             disabled={
               surfaceLoading || !selectedWorkspaceId || currentWorkspace?.id !== selectedWorkspaceId
             }
-            className="min-h-12 rounded-2xl bg-primary px-5 text-sm font-medium text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-12 flex-1 whitespace-nowrap rounded-2xl bg-primary px-5 text-sm font-medium text-white transition motion-reduce:transition-none hover:bg-primary-dark active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
           >
             {t('blackboard.openBoard', 'Open central blackboard')}
           </button>
@@ -553,7 +233,7 @@ export function Blackboard() {
       </div>
 
       {error && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-error/25 bg-error/10 px-4 py-3 text-sm text-status-text-error dark:text-status-text-error-dark sm:flex-row sm:items-center sm:justify-between">
+        <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-error/25 bg-error/10 px-4 py-3 text-sm text-status-text-error dark:text-status-text-error-dark sm:flex-row sm:items-center sm:justify-between">
           <span className="break-words">{error}</span>
           <button
             type="button"
@@ -561,7 +241,7 @@ export function Blackboard() {
               void handleRetrySurface();
             }}
             disabled={surfaceLoading || !selectedWorkspaceId}
-            className="min-h-10 rounded-2xl border border-error/25 bg-surface-light px-4 text-sm font-medium text-status-text-error transition hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/5 dark:text-status-text-error-dark"
+            className="min-h-10 rounded-2xl border border-error/25 bg-surface-light px-4 text-sm font-medium text-status-text-error transition motion-reduce:transition-none hover:bg-error/15 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/5 dark:text-status-text-error-dark"
           >
             {surfaceLoading
               ? t('common.loading', 'Loading…')
@@ -626,5 +306,6 @@ export function Blackboard() {
         </Suspense>
       )}
     </div>
+    </BlackboardErrorBoundary>
   );
 }

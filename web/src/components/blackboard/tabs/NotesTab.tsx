@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next';
 
+import { EmptyState } from '../EmptyState';
+
 import type { BlackboardNoteCard } from '../blackboardUtils';
 
 export interface NotesTabProps {
@@ -17,7 +19,7 @@ export function NotesTab({ notes }: NotesTabProps) {
           className="rounded-xl border border-border-light bg-surface-muted p-5 dark:border-border-dark dark:bg-surface-dark-alt"
         >
           <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-full border border-border-light bg-surface-light px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-text-muted dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
+            <span className="rounded-full border border-border-light bg-surface-light px-3 py-1 text-[11px] uppercase tracking-widest text-text-muted dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
               {t(`blackboard.noteKinds.${note.kind}`, note.kind)}
             </span>
           </div>
@@ -31,12 +33,12 @@ export function NotesTab({ notes }: NotesTabProps) {
       ))}
 
       {notes.length === 0 && (
-        <div className="rounded-xl border border-dashed border-border-separator bg-surface-light p-8 text-center text-sm text-text-secondary dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
+        <EmptyState>
           {t(
             'blackboard.noNotes',
             'No shared notes yet. Add workspace description, objectives, or pinned discussions to make this tab more useful.'
           )}
-        </div>
+        </EmptyState>
       )}
     </div>
   );

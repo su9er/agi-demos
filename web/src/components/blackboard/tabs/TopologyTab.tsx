@@ -2,6 +2,8 @@ import { useTranslation } from 'react-i18next';
 
 import type { TopologyEdge, TopologyNode } from '@/types/workspace';
 
+import { EmptyState } from '../EmptyState';
+
 export interface TopologyTabProps {
   topologyNodes: TopologyNode[];
   topologyEdges: TopologyEdge[];
@@ -31,7 +33,7 @@ export function TopologyTab({
             {topologyNodes.map((node) => (
               <div key={node.id} className="py-4 first:pt-0 last:pb-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-border-light bg-surface-muted px-2.5 py-0.5 text-[11px] uppercase tracking-[0.16em] text-text-muted dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
+                  <span className="rounded-full border border-border-light bg-surface-muted px-2.5 py-0.5 text-[11px] uppercase tracking-widest text-text-muted dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
                     {node.node_type}
                   </span>
                   {node.status && (
@@ -52,9 +54,9 @@ export function TopologyTab({
             ))}
 
             {topologyNodes.length === 0 && (
-              <div className="py-3 text-sm text-text-muted dark:text-text-muted">
+              <EmptyState>
                 {t('blackboard.noTopologyNodes', 'No topology nodes yet.')}
-              </div>
+              </EmptyState>
             )}
           </div>
         </div>
@@ -83,9 +85,9 @@ export function TopologyTab({
             ))}
 
             {topologyEdges.length === 0 && (
-              <div className="py-3 text-sm text-text-muted dark:text-text-muted">
+              <EmptyState>
                 {t('blackboard.noTopologyEdges', 'No topology edges yet.')}
-              </div>
+              </EmptyState>
             )}
           </div>
         </div>

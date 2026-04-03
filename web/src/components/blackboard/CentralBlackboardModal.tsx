@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -13,11 +12,9 @@ import { useLazyMessage } from '@/components/ui/lazyAntd';
 import { ChatPanel } from '@/components/workspace/chat/ChatPanel';
 import { GeneList } from '@/components/workspace/genes/GeneList';
 import { MemberPanel } from '@/components/workspace/MemberPanel';
-import {
-  ObjectiveCreateModal,
-  type ObjectiveFormValues,
-} from '@/components/workspace/objectives/ObjectiveCreateModal';
+import { ObjectiveCreateModal } from '@/components/workspace/objectives/ObjectiveCreateModal';
 
+import { BlackboardTabBar, BLACKBOARD_TABS } from './BlackboardTabBar';
 import { buildBlackboardNotes, buildBlackboardStats } from './blackboardUtils';
 import { DiscussionTab } from './tabs/DiscussionTab';
 import { FilesPlaceholder } from './tabs/FilesPlaceholder';
@@ -25,7 +22,9 @@ import { GoalsTab } from './tabs/GoalsTab';
 import { NotesTab } from './tabs/NotesTab';
 import { StatusTab } from './tabs/StatusTab';
 import { TopologyTab } from './tabs/TopologyTab';
+import { useBlackboardModalActions } from './useBlackboardModalActions';
 
+import type { BlackboardTab } from './BlackboardTabBar';
 import type {
   BlackboardPost,
   BlackboardReply,
@@ -63,18 +62,6 @@ export interface CentralBlackboardModalProps {
   onDeleteReply: (postId: string, replyId: string) => Promise<void>;
 }
 
-type BlackboardTab =
-  | 'goals'
-  | 'discussion'
-  | 'collaboration'
-  | 'members'
-  | 'genes'
-  | 'files'
-  | 'status'
-  | 'notes'
-  | 'topology'
-  | 'settings';
-
 function statusBadgeTone(status: string | undefined): string {
   if (status === 'busy' || status === 'running') return 'bg-success';
   if (status === 'error') return 'bg-error';
@@ -108,33 +95,39 @@ export function CentralBlackboardModal({
 }: CentralBlackboardModalProps) {
   const { t } = useTranslation();
   const message = useLazyMessage();
-  const { createObjective, deleteObjective, deleteGene, updateGene } = useWorkspaceActions();
+  const workspaceActions = useWorkspaceActions();
   const tabListRef = useRef<HTMLDivElement | null>(null);
 
   const [activeTab, setActiveTab] = useState<BlackboardTab>('goals');
-  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
-  const [postTitle, setPostTitle] = useState('');
-  const [postContent, setPostContent] = useState('');
-  const [replyDraft, setReplyDraft] = useState('');
-  const [autoReplyRetryBlockedByPostId, setAutoReplyRetryBlockedByPostId] = useState<
-    Record<string, boolean>
-  >({});
-  const [creatingPost, setCreatingPost] = useState(false);
-  const [replying, setReplying] = useState(false);
-  const [loadingRepliesPostId, setLoadingRepliesPostId] = useState<string | null>(null);
-  const [togglingPostId, setTogglingPostId] = useState<string | null>(null);
-  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
-  const [deletingReplyId, setDeletingReplyId] = useState<string | null>(null);
-  const [showCreateObjective, setShowCreateObjective] = useState(false);
-  const [creatingObjective, setCreatingObjective] = useState(false);
+
+  const actions = useBlackboardModalActions({
+    open,
+    tenantId,
+    projectId,
+    workspaceId,
+    posts,
+    loadedReplyPostIds,
+    callbacks: {
+      onLoadReplies,
+      onCreatePost,
+      onCreateReply,
+      onDeletePost,
+      onPinPost,
+      onUnpinPost,
+      onDeleteReply,
+    },
+    workspaceActions,
+    message,
+    t,
+  });
 
   const stats = useMemo(
     () => buildBlackboardStats(tasks, posts, agents, topologyNodes),
-    [agents, posts, tasks, topologyNodes]
+    [agents, posts, tasks, topologyNodes],
   );
   const notes = useMemo(
     () => buildBlackboardNotes(workspace, objectives, posts),
-    [objectives, posts, workspace]
+    [objectives, posts, workspace],
   );
   const topologyNodeTitles = useMemo(
     () =>
@@ -142,276 +135,10 @@ export function CentralBlackboardModal({
         topologyNodes.map((node) => [
           node.id,
           node.title.trim() ? node.title : t('blackboard.topologyUntitled', 'Untitled node'),
-        ])
+        ]),
       ),
-    [t, topologyNodes]
+    [t, topologyNodes],
   );
-
-  useEffect(() => {
-    const fallbackPostId = posts.find((post) => post.is_pinned)?.id ?? posts[0]?.id ?? null;
-    const hasSelectedPost = posts.some((post) => post.id === selectedPostId);
-
-    if (!hasSelectedPost && fallbackPostId !== selectedPostId) {
-      setSelectedPostId(fallbackPostId);
-    }
-  }, [posts, selectedPostId]);
-
-  useEffect(() => {
-    setReplyDraft('');
-  }, [selectedPostId]);
-
-  useEffect(() => {
-    if (!open) {
-      setAutoReplyRetryBlockedByPostId({});
-    }
-  }, [open]);
-
-  const handleLoadReplies = useCallback(
-    async (postId: string, options?: { manual?: boolean }) => {
-      setLoadingRepliesPostId(postId);
-      try {
-        const loaded = await onLoadReplies(postId);
-
-        if (loaded) {
-          setAutoReplyRetryBlockedByPostId((current) => {
-            if (!(postId in current)) {
-              return current;
-            }
-
-            return { ...current, [postId]: false };
-          });
-          return;
-        }
-
-        if (!options?.manual) {
-          setAutoReplyRetryBlockedByPostId((current) => ({ ...current, [postId]: true }));
-        }
-      } finally {
-        setLoadingRepliesPostId((current) => (current === postId ? null : current));
-      }
-    },
-    [onLoadReplies]
-  );
-
-  useEffect(() => {
-    if (
-      !open ||
-      !selectedPostId ||
-      loadedReplyPostIds[selectedPostId] ||
-      autoReplyRetryBlockedByPostId[selectedPostId] === true ||
-      loadingRepliesPostId === selectedPostId
-    ) {
-      return;
-    }
-
-    void handleLoadReplies(selectedPostId);
-  }, [
-    autoReplyRetryBlockedByPostId,
-    handleLoadReplies,
-    loadedReplyPostIds,
-    loadingRepliesPostId,
-    open,
-    selectedPostId,
-  ]);
-
-  const selectedPost = posts.find((post) => post.id === selectedPostId) ?? null;
-
-  const tabs = useMemo(
-    () =>
-      [
-        { key: 'goals', label: t('blackboard.tabs.goals', 'Goals / Tasks') },
-        { key: 'discussion', label: t('blackboard.tabs.discussion', 'Discussion') },
-        { key: 'collaboration', label: t('blackboard.tabs.collaboration', 'Collaboration') },
-        { key: 'members', label: t('blackboard.tabs.members', 'Members') },
-        { key: 'genes', label: t('blackboard.tabs.genes', 'Genes') },
-        { key: 'files', label: t('blackboard.tabs.files', 'Files') },
-        { key: 'status', label: t('blackboard.tabs.status', 'Status') },
-        { key: 'notes', label: t('blackboard.tabs.notes', 'Notes') },
-        { key: 'topology', label: t('blackboard.tabs.topology', 'Topology') },
-        { key: 'settings', label: t('blackboard.tabs.settings', 'Settings') },
-      ] as const,
-    [t]
-  );
-
-  const moveTabFocus = useCallback((nextIndex: number) => {
-    const nextTab = tabs[nextIndex];
-    if (!nextTab) {
-      return;
-    }
-
-    setActiveTab(nextTab.key);
-
-    requestAnimationFrame(() => {
-      const nextButton = tabListRef.current?.querySelector<HTMLButtonElement>(
-        `#blackboard-tab-${nextTab.key}`
-      );
-      nextButton?.focus();
-    });
-  }, [tabs]);
-
-  const handleTabKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
-      const lastIndex = tabs.length - 1;
-
-      if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        moveTabFocus(index === lastIndex ? 0 : index + 1);
-        return;
-      }
-
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        moveTabFocus(index === 0 ? lastIndex : index - 1);
-        return;
-      }
-
-      if (event.key === 'Home') {
-        event.preventDefault();
-        moveTabFocus(0);
-        return;
-      }
-
-      if (event.key === 'End') {
-        event.preventDefault();
-        moveTabFocus(lastIndex);
-      }
-    },
-    [moveTabFocus, tabs.length]
-  );
-
-  const handleCreatePost = async () => {
-    const title = postTitle.trim();
-    const content = postContent.trim();
-    if (!title || !content) {
-      return;
-    }
-
-    setCreatingPost(true);
-    try {
-      const created = await onCreatePost({ title, content });
-      if (created) {
-        setPostTitle('');
-        setPostContent('');
-      }
-    } finally {
-      setCreatingPost(false);
-    }
-  };
-
-  const handleCreateReply = async () => {
-    if (!selectedPost) {
-      return;
-    }
-
-    const nextContent = replyDraft.trim();
-    if (!nextContent) {
-      return;
-    }
-
-    setReplying(true);
-    try {
-      const created = await onCreateReply(selectedPost.id, nextContent);
-      if (created) {
-        setReplyDraft('');
-      }
-    } finally {
-      setReplying(false);
-    }
-  };
-
-  const handleTogglePin = async () => {
-    if (!selectedPost) {
-      return;
-    }
-
-    setTogglingPostId(selectedPost.id);
-    try {
-      if (selectedPost.is_pinned) {
-        await onUnpinPost(selectedPost.id);
-      } else {
-        await onPinPost(selectedPost.id);
-      }
-    } finally {
-      setTogglingPostId(null);
-    }
-  };
-
-  const handleDeleteSelectedPost = async () => {
-    if (!selectedPost) {
-      return;
-    }
-
-    setDeletingPostId(selectedPost.id);
-    try {
-      const deleted = await onDeletePost(selectedPost.id);
-      if (deleted) {
-        setSelectedPostId((current) => (current === selectedPost.id ? null : current));
-      }
-    } finally {
-      setDeletingPostId(null);
-    }
-  };
-
-  const handleDeleteSelectedReply = async (replyId: string) => {
-    if (!selectedPost) {
-      return;
-    }
-
-    setDeletingReplyId(replyId);
-    try {
-      await onDeleteReply(selectedPost.id, replyId);
-    } finally {
-      setDeletingReplyId(null);
-    }
-  };
-
-  const handleCreateObjective = async (values: ObjectiveFormValues) => {
-    setCreatingObjective(true);
-    try {
-      const payload: Parameters<typeof createObjective>[3] = {
-        title: values.title,
-        obj_type: values.obj_type,
-      };
-
-      if (values.description) {
-        payload.description = values.description;
-      }
-      if (values.parent_id) {
-        payload.parent_id = values.parent_id;
-      }
-
-      await createObjective(tenantId, projectId, workspaceId, payload);
-      setShowCreateObjective(false);
-    } catch {
-      message?.error(t('blackboard.errors.createObjective', 'Failed to create objective'));
-    } finally {
-      setCreatingObjective(false);
-    }
-  };
-
-  const handleDeleteObjective = async (objectiveId: string) => {
-    try {
-      await deleteObjective(tenantId, projectId, workspaceId, objectiveId);
-    } catch {
-      message?.error(t('blackboard.errors.deleteObjective', 'Failed to delete objective'));
-    }
-  };
-
-  const handleDeleteGene = async (geneId: string) => {
-    try {
-      await deleteGene(tenantId, projectId, workspaceId, geneId);
-    } catch {
-      message?.error(t('blackboard.errors.deleteGene', 'Failed to delete gene'));
-    }
-  };
-
-  const handleToggleGeneActive = async (geneId: string, isActive: boolean) => {
-    try {
-      await updateGene(tenantId, projectId, workspaceId, geneId, { is_active: isActive });
-    } catch {
-      message?.error(t('blackboard.errors.updateGene', 'Failed to update gene'));
-    }
-  };
 
   return (
     <>
@@ -440,56 +167,30 @@ export function CentralBlackboardModal({
                 {workspace?.name ??
                   t(
                     'blackboard.modalSubtitle',
-                    'Shared goals, tasks, discussions, and topology for the active workspace.'
+                    'Shared goals, tasks, discussions, and topology for the active workspace.',
                   )}
               </div>
             </div>
           </div>
 
-          <div
-            ref={tabListRef}
-            role="tablist"
-            aria-label={t('blackboard.tabs.ariaLabel', 'Blackboard sections')}
-            className="flex gap-1 overflow-x-auto border-b border-border-light px-4 py-3 dark:border-border-dark sm:px-6"
-          >
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                role="tab"
-                id={`blackboard-tab-${tab.key}`}
-                aria-selected={activeTab === tab.key}
-                aria-controls={`blackboard-panel-${tab.key}`}
-                tabIndex={activeTab === tab.key ? 0 : -1}
-                onKeyDown={(event) => {
-                  handleTabKeyDown(event, tabs.findIndex((item) => item.key === tab.key));
-                }}
-                onClick={() => {
-                  setActiveTab(tab.key);
-                }}
-                className={`rounded-full px-4 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
-                  activeTab === tab.key
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-text-secondary hover:bg-surface-muted hover:text-text-primary dark:text-text-muted dark:hover:bg-surface-elevated dark:hover:text-text-inverse'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          <BlackboardTabBar
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            tabListRef={tabListRef}
+          />
 
-          {tabs.map((tab) => (
+          {BLACKBOARD_TABS.map((tabKey) => (
             <div
-              key={tab.key}
-              id={`blackboard-panel-${tab.key}`}
+              key={tabKey}
+              id={`blackboard-panel-${tabKey}`}
               role="tabpanel"
-              aria-labelledby={`blackboard-tab-${tab.key}`}
+              aria-labelledby={`blackboard-tab-${tabKey}`}
               aria-live="polite"
-              tabIndex={activeTab === tab.key ? 0 : -1}
-              hidden={activeTab !== tab.key}
+              tabIndex={activeTab === tabKey ? 0 : -1}
+              hidden={activeTab !== tabKey}
               className="min-h-0 flex-1 overflow-y-auto px-4 py-4 focus-visible:outline-none sm:px-6 sm:py-5"
             >
-              {activeTab === tab.key && (
+              {activeTab === tabKey && (
                 <>
             {activeTab === 'goals' && (
               <GoalsTab
@@ -498,10 +199,10 @@ export function CentralBlackboardModal({
                 completionRatio={stats.completionRatio}
                 workspaceId={workspaceId}
                 onDeleteObjective={(objectiveId) => {
-                  void handleDeleteObjective(objectiveId);
+                  void actions.handleDeleteObjective(objectiveId);
                 }}
                 onCreateObjective={() => {
-                  setShowCreateObjective(true);
+                  actions.setShowCreateObjective(true);
                 }}
               />
             )}
@@ -509,28 +210,28 @@ export function CentralBlackboardModal({
             {activeTab === 'discussion' && (
               <DiscussionTab
                 posts={posts}
-                selectedPostId={selectedPostId}
-                setSelectedPostId={setSelectedPostId}
-                postTitle={postTitle}
-                setPostTitle={setPostTitle}
-                postContent={postContent}
-                setPostContent={setPostContent}
-                replyDraft={replyDraft}
-                setReplyDraft={setReplyDraft}
-                creatingPost={creatingPost}
-                replying={replying}
-                deletingPostId={deletingPostId}
-                deletingReplyId={deletingReplyId}
-                togglingPostId={togglingPostId}
-                loadingRepliesPostId={loadingRepliesPostId}
+                selectedPostId={actions.selectedPostId}
+                setSelectedPostId={actions.setSelectedPostId}
+                postTitle={actions.postTitle}
+                setPostTitle={actions.setPostTitle}
+                postContent={actions.postContent}
+                setPostContent={actions.setPostContent}
+                replyDraft={actions.replyDraft}
+                setReplyDraft={actions.setReplyDraft}
+                creatingPost={actions.creatingPost}
+                replying={actions.replying}
+                deletingPostId={actions.deletingPostId}
+                deletingReplyId={actions.deletingReplyId}
+                togglingPostId={actions.togglingPostId}
+                loadingRepliesPostId={actions.loadingRepliesPostId}
                 loadedReplyPostIds={loadedReplyPostIds}
                 repliesByPostId={repliesByPostId}
-                handleCreatePost={handleCreatePost}
-                handleCreateReply={handleCreateReply}
-                handleTogglePin={handleTogglePin}
-                handleDeleteSelectedPost={handleDeleteSelectedPost}
-                handleDeleteSelectedReply={handleDeleteSelectedReply}
-                handleLoadReplies={handleLoadReplies}
+                handleCreatePost={actions.handleCreatePost}
+                handleCreateReply={actions.handleCreateReply}
+                handleTogglePin={actions.handleTogglePin}
+                handleDeleteSelectedPost={actions.handleDeleteSelectedPost}
+                handleDeleteSelectedReply={actions.handleDeleteSelectedReply}
+                handleLoadReplies={actions.handleLoadReplies}
               />
             )}
 
@@ -558,10 +259,10 @@ export function CentralBlackboardModal({
                 <GeneList
                   genes={genes}
                   onDelete={(geneId) => {
-                    void handleDeleteGene(geneId);
+                    void actions.handleDeleteGene(geneId);
                   }}
                   onToggleActive={(geneId, isActive) => {
-                    void handleToggleGeneActive(geneId, isActive);
+                    void actions.handleToggleGeneActive(geneId, isActive);
                   }}
                 />
               </div>
@@ -610,15 +311,15 @@ export function CentralBlackboardModal({
       </Modal>
 
       <ObjectiveCreateModal
-        open={showCreateObjective}
+        open={actions.showCreateObjective}
         onClose={() => {
-          setShowCreateObjective(false);
+          actions.setShowCreateObjective(false);
         }}
         onSubmit={(values) => {
-          void handleCreateObjective(values);
+          void actions.handleCreateObjective(values);
         }}
         parentObjectives={objectives}
-        loading={creatingObjective}
+        loading={actions.creatingObjective}
       />
     </>
   );

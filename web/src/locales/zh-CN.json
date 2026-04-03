@@ -347,6 +347,7 @@
     "arrangement": {
       "eyebrow": "工位编排",
       "syncState": "拓扑实时同步中",
+      "inlineStats": "{{agents}} 智能体 · {{seats}} 人工 · {{corridors}} 走廊 · {{done}}/{{total}} 任务",
       "moveMode": "移动模式：点击一个空闲六边形",
       "description": "把 AI 员工、人工席位和走廊节点放到同一张指挥网格上；需要深入协同时，再一键进入中央黑板。",
       "canvasTitle": "指挥网格",

@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 
 import { PresenceBar } from '@/components/workspace/presence/PresenceBar';
 
+import { EmptyState } from '../EmptyState';
 import { StatBadge } from '../StatBadge';
 
 import type { TopologyEdge, WorkspaceAgent } from '@/types/workspace';
@@ -112,9 +113,9 @@ export function StatusTab({
           ))}
 
           {agents.length === 0 && (
-            <div className="rounded-xl border border-dashed border-border-separator bg-surface-light p-5 text-sm text-text-secondary dark:border-border-dark dark:bg-surface-dark dark:text-text-muted">
+            <EmptyState>
               {t('blackboard.noAgents', 'No agents have been bound to this workspace yet.')}
-            </div>
+            </EmptyState>
           )}
         </div>
       </section>
