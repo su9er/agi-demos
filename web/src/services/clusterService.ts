@@ -52,9 +52,9 @@ export interface ClusterHealthResponse {
 
 export const clusterService = {
   list: (params?: { page?: number; page_size?: number }) =>
-    httpClient.get<ClusterListResponse>(BASE_URL, { params }),
+    httpClient.get<ClusterListResponse>(`${BASE_URL}/`, { params }),
 
-  create: (data: ClusterCreate) => httpClient.post<ClusterResponse>(BASE_URL, data),
+  create: (data: ClusterCreate) => httpClient.post<ClusterResponse>(`${BASE_URL}/`, data),
 
   getById: (id: string) => httpClient.get<ClusterResponse>(`${BASE_URL}/${id}`),
 

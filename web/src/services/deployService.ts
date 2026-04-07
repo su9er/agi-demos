@@ -33,9 +33,9 @@ export interface DeployListResponse {
 
 export const deployService = {
   list: (params?: { page?: number; page_size?: number; instance_id?: string }) =>
-    httpClient.get<DeployListResponse>(BASE_URL, { params }),
+    httpClient.get<DeployListResponse>(`${BASE_URL}/`, { params }),
 
-  create: (data: DeployCreate) => httpClient.post<DeployResponse>(BASE_URL, data),
+  create: (data: DeployCreate) => httpClient.post<DeployResponse>(`${BASE_URL}/`, data),
 
   getById: (id: string) => httpClient.get<DeployResponse>(`${BASE_URL}/${id}`),
 

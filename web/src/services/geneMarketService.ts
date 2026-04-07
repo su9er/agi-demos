@@ -194,9 +194,9 @@ export const geneMarketService = {
     search?: string;
     visibility?: string;
     is_published?: boolean;
-  }) => httpClient.get<GeneListResponse>(BASE_URL, { params }),
+  }) => httpClient.get<GeneListResponse>(`${BASE_URL}/`, { params }),
 
-  createGene: (data: GeneCreate) => httpClient.post<GeneResponse>(BASE_URL, data),
+  createGene: (data: GeneCreate) => httpClient.post<GeneResponse>(`${BASE_URL}/`, data),
 
   getGene: (id: string) => httpClient.get<GeneResponse>(`${BASE_URL}/${id}`),
 

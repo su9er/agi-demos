@@ -55,10 +55,10 @@ export interface InstanceTemplateListResponse {
 
 export const instanceTemplateService = {
   list: (params?: { page?: number; page_size?: number; is_published?: boolean }) =>
-    httpClient.get<InstanceTemplateListResponse>(BASE_URL, { params }),
+    httpClient.get<InstanceTemplateListResponse>(`${BASE_URL}/`, { params }),
 
   create: (data: InstanceTemplateCreate) =>
-    httpClient.post<InstanceTemplateResponse>(BASE_URL, data),
+    httpClient.post<InstanceTemplateResponse>(`${BASE_URL}/`, data),
 
   getById: (id: string) => httpClient.get<InstanceTemplateResponse>(`${BASE_URL}/${id}`),
 

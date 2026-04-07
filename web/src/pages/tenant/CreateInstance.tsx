@@ -16,6 +16,9 @@ import { LazyButton, LazySelect, useLazyMessage } from '@/components/ui/lazyAntd
 
 import { useClusters, useClusterActions } from '../../stores/cluster';
 import { useInstanceActions } from '../../stores/instance';
+import { useWorkspaces, useWorkspaceStore } from '../../stores/workspace';
+import { useTenantStore } from '../../stores/tenant';
+import { useProjectStore } from '../../stores/project';
 
 import type { InstanceCreate } from '../../services/instanceService';
 
@@ -31,12 +34,21 @@ export const CreateInstance: React.FC = () => {
   const { createInstance } = useInstanceActions();
   const clusters = useClusters();
   const { listClusters } = useClusterActions();
+  const workspaces = useWorkspaces();
+  const loadWorkspaces = useWorkspaceStore((s) => s.loadWorkspaces);
+  const tenantId = useTenantStore((s) => s.currentTenant?.id);
+  const projectId = useProjectStore((s) => s.currentProject?.id);
 
   useEffect(() => {
     listClusters().catch((err) => {
       console.error('Failed to list clusters:', err);
     });
-  }, [listClusters]);
+    if (tenantId && projectId) {
+      loadWorkspaces(tenantId, projectId).catch((err) => {
+        console.error('Failed to list workspaces:', err);
+      });
+    }
+  }, [listClusters, loadWorkspaces, tenantId, projectId]);
 
   const handleNameChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -247,9 +259,22 @@ export const CreateInstance: React.FC = () => {
       },
       {
         title: t('tenant.instances.create.steps.config.title', 'Configuration'),
-        fields: ['env_vars', 'advanced_config', 'llm_providers'],
+        fields: ['workspace_id', 'env_vars', 'advanced_config', 'llm_providers'],
         content: (
           <div className="flex flex-col gap-4">
+            <Form.Item
+              name="workspace_id"
+              label={t('tenant.instances.create.config.workspace', 'Associate with Workspace')}
+            >
+              <LazySelect
+                allowClear
+                placeholder={t('tenant.instances.create.placeholders.workspace', 'Select a workspace (optional)')}
+                options={workspaces.map((ws) => ({
+                  label: ws.name,
+                  value: ws.id,
+                }))}
+              />
+            </Form.Item>
             <Form.Item
               name="env_vars"
               label={t('tenant.instances.create.config.env_vars', 'Environment Variables (JSON)')}
@@ -307,7 +332,8 @@ export const CreateInstance: React.FC = () => {
                     quota_max_pods: t('tenant.instances.create.storage.quota_max_pods', 'Quota Max Pods'),
                     env_vars: t('tenant.instances.create.config.env_vars', 'Environment Variables (JSON)'),
                     advanced_config: t('tenant.instances.create.config.advanced_config', 'Advanced Config (JSON)'),
-                    llm_providers: t('tenant.instances.create.config.llm_providers', 'LLM Providers (JSON)')
+                    llm_providers: t('tenant.instances.create.config.llm_providers', 'LLM Providers (JSON)'),
+                    workspace_id: t('tenant.instances.create.config.workspace', 'Workspace')
                   };
                   return map[k] || k;
                 };
@@ -322,7 +348,7 @@ export const CreateInstance: React.FC = () => {
         ),
       },
     ],
-    [t, clusters, handleNameChange, formData]
+    [t, clusters, handleNameChange, formData, workspaces]
   );
 
   const parseJsonField = useCallback((val: unknown) => {
@@ -361,11 +387,10 @@ export const CreateInstance: React.FC = () => {
   }, []);
 
   const handleSubmit = useCallback(() => {
-    // TODO: tenant_id is hardcoded to 'default' pending multi-tenant architecture completion
     const finalData: InstanceCreate = {
       name: String(formData.name),
       slug: String(formData.slug),
-      tenant_id: 'default',
+      tenant_id: tenantId || 'default',
       ...formData,
     };
 
@@ -382,13 +407,13 @@ export const CreateInstance: React.FC = () => {
     createInstance(finalData)
       .then(() => {
         messageApi?.success(t('tenant.instances.create.success', 'Instance created successfully'));
-        navigate('/instances');
+        navigate('..');
       })
       .catch((err) => {
         console.error('Failed to create instance:', err);
         messageApi?.error(t('tenant.instances.create.error', 'Failed to create instance'));
       });
-  }, [formData, createInstance, navigate, t, parseJsonField, messageApi]);
+  }, [formData, createInstance, navigate, t, parseJsonField, messageApi, tenantId]);
 
   return (
     <div className="max-w-4xl mx-auto w-full flex flex-col gap-8">
@@ -421,7 +446,7 @@ export const CreateInstance: React.FC = () => {
             {t('tenant.instances.create.actions.back', 'Back')}
           </LazyButton>
           <Space>
-            <LazyButton onClick={() => navigate('/instances')}>
+            <LazyButton onClick={() => navigate('..')}>
               {t('tenant.instances.create.actions.cancel', 'Cancel')}
             </LazyButton>
             {currentStep < stepsInfo.length - 1 ? (
