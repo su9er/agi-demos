@@ -269,6 +269,8 @@ class TestEvaluateNoToolResultDelegation:
     async def test_no_delegate_pattern_falls_through(self) -> None:
         proc = self._build_processor_for_eval("Just a normal response, no delegation.")
         proc._is_conversational_response = MagicMock(return_value=True)  # type: ignore[method-assign]
+        # Use a low-confidence source so conversational check is not gated
+        proc._goal_evaluator.evaluate_goal_completion.return_value.source = "assistant_text"
 
         events: list[Any] = []
         async for ev in proc._evaluate_no_tool_result("session-1", []):
@@ -278,3 +280,20 @@ class TestEvaluateNoToolResultDelegation:
         assert len(act_events) == 0
         status_events = [e for e in events if isinstance(e, AgentStatusEvent)]
         assert any("conversational_response" in e.status for e in status_events)
+
+    @pytest.mark.asyncio
+    async def test_conversational_response_gated_by_llm_self_check(self) -> None:
+        """When goal evaluator explicitly says 'not achieved' via llm_self_check,
+        conversational response should NOT cause early exit."""
+        proc = self._build_processor_for_eval("Just a normal response, no delegation.")
+        proc._is_conversational_response = MagicMock(return_value=True)  # type: ignore[method-assign]
+        # source="tasks" is authoritative -- conversational exit should be gated
+        # (default from _build_processor_for_eval is "tasks")
+
+        events: list[Any] = []
+        async for ev in proc._evaluate_no_tool_result("session-1", []):
+            events.append(ev)
+
+        status_events = [e for e in events if isinstance(e, AgentStatusEvent)]
+        assert not any("conversational_response" in e.status for e in status_events)
+        assert any("goal_pending" in e.status for e in status_events)

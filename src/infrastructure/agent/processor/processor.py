@@ -862,13 +862,23 @@ class SessionProcessor:
             return
 
         if self._is_conversational_response():
-            # Text-only response without tool calls and without an
-            # explicit goal_achieved=false signal -- treat as a
-            # deliberate conversational reply.
-            self._no_progress_steps = 0
-            yield AgentStatusEvent(status="goal_achieved:conversational_response")
-            self._last_process_result = ProcessorResult.COMPLETE
-            return
+            # Text-only response without tool calls -- but only treat as
+            # deliberate conversational completion when the goal evaluator
+            # did NOT explicitly determine the goal is unfinished.
+            # When the LLM self-check or task evaluation says "not achieved",
+            # respect that and let the loop continue so the agent can retry
+            # with tools.
+            if goal_check.source in ("llm_self_check", "tasks"):
+                logger.debug(
+                    "[Processor] Conversational text detected but goal evaluator "
+                    "(%s) says not achieved -- continuing loop",
+                    goal_check.source,
+                )
+            else:
+                self._no_progress_steps = 0
+                yield AgentStatusEvent(status="goal_achieved:conversational_response")
+                self._last_process_result = ProcessorResult.COMPLETE
+                return
 
         if goal_check.should_stop:
             yield AgentErrorEvent(
@@ -1103,6 +1113,15 @@ class SessionProcessor:
         elif isinstance(result, SkillTriggerResult):
             yield AgentStatusEvent(status=f"Triggering skill: {result.skill_id}")
 
+    _PLANNING_INDICATORS_RE = re.compile(
+        r"(?i)"
+        r"(?:"
+        r"让我|我来|我需要|我将|先|首先|接下来|下一步|开始|继续"
+        r"|let me|i need to|i(?:'|')ll |i will |first|next"
+        r"|let(?:'|')s "
+        r")"
+    )
+
     def _is_conversational_response(self) -> bool:
         """Check if the current turn is a conversational text-only response.
 
@@ -1111,6 +1130,9 @@ class SessionProcessor:
         chosen to respond conversationally. This should be treated as
         goal-achieved to avoid unnecessary no-progress loops for simple queries
         like greetings or questions that don't require tool use.
+
+        Returns False (not conversational) when the text contains planning
+        indicators suggesting the agent intends to use tools next.
         """
         if not self._current_message:
             return False
@@ -1119,7 +1141,11 @@ class SessionProcessor:
             return False
         # If the text contains a goal_achieved JSON signal, it's a structured
         # goal-check response, not conversational text.
-        return "goal_achieved" not in full_text
+        if "goal_achieved" in full_text:
+            return False
+        # If the text contains planning/action indicators, the agent likely
+        # intends to use tools -- not a finished conversational response.
+        return not self._PLANNING_INDICATORS_RE.search(full_text)
 
     _DELEGATE_ESCALATE_RE = re.compile(r"(?i)\b(delegate|escalate)\s*:\s*([A-Za-z0-9_\-]+)")
 

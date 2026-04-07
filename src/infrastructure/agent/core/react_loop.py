@@ -479,10 +479,18 @@ class ReActLoop:
             return
 
         if self._is_conversational_text(last_thought):
-            self._no_progress_steps = 0
-            yield AgentStatusEvent(status="goal_achieved:conversational_response")
-            self._last_evaluated_result = LoopResult.COMPLETE
-            return
+            # Only treat as conversational completion when the goal evaluator
+            # did NOT explicitly determine the goal is unfinished via tasks.
+            if goal_check.source == "tasks":
+                logger.debug(
+                    "[ReActLoop] Conversational text detected but task evaluation "
+                    "says not achieved -- continuing loop"
+                )
+            else:
+                self._no_progress_steps = 0
+                yield AgentStatusEvent(status="goal_achieved:conversational_response")
+                self._last_evaluated_result = LoopResult.COMPLETE
+                return
 
         if goal_check.should_stop:
             yield AgentErrorEvent(
@@ -763,19 +771,33 @@ class ReActLoop:
             self._state = LoopState.OBSERVING
             self._current_plan_step += 1
 
+    _PLANNING_INDICATORS_RE = re.compile(
+        r"(?i)"
+        r"(?:"
+        r"让我|我来|我需要|我将|先|首先|接下来|下一步|开始|继续"
+        r"|let me|i need to|i(?:'|')ll |i will |first|next"
+        r"|let(?:'|')s "
+        r")"
+    )
+
     def _is_conversational_text(self, text: str) -> bool:
         """Check if text is a conversational response (not a goal-check JSON).
 
         Returns True when the LLM produced substantive text that is NOT a
-        structured goal_achieved signal, indicating a deliberate conversational
-        reply that should terminate the loop.
+        structured goal_achieved signal and does NOT contain planning indicators,
+        indicating a deliberate conversational reply that should terminate the
+        loop.
         """
         stripped = text.strip()
         if len(stripped) < 2:
             return False
         # If the text contains a goal_achieved JSON signal, it's a goal-check
         # response, not conversational text.
-        return "goal_achieved" not in stripped
+        if "goal_achieved" in stripped:
+            return False
+        # If the text contains planning/action indicators, the agent likely
+        # intends to use tools -- not a finished conversational response.
+        return not self._PLANNING_INDICATORS_RE.search(stripped)
 
     def _extract_user_query(self, messages: list[dict[str, Any]]) -> str | None:
         """Extract user query from messages."""
