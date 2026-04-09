@@ -24,6 +24,7 @@ from src.infrastructure.adapters.primary.web.dependencies.auth_dependencies impo
 )
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 
+from .access import require_tenant_access
 from .utils import get_container_with_db
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,47 @@ class SetEnabledBody(BaseModel):
     enabled: bool
 
 
+def _normalize_new_agent_to_agent_allowlist(
+    *,
+    enabled: bool,
+    allowlist: list[str] | None,
+) -> list[str] | None:
+    """Normalize A2A config for new definitions with an explicit safe default."""
+    normalized_allowlist = Agent.normalize_agent_to_agent_allowlist(allowlist)
+    if enabled and normalized_allowlist is None:
+        return []
+    return normalized_allowlist
+
+
+def _normalize_updated_agent_to_agent_policy(
+    agent: Agent,
+    updates: dict[str, Any],
+) -> None:
+    """Normalize A2A config for updates without breaking untouched legacy agents."""
+    enabled_before = agent.agent_to_agent_enabled
+    allowlist_in_updates = "agent_to_agent_allowlist" in updates
+    if allowlist_in_updates:
+        updates["agent_to_agent_allowlist"] = Agent.normalize_agent_to_agent_allowlist(
+            updates["agent_to_agent_allowlist"]
+        )
+
+    enabled_after = updates.get("agent_to_agent_enabled", enabled_before)
+    if not enabled_after:
+        return
+
+    if allowlist_in_updates:
+        if updates["agent_to_agent_allowlist"] is None:
+            updates["agent_to_agent_allowlist"] = []
+        return
+
+    if (
+        updates.get("agent_to_agent_enabled") is True
+        and not enabled_before
+        and agent.agent_to_agent_allowlist is None
+    ):
+        updates["agent_to_agent_allowlist"] = []
+
+
 @router.post("/definitions")
 async def create_definition(
     body: CreateDefinitionBody,
@@ -104,6 +146,7 @@ async def create_definition(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
+        await require_tenant_access(db, current_user, tenant_id, require_admin=True)
         container = get_container_with_db(request, db)
         registry = container.agent_registry()
 
@@ -114,6 +157,10 @@ async def create_definition(
         sp = SessionPolicy.from_dict(body.session_policy) if body.session_policy else None
 
         dc = DelegateConfig.from_dict(body.delegate_config) if body.delegate_config else None
+        agent_to_agent_allowlist = _normalize_new_agent_to_agent_allowlist(
+            enabled=body.agent_to_agent_enabled,
+            allowlist=body.agent_to_agent_allowlist,
+        )
 
         agent = Agent.create(
             tenant_id=tenant_id,
@@ -137,7 +184,7 @@ async def create_definition(
             can_spawn=body.can_spawn,
             max_spawn_depth=body.max_spawn_depth,
             agent_to_agent_enabled=body.agent_to_agent_enabled,
-            agent_to_agent_allowlist=body.agent_to_agent_allowlist,
+            agent_to_agent_allowlist=agent_to_agent_allowlist,
             discoverable=body.discoverable,
             max_retries=body.max_retries,
             fallback_models=body.fallback_models,
@@ -162,7 +209,7 @@ async def create_definition(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create definition: {e!s}",
+            detail="Failed to create definition",
         ) from e
 
 
@@ -178,6 +225,7 @@ async def list_definitions(
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     try:
+        await require_tenant_access(db, current_user, tenant_id)
         container = get_container_with_db(request, db)
         registry = container.agent_registry()
 
@@ -197,6 +245,8 @@ async def list_definitions(
 
         return [a.to_dict() for a in agents]
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             "Error listing definitions: %s",
@@ -205,7 +255,7 @@ async def list_definitions(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list definitions: {e!s}",
+            detail="Failed to list definitions",
         ) from e
 
 
@@ -218,6 +268,7 @@ async def get_definition(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
+        await require_tenant_access(db, current_user, tenant_id)
         container = get_container_with_db(request, db)
         registry = container.agent_registry()
 
@@ -243,7 +294,7 @@ async def get_definition(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get definition: {e!s}",
+            detail="Failed to get definition",
         ) from e
 
 
@@ -257,6 +308,7 @@ async def update_definition(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
+        await require_tenant_access(db, current_user, tenant_id, require_admin=True)
         container = get_container_with_db(request, db)
         registry = container.agent_registry()
 
@@ -271,7 +323,9 @@ async def update_definition(
             raise HTTPException(status_code=403, detail="Access denied")
 
         updates = body.model_dump(exclude_unset=True)
+        _normalize_updated_agent_to_agent_policy(existing, updates)
         _apply_updates(existing, updates)
+        existing.validate()
         existing.updated_at = datetime.now(UTC)
 
         updated = await registry.update(existing)
@@ -290,7 +344,7 @@ async def update_definition(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to update definition: {e!s}",
+            detail="Failed to update definition",
         ) from e
 
 
@@ -303,10 +357,11 @@ async def delete_definition(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
+        await require_tenant_access(db, current_user, tenant_id, require_admin=True)
         container = get_container_with_db(request, db)
         registry = container.agent_registry()
 
-        existing = await registry.get_by_id(definition_id)
+        existing = await registry.get_by_id(definition_id, tenant_id=tenant_id)
         if existing is None:
             raise HTTPException(
                 status_code=404,
@@ -330,7 +385,7 @@ async def delete_definition(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to delete definition: {e!s}",
+            detail="Failed to delete definition",
         ) from e
 
 
@@ -344,10 +399,11 @@ async def set_definition_enabled(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
+        await require_tenant_access(db, current_user, tenant_id, require_admin=True)
         container = get_container_with_db(request, db)
         registry = container.agent_registry()
 
-        existing = await registry.get_by_id(definition_id)
+        existing = await registry.get_by_id(definition_id, tenant_id=tenant_id)
         if existing is None:
             raise HTTPException(
                 status_code=404,
@@ -373,7 +429,7 @@ async def set_definition_enabled(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to update definition: {e!s}",
+            detail="Failed to update definition",
         ) from e
 
 
@@ -393,6 +449,10 @@ def _apply_updates(
             continue
         if key == "workspace_config" and isinstance(value, dict):
             agent.workspace_config = WorkspaceConfig.from_dict(value)
+        elif key == "workspace_config":
+            agent.workspace_config = WorkspaceConfig()
+        elif key == "model":
+            agent.model = AgentModel(value) if value is not None else AgentModel.INHERIT
         elif key == "session_policy" and isinstance(value, dict):
             agent.session_policy = SessionPolicy.from_dict(value)
         elif key == "delegate_config" and isinstance(value, dict):

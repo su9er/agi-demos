@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 
+from src.infrastructure.agent.canvas.a2ui_builder import extract_surface_id
 from src.infrastructure.agent.canvas.events import build_canvas_event_dict
 from src.infrastructure.agent.canvas.manager import CanvasManager
 from src.infrastructure.agent.tools.context import ToolContext
@@ -23,6 +24,20 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _canvas_manager: CanvasManager | None = None
+
+
+def _prepare_canvas_metadata(
+    block_type: str,
+    content: str,
+    metadata: dict[str, str] | None,
+) -> dict[str, str] | None:
+    """Attach derived A2UI metadata without overwriting explicit caller values."""
+    prepared = dict(metadata or {})
+    if block_type == "a2ui_surface" and "surface_id" not in prepared:
+        surface_id = extract_surface_id(content)
+        if surface_id:
+            prepared["surface_id"] = surface_id
+    return prepared or None
 
 
 def configure_canvas(manager: CanvasManager) -> None:
@@ -88,7 +103,8 @@ def get_canvas_manager() -> CanvasManager:
                     "Available components: Text, Button, Card, Column, Row, TextField, Divider. "
                     'CRITICAL format: Text text MUST be wrapped: {"Text":{"text":{"literal":"hello"}}}. '
                     'Button uses child (Text component ID ref) + action: {"Button":{"child":"<text-id>","action":{"name":"..."}}}. '
-                    'TextField label MUST be wrapped: {"TextField":{"label":{"literal":"Name"},...}}. '
+                    'TextField uses data binding: {"TextField":{"label":{"literal":"Name"},"text":{"path":"/form/name"}}}. '
+                    "Seed default input values with a matching dataModelUpdate message. "
                     "Card title and Column/Row gap are plain strings (not wrapped). "
                     "For code: the source code. For table: JSON array of rows. "
                     "For markdown: the markdown text. For chart: JSON chart specification."
@@ -119,12 +135,13 @@ async def canvas_create(
     manager = get_canvas_manager()
 
     try:
+        prepared_metadata = _prepare_canvas_metadata(block_type, content, metadata)
         block = manager.create_block(
             conversation_id=ctx.conversation_id,
             block_type=block_type,
             title=title,
             content=content,
-            metadata=metadata,
+            metadata=prepared_metadata,
         )
     except ValueError as exc:
         return ToolResult(output=json.dumps({"error": str(exc)}), is_error=True)
@@ -236,16 +253,10 @@ async def canvas_update(
 ) -> ToolResult:
     """Update an existing canvas block."""
     manager = get_canvas_manager()
+    resolved_block_id = block_id
+    existing = manager.get_block(ctx.conversation_id, resolved_block_id)
 
-    try:
-        block = manager.update_block(
-            conversation_id=ctx.conversation_id,
-            block_id=block_id,
-            content=content,
-            title=title,
-            metadata=metadata,
-        )
-    except KeyError:
+    if existing is None:
         # Fallback: try to find block by surface_id metadata
         resolved_id = _resolve_block_id(manager, ctx.conversation_id, block_id)
         if resolved_id is None:
@@ -255,16 +266,33 @@ async def canvas_update(
                 ),
                 is_error=True,
             )
-        try:
-            block = manager.update_block(
-                conversation_id=ctx.conversation_id,
-                block_id=resolved_id,
-                content=content,
-                title=title,
-                metadata=metadata,
-            )
-        except KeyError as exc:
-            return ToolResult(output=json.dumps({"error": str(exc)}), is_error=True)
+        resolved_block_id = resolved_id
+        existing = manager.get_block(ctx.conversation_id, resolved_block_id)
+
+    if existing is None:
+        return ToolResult(
+            output=json.dumps({"error": f"Canvas block '{block_id}' not found in conversation"}),
+            is_error=True,
+        )
+
+    prepared_metadata = metadata
+    if content is not None:
+        prepared_metadata = dict(metadata or {})
+        if existing.block_type.value == "a2ui_surface" and "surface_id" not in prepared_metadata:
+            surface_id = extract_surface_id(content) or existing.metadata.get("surface_id")
+            if surface_id:
+                prepared_metadata["surface_id"] = surface_id
+
+    try:
+        block = manager.update_block(
+            conversation_id=ctx.conversation_id,
+            block_id=resolved_block_id,
+            content=content,
+            title=title,
+            metadata=prepared_metadata,
+        )
+    except KeyError as exc:
+        return ToolResult(output=json.dumps({"error": str(exc)}), is_error=True)
 
     await ctx.emit(
         build_canvas_event_dict(
@@ -418,21 +446,55 @@ async def canvas_create_interactive(
     """
     # Create the canvas block so the surface is visible in the UI.
     manager = get_canvas_manager()
+    resolved_block_id = block_id or ""
+    existing_block = manager.get_block(ctx.conversation_id, resolved_block_id) if block_id else None
+    if existing_block is None and block_id:
+        resolved_id = _resolve_block_id(manager, ctx.conversation_id, block_id)
+        if resolved_id is not None:
+            resolved_block_id = resolved_id
+            existing_block = manager.get_block(ctx.conversation_id, resolved_block_id)
+
+    if existing_block is not None and existing_block.block_type.value != "a2ui_surface":
+        return ToolResult(
+            output=json.dumps(
+                {"error": f"Canvas block '{resolved_block_id}' is not an A2UI surface"}
+            ),
+            is_error=True,
+        )
 
     try:
-        block = manager.create_block(
-            conversation_id=ctx.conversation_id,
-            block_type="a2ui_surface",
-            title=title,
-            content=components,
+        prepared_metadata = _prepare_canvas_metadata(
+            "a2ui_surface",
+            components,
+            existing_block.metadata if existing_block is not None else None,
         )
+        action = "created"
+        if existing_block is not None:
+            block = manager.update_block(
+                conversation_id=ctx.conversation_id,
+                block_id=resolved_block_id,
+                title=title,
+                content=components,
+                metadata=prepared_metadata,
+            )
+            action = "updated"
+        else:
+            block = manager.create_block(
+                conversation_id=ctx.conversation_id,
+                block_type="a2ui_surface",
+                title=title,
+                content=components,
+                metadata=prepared_metadata,
+            )
     except ValueError as exc:
+        return ToolResult(output=json.dumps({"error": str(exc)}), is_error=True)
+    except KeyError as exc:
         return ToolResult(output=json.dumps({"error": str(exc)}), is_error=True)
 
     event_dict = build_canvas_event_dict(
         conversation_id=ctx.conversation_id,
         block_id=block.id,
-        action="created",
+        action=action,
         block=block,
     )
     await ctx.emit(event_dict)

@@ -78,6 +78,40 @@ const mockAssistantEvent: any = {
   timestamp: Date.now(),
 };
 
+const mockAssistantSummaryEvent: any = {
+  id: '2-summary',
+  type: 'assistant_message',
+  content: 'I am doing well, thank you!',
+  timestamp: Date.now(),
+  metadata: {
+    executionSummary: {
+      stepCount: 4,
+      artifactCount: 2,
+      callCount: 1,
+      totalCost: 0.123456,
+      totalCostFormatted: '$0.123456',
+      totalTokens: {
+        input: 10,
+        output: 5,
+        reasoning: 2,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 17,
+      },
+      tasks: {
+        total: 3,
+        completed: 2,
+        remaining: 1,
+        pending: 1,
+        inProgress: 0,
+        failed: 0,
+        cancelled: 0,
+        other: 0,
+      },
+    },
+  },
+};
+
 const mockTextDeltaEvent: any = {
   id: '3',
   type: 'text_delta',
@@ -90,6 +124,84 @@ const mockTextEndEvent: any = {
   type: 'text_end',
   fullText: 'Complete response here',
   timestamp: Date.now(),
+};
+
+const mockTextEndSummaryEvent: any = {
+  id: '4-summary',
+  type: 'text_end',
+  fullText: 'Complete response here',
+  timestamp: Date.now(),
+  metadata: {
+    executionSummary: {
+      stepCount: 2,
+      artifactCount: 1,
+      callCount: 1,
+      totalCost: 0.123456,
+      totalCostFormatted: '$0.123456',
+      totalTokens: {
+        input: 10,
+        output: 5,
+        reasoning: 2,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 17,
+      },
+      tasks: {
+        total: 2,
+        completed: 2,
+        remaining: 0,
+        pending: 0,
+        inProgress: 0,
+        failed: 0,
+        cancelled: 0,
+        other: 0,
+      },
+    },
+  },
+};
+
+const mockTextEndArtifactEvent: any = {
+  id: '4-artifacts',
+  type: 'text_end',
+  fullText: 'Complete response here',
+  timestamp: Date.now(),
+  artifacts: [
+    {
+      url: 'https://example.com/artifacts/report.pdf',
+      object_key: 'artifacts/report.pdf',
+      mime_type: 'application/pdf',
+      size_bytes: 2048,
+    },
+  ],
+};
+
+const mockUnsafeTextEndArtifactEvent: any = {
+  id: '4-unsafe-artifacts',
+  type: 'text_end',
+  fullText: 'Complete response here',
+  timestamp: Date.now(),
+  artifacts: [
+    {
+      url: 'javascript:alert(1)',
+      object_key: 'artifacts/report.pdf',
+      mime_type: 'application/pdf',
+      size_bytes: 2048,
+    },
+  ],
+};
+
+const mockUnsafeArtifactOnlyTextEndEvent: any = {
+  id: '4-unsafe-artifact-only',
+  type: 'text_end',
+  timestamp: Date.now(),
+  artifacts: [
+    {
+      url: 'javascript:alert(1)',
+      object_key: 'artifacts/report.pdf',
+      mime_type: 'application/pdf',
+      size_bytes: 2048,
+    },
+  ],
 };
 
 const mockThoughtEvent: any = {
@@ -155,6 +267,16 @@ describe('MessageBubble Compound Component', () => {
       expect(screen.getByText('I am doing well, thank you!')).toBeInTheDocument();
     });
 
+    it('should render assistant execution summary metadata', () => {
+      render(<MessageBubble event={mockAssistantSummaryEvent} />);
+
+      expect(screen.getByText('Steps')).toBeInTheDocument();
+      expect(screen.getByText('Artifacts')).toBeInTheDocument();
+      expect(screen.getByText('Tasks')).toBeInTheDocument();
+      expect(screen.getByText('2/3')).toBeInTheDocument();
+      expect(screen.getByText('$0.123456')).toBeInTheDocument();
+    });
+
     it('should render text delta event', () => {
       render(<MessageBubble event={mockTextDeltaEvent} />);
 
@@ -167,6 +289,34 @@ describe('MessageBubble Compound Component', () => {
 
       expect(screen.getByTestId('markdown')).toBeInTheDocument();
       expect(screen.getByText('Complete response here')).toBeInTheDocument();
+    });
+
+    it('should render text end execution summary metadata', () => {
+      render(<MessageBubble event={mockTextEndSummaryEvent} />);
+
+      expect(screen.getByText('Steps')).toBeInTheDocument();
+      expect(screen.getByText('Artifacts')).toBeInTheDocument();
+      expect(screen.getByText('$0.123456')).toBeInTheDocument();
+    });
+
+    it('should render text end completion artifacts', () => {
+      render(<MessageBubble event={mockTextEndArtifactEvent} />);
+
+      expect(screen.getByText('report.pdf')).toBeInTheDocument();
+      expect(screen.getByText(/2\.0 KB/)).toBeInTheDocument();
+    });
+
+    it('should block unsafe text end artifact urls', () => {
+      render(<MessageBubble event={mockUnsafeTextEndArtifactEvent} />);
+
+      expect(screen.queryByRole('link', { name: /report\.pdf/i })).not.toBeInTheDocument();
+      expect(screen.getByText('Complete response here')).toBeInTheDocument();
+    });
+
+    it('should not render an artifact-only text end bubble when all artifact urls are unsafe', () => {
+      const { container } = render(<MessageBubble event={mockUnsafeArtifactOnlyTextEndEvent} />);
+
+      expect(container.firstChild).toBe(null);
     });
 
     it('should render thought event', () => {
@@ -314,6 +464,12 @@ describe('MessageBubble Compound Component', () => {
       render(<MessageBubble.TextEnd event={mockTextEndEvent} />);
 
       expect(screen.getByText('Complete response here')).toBeInTheDocument();
+    });
+
+    it('should render TextEnd artifact links', () => {
+      render(<MessageBubble.TextEnd event={mockTextEndArtifactEvent} />);
+
+      expect(screen.getByRole('link', { name: /report\.pdf/i })).toBeInTheDocument();
     });
 
     it('should return null for empty fullText', () => {

@@ -44,17 +44,18 @@ async def _resolve_recovery_cursor(
     cursor_counter = requested_counter
     if cursor_time_us is not None and cursor_counter is None:
         cursor_counter = 0
+    if cursor_time_us is not None:
+        return cursor_time_us, cursor_counter
+
     container = context.get_scoped_container()
     event_repo = container.agent_execution_event_repository()
     if not event_repo:
         return cursor_time_us, cursor_counter
 
-    message_events = await event_repo.get_events_by_message(running_message_id)
+    message_events = await event_repo.get_events_by_message(conversation_id, running_message_id)
     db_time_us = 0
     db_counter = 0
     for event in message_events:
-        if event.conversation_id != conversation_id:
-            continue
         if event.event_time_us > db_time_us or (
             event.event_time_us == db_time_us and event.event_counter > db_counter
         ):
@@ -64,14 +65,7 @@ async def _resolve_recovery_cursor(
     if db_time_us == 0 and db_counter == 0:
         return cursor_time_us, cursor_counter
 
-    if cursor_time_us is None:
-        return db_time_us, db_counter
-
-    if db_time_us > cursor_time_us or (
-        db_time_us == cursor_time_us and db_counter > (cursor_counter or 0)
-    ):
-        return db_time_us, db_counter
-    return cursor_time_us, cursor_counter
+    return db_time_us, db_counter
 
 
 async def _is_active_running_message(
@@ -86,7 +80,7 @@ async def _is_active_running_message(
         return True
 
     try:
-        events = await event_repo.get_events_by_message(message_id)
+        events = await event_repo.get_events_by_message(conversation_id, message_id)
     except Exception:
         logger.exception(
             "[WS] Failed to validate running message state: conv=%s message_id=%s",
@@ -96,8 +90,6 @@ async def _is_active_running_message(
         return False
 
     for event in reversed(events):
-        if event.conversation_id != conversation_id:
-            continue
         if _is_terminal_event_type(event.event_type):
             logger.info(
                 "[WS] Skip recovery bridge for stale running key: conv=%s message_id=%s "

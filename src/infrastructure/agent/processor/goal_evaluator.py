@@ -24,6 +24,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class TaskStateUnavailableError(RuntimeError):
+    """Raised when persisted task state cannot be verified for final gating."""
+
+
 @dataclass
 class GoalCheckResult:
     """Result of goal completion evaluation."""
@@ -68,16 +72,46 @@ class GoalEvaluator:
         """Update the current assistant message for text-based evaluation."""
         self._current_message = message
 
+    def has_task_reader(self) -> bool:
+        """Whether persisted task state can be queried via todoread."""
+        return self._tools.get("todoread") is not None
+
     async def evaluate_goal_completion(
         self,
         session_id: str,
         messages: list[dict[str, Any]],
     ) -> GoalCheckResult:
         """Evaluate whether the current goal is complete."""
-        tasks = await self._load_session_tasks(session_id)
-        if tasks:
-            return self._evaluate_task_goal(tasks)
+        if self.has_task_reader():
+            try:
+                tasks = await self._load_session_tasks(session_id, strict=True)
+            except TaskStateUnavailableError:
+                return GoalCheckResult(
+                    achieved=False,
+                    should_stop=True,
+                    reason="Unable to verify task completion state",
+                    source="tasks",
+                )
+            if tasks:
+                return self._evaluate_task_goal(tasks)
         return await self._evaluate_llm_goal(messages)
+
+    async def evaluate_task_completion_gate(self, session_id: str) -> GoalCheckResult | None:
+        """Evaluate only persisted task state for a final completion gate."""
+        if not self.has_task_reader():
+            return None
+        try:
+            tasks = await self._load_session_tasks(session_id, strict=True)
+        except TaskStateUnavailableError:
+            return GoalCheckResult(
+                achieved=False,
+                should_stop=True,
+                reason="Unable to verify task completion state",
+                source="tasks",
+            )
+        if not tasks:
+            return None
+        return self._evaluate_task_goal(tasks)
 
     async def generate_suggestions(self, messages: list[dict[str, Any]]) -> list[str] | None:
         """Generate follow-up suggestions based on conversation context.
@@ -133,11 +167,22 @@ class GoalEvaluator:
 
         return None
 
+    async def summarize_tasks(self, session_id: str) -> dict[str, int] | None:
+        """Return deterministic task counts for the current session."""
+        if not self.has_task_reader():
+            return None
+        tasks = await self._load_session_tasks(session_id, strict=False)
+        if not tasks:
+            return None
+        return self._summarize_task_counts(tasks)
+
     # ------------------------------------------------------------------
     # Task-based evaluation
     # ------------------------------------------------------------------
 
-    async def _load_session_tasks(self, session_id: str) -> list[dict[str, Any]]:
+    async def _load_session_tasks(
+        self, session_id: str, *, strict: bool = False
+    ) -> list[dict[str, Any]]:
         """Load tasks for the session via todoread when available."""
         todoread_tool = self._tools.get("todoread")
         if todoread_tool is None:
@@ -146,19 +191,14 @@ class GoalEvaluator:
         try:
             raw_result = await self._execute_todoread(todoread_tool, session_id)
         except Exception as exc:
-            logger.warning(f"[GoalEvaluator] Failed to load tasks via todoread: {exc}")
-            return []
+            return self._task_state_failure(
+                "Failed to load tasks via todoread",
+                strict,
+                log_message=f"[GoalEvaluator] Failed to load tasks via todoread: {exc}",
+                exc=exc,
+            )
 
-        payload = self._coerce_todoread_payload(raw_result)
-        if payload is None:
-            return []
-
-        tasks = payload.get("todos", [])
-        if not isinstance(tasks, list):
-            logger.warning("[GoalEvaluator] todoread payload missing list field 'todos'")
-            return []
-
-        return [t for t in tasks if isinstance(t, dict)]
+        return self._extract_tasks_from_todoread_result(raw_result, strict)
 
     async def _execute_todoread(self, todoread_tool: Any, session_id: str) -> Any:  # noqa: ANN401
         """Execute todoread with compatibility for ToolInfo-based tools."""
@@ -205,6 +245,99 @@ class GoalEvaluator:
             )
 
         return payload
+
+    def _extract_tasks_from_todoread_result(
+        self, raw_result: Any, strict: bool  # noqa: ANN401
+    ) -> list[dict[str, Any]]:
+        """Extract todo items from a todoread execution result."""
+        if isinstance(raw_result, ToolResult) and raw_result.is_error:
+            return self._task_state_failure(
+                "todoread returned an error result",
+                strict,
+                log_message="[GoalEvaluator] todoread returned an error ToolResult",
+            )
+
+        payload = self._coerce_todoread_payload(raw_result)
+        if payload is None:
+            return self._task_state_failure("Unable to parse todoread payload", strict)
+        return self._extract_tasks_from_payload(payload, strict)
+
+    def _extract_tasks_from_payload(
+        self, payload: dict[str, Any], strict: bool
+    ) -> list[dict[str, Any]]:
+        """Validate a parsed todoread payload and return normalized tasks."""
+        if payload.get("error"):
+            return self._task_state_failure(
+                "todoread payload reported an error",
+                strict,
+                log_message=f"[GoalEvaluator] todoread payload contained error: {payload['error']}",
+            )
+        if "todos" not in payload:
+            return self._task_state_failure(
+                "todoread payload missing 'todos'",
+                strict,
+                log_message="[GoalEvaluator] todoread payload missing field 'todos'",
+            )
+
+        tasks = payload["todos"]
+        if not isinstance(tasks, list):
+            return self._task_state_failure(
+                "todoread payload missing list field 'todos'",
+                strict,
+                log_message="[GoalEvaluator] todoread payload missing list field 'todos'",
+            )
+        return self._normalize_todoread_tasks(tasks, strict)
+
+    def _normalize_todoread_tasks(
+        self, tasks: list[Any], strict: bool
+    ) -> list[dict[str, Any]]:
+        """Normalize todo entries and fail closed on malformed strict payloads."""
+        normalized: list[dict[str, Any]] = []
+
+        for index, task in enumerate(tasks):
+            if not isinstance(task, dict):
+                if strict:
+                    return self._task_state_failure(
+                        f"todoread todo[{index}] is not an object",
+                        strict,
+                        log_message=f"[GoalEvaluator] todoread todo[{index}] is not an object",
+                    )
+                continue
+
+            task_id_raw = task.get("id")
+            status_raw = task.get("status")
+            task_id = task_id_raw.strip() if isinstance(task_id_raw, str) else ""
+            status = status_raw.strip().lower() if isinstance(status_raw, str) else ""
+            if strict and (not task_id or not status):
+                return self._task_state_failure(
+                    f"todoread todo[{index}] missing id/status",
+                    strict,
+                    log_message=f"[GoalEvaluator] todoread todo[{index}] missing id/status",
+                )
+
+            normalized_task = dict(task)
+            if task_id:
+                normalized_task["id"] = task_id
+            if status:
+                normalized_task["status"] = status
+            normalized.append(normalized_task)
+
+        return normalized
+
+    @staticmethod
+    def _task_state_failure(
+        reason: str,
+        strict: bool,
+        *,
+        log_message: str | None = None,
+        exc: Exception | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return an empty task list or fail closed for strict completion gates."""
+        if log_message:
+            logger.warning(log_message)
+        if strict:
+            raise TaskStateUnavailableError(reason) from exc
+        return []
 
     @staticmethod
     def _parse_todoread_payload_str(raw_result: str) -> dict[str, Any] | None:
@@ -256,6 +389,34 @@ class GoalEvaluator:
             reason="All tasks reached terminal success states",
             source="tasks",
         )
+
+    @staticmethod
+    def _summarize_task_counts(tasks: list[dict[str, Any]]) -> dict[str, int]:
+        """Summarize persisted tasks into stable status counters."""
+        counts = {
+            "total": len(tasks),
+            "completed": 0,
+            "pending": 0,
+            "in_progress": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "other": 0,
+        }
+        for task in tasks:
+            status = str(task.get("status", "")).strip().lower()
+            if status in counts and status != "total":
+                counts[status] += 1
+            elif status == "done":
+                counts["completed"] += 1
+            else:
+                counts["other"] += 1
+        counts["remaining"] = (
+            counts["pending"]
+            + counts["in_progress"]
+            + counts["failed"]
+            + counts["other"]
+        )
+        return counts
 
     # ------------------------------------------------------------------
     # LLM-based evaluation

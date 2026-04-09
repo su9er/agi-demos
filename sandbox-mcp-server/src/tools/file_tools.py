@@ -6,6 +6,7 @@ Implements read, write, edit, glob, and grep operations.
 import logging
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -14,6 +15,51 @@ import aiofiles
 from src.server.websocket_server import MCPTool
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PatchHunkLine:
+    """Represents a single parsed line inside a unified diff hunk."""
+
+    operation: str
+    text: str
+    has_newline: bool = True
+
+    def render(self) -> str:
+        """Render the line back into file content."""
+        return self.text + ("\n" if self.has_newline else "")
+
+
+@dataclass(frozen=True)
+class PatchHunk:
+    """Represents a parsed unified diff hunk."""
+
+    old_start: int
+    old_count: int
+    new_start: int
+    new_count: int
+    lines: list[PatchHunkLine]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert hunk metadata into a JSON-friendly dictionary."""
+        diff_lines: list[str] = []
+        for line in self.lines:
+            diff_lines.append(f"{line.operation}{line.text}")
+            if not line.has_newline:
+                diff_lines.append("\\ No newline at end of file")
+        return {
+            "old_start": self.old_start,
+            "old_count": self.old_count,
+            "new_start": self.new_start,
+            "new_count": self.new_count,
+            "lines": diff_lines,
+        }
+
+
+_HUNK_HEADER_RE = re.compile(
+    r"^@@ -(?P<old_start>\d+)(?:,(?P<old_count>\d+))? "
+    r"\+(?P<new_start>\d+)(?:,(?P<new_count>\d+))? @@"
+)
 
 # Additional paths outside workspace that tools are allowed to access.
 # These are common system directories that agents legitimately need to read/list.
@@ -504,6 +550,40 @@ def create_glob_tool() -> MCPTool:
 # =============================================================================
 
 
+def _merge_context_ranges(
+    match_indices: list[int],
+    context_lines: int,
+    total_lines: int,
+) -> list[tuple[int, int]]:
+    """Merge overlapping context windows for grep output."""
+    if context_lines <= 0 or not match_indices:
+        return []
+
+    ranges: list[tuple[int, int]] = []
+    for index in match_indices:
+        start = max(0, index - context_lines)
+        end = min(total_lines - 1, index + context_lines)
+        if not ranges or start > ranges[-1][1] + 1:
+            ranges.append((start, end))
+        else:
+            ranges[-1] = (ranges[-1][0], max(ranges[-1][1], end))
+    return ranges
+
+
+def _format_grep_path(file_path: Path, workspace_dir: str, base_dir: Path) -> str:
+    """Format a grep result path relative to workspace or search root."""
+    resolved_file = file_path.resolve()
+    workspace = Path(workspace_dir).resolve()
+    try:
+        return str(resolved_file.relative_to(workspace))
+    except ValueError:
+        search_root = base_dir.resolve() if base_dir.is_dir() else base_dir.resolve().parent
+        try:
+            return str(resolved_file.relative_to(search_root))
+        except ValueError:
+            return str(resolved_file)
+
+
 async def grep_files(
     pattern: str,
     path: Optional[str] = None,
@@ -556,7 +636,9 @@ async def grep_files(
         matches_found = 0
 
         # Get files to search
-        if glob_pattern:
+        if base_dir.is_file():
+            files = [base_dir]
+        elif glob_pattern:
             files = list(base_dir.glob(glob_pattern))
         else:
             files = list(base_dir.rglob("*"))
@@ -580,16 +662,34 @@ async def grep_files(
                 async with aiofiles.open(file_path, "r", encoding="utf-8", errors="replace") as f:
                     lines = await f.readlines()
 
-                for i, line in enumerate(lines):
-                    if regex.search(line):
-                        rel_path = file_path.relative_to(_workspace_dir)
+                line_texts = [line.rstrip("\n") for line in lines]
+                match_indices = [i for i, line in enumerate(line_texts) if regex.search(line)]
+                if not match_indices:
+                    continue
 
-                        result_text = f"{rel_path}:{i + 1}: {line.rstrip()}"
-                        results.append(result_text)
-                        matches_found += 1
+                remaining = max_results - matches_found
+                selected_matches = match_indices[:remaining]
+                display_path = _format_grep_path(file_path, _workspace_dir, base_dir)
 
-                        if matches_found >= max_results:
-                            break
+                if context_lines > 0:
+                    merged_ranges = _merge_context_ranges(
+                        selected_matches,
+                        context_lines,
+                        len(line_texts),
+                    )
+                    selected_match_set = set(selected_matches)
+                    for start, end in merged_ranges:
+                        for line_index in range(start, end + 1):
+                            line_text = line_texts[line_index]
+                            if line_index in selected_match_set:
+                                results.append(f"{display_path}:{line_index + 1}: {line_text}")
+                            else:
+                                results.append(f"{display_path}-{line_index + 1}- {line_text}")
+                else:
+                    for line_index in selected_matches:
+                        results.append(f"{display_path}:{line_index + 1}: {line_texts[line_index]}")
+
+                matches_found += len(selected_matches)
 
             except Exception as e:
                 logger.debug(f"Error reading {file_path}: {e}")
@@ -650,6 +750,11 @@ def create_grep_tool() -> MCPTool:
                     "type": "boolean",
                     "description": "Case insensitive search",
                     "default": False,
+                },
+                "context_lines": {
+                    "type": "integer",
+                    "description": "Number of context lines to include around each match",
+                    "default": 0,
                 },
                 "max_results": {
                     "type": "integer",
@@ -999,10 +1104,33 @@ async def apply_patch(
             original_lines = await f.readlines()
 
         # Parse patch
-        parsed_hunks = _parse_unified_diff(patch, strip)
-        if not parsed_hunks:
+        parsed_patch = _parse_unified_diff(patch, strip)
+        parsed_hunks = parsed_patch["hunks"]
+        if not parsed_hunks or parsed_patch["header_count"] != 1:
             return {
-                "content": [{"type": "text", "text": "Error: Invalid patch format or no hunks found"}],
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Error: Invalid patch format, missing headers, or no hunks found",
+                    }
+                ],
+                "isError": True,
+            }
+
+        if not _patch_targets_match(
+            resolved,
+            _workspace_dir,
+            parsed_patch["old_path"],
+            parsed_patch["new_path"],
+            strip,
+        ):
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Error: Patch target does not match the requested file path",
+                    }
+                ],
                 "isError": True,
             }
 
@@ -1018,7 +1146,7 @@ async def apply_patch(
                     }
                 ],
                 "isError": True,
-                "metadata": {"failed_hunks": failed_hunks},
+                "metadata": {"failed_hunks": [hunk.to_dict() for hunk in failed_hunks]},
             }
 
         # Write patched content
@@ -1029,7 +1157,9 @@ async def apply_patch(
             "content": [
                 {
                     "type": "text",
-                    "text": f"Successfully applied patch to {file_path} ({len(parsed_hunks)} hunks)",
+                    "text": (
+                        f"Successfully applied patch to {file_path} ({len(parsed_hunks)} hunks)"
+                    ),
                 }
             ],
             "isError": False,
@@ -1050,7 +1180,46 @@ async def apply_patch(
         }
 
 
-def _parse_unified_diff(patch_content: str, strip: int = 0) -> list:
+def _extract_patch_path(header_value: str) -> str | None:
+    """Extract the normalized file path from a unified diff header."""
+    raw_path = header_value.split("\t", 1)[0].strip()
+    if raw_path == "/dev/null":
+        return None
+    return raw_path.replace("\\", "/")
+
+
+def _candidate_patch_paths(patch_path: str | None, strip: int = 0) -> set[str]:
+    """Generate candidate normalized paths for a diff header."""
+    if not patch_path:
+        return set()
+
+    parts = [part for part in patch_path.split("/") if part not in {"", "."}]
+    if strip == 0 and parts[:1] in (["a"], ["b"]):
+        parts = parts[1:]
+    elif strip > 0:
+        parts = parts[strip:] if strip < len(parts) else []
+
+    return {"/".join(parts)} if parts else set()
+
+
+def _patch_targets_match(
+    target_file_path: Path,
+    workspace_dir: str,
+    old_path: str | None,
+    new_path: str | None,
+    strip: int = 0,
+) -> bool:
+    """Check whether diff headers target the requested file path."""
+    workspace = Path(workspace_dir).resolve()
+    try:
+        normalized_target = str(target_file_path.resolve().relative_to(workspace))
+    except ValueError:
+        normalized_target = target_file_path.resolve().as_posix().lstrip("./")
+    candidates = _candidate_patch_paths(old_path, strip) | _candidate_patch_paths(new_path, strip)
+    return not candidates or normalized_target in candidates
+
+
+def _parse_unified_diff(patch_content: str, strip: int = 0) -> dict[str, Any]:
     """
     Parse unified diff format patch into hunks.
 
@@ -1059,68 +1228,90 @@ def _parse_unified_diff(patch_content: str, strip: int = 0) -> list:
         strip: Number of path components to strip
 
     Returns:
-        List of hunk dictionaries
+        Parsed patch metadata
     """
-    hunks = []
-    lines = patch_content.split("\n")
+    hunks: list[PatchHunk] = []
+    lines = patch_content.splitlines()
+    old_path: str | None = None
+    new_path: str | None = None
+    header_count = 0
 
     i = 0
     while i < len(lines):
         line = lines[i]
 
-        # Look for hunk header: @@ -old_start,old_count +new_start,new_count @@
-        if line.startswith("@@"):
-            try:
-                # Parse hunk header
-                header = line
-                # Extract -old_start,old_count +new_start,new_count
-                parts = header.split("@@")[1].strip().split()
-                old_range = parts[0]  # -old_start,old_count
-                new_range = parts[1]  # +new_start,new_count
-
-                old_start = int(old_range.split(",")[0].lstrip("-"))
-                old_count = int(old_range.split(",")[1]) if "," in old_range else 1
-                new_start = int(new_range.split(",")[0].lstrip("+"))
-                new_count = int(new_range.split(",")[1]) if "," in new_range else 1
-
-                # Collect hunk lines
+        if line.startswith("--- "):
+            header_count += 1
+            old_path = _extract_patch_path(line[4:])
+            i += 1
+            if i < len(lines) and lines[i].startswith("+++ "):
+                new_path = _extract_patch_path(lines[i][4:])
                 i += 1
-                hunk_lines = []
-                while i < len(lines):
-                    hunk_line = lines[i]
-                    if hunk_line.startswith("@@") or hunk_line.startswith("---") or hunk_line.startswith("+++"):
-                        break  # Next hunk or new file
+            continue
 
-                    if hunk_line.startswith(" ") or hunk_line.startswith("+") or hunk_line.startswith("-"):
-                        hunk_lines.append(hunk_line)
-                    elif hunk_line == "\\":
-                        # Handle "\ No newline at end of file"
-                        pass
-                    elif hunk_line.strip():  # Non-empty line not starting with +/-/space
-                        # Could be context line or garbage, stop
-                        if not hunk_line.startswith(" "):
-                            # Unexpected format
-                            break
+        # Look for hunk header: @@ -old_start,old_count +new_start,new_count @@
+        match = _HUNK_HEADER_RE.match(line)
+        if match:
+            old_start = int(match.group("old_start"))
+            old_count = int(match.group("old_count") or ("0" if old_start == 0 else "1"))
+            new_start = int(match.group("new_start"))
+            new_count = int(match.group("new_count") or ("0" if new_start == 0 else "1"))
+
+            i += 1
+            hunk_lines: list[PatchHunkLine] = []
+            while i < len(lines):
+                hunk_line = lines[i]
+                if hunk_line.startswith("@@") or hunk_line.startswith("--- "):
+                    break
+
+                if hunk_line.startswith("\\ "):
+                    if hunk_lines:
+                        previous = hunk_lines[-1]
+                        hunk_lines[-1] = PatchHunkLine(
+                            operation=previous.operation,
+                            text=previous.text,
+                            has_newline=False,
+                        )
                     i += 1
+                    continue
 
-                hunks.append({
-                    "old_start": old_start - 1,  # Convert to 0-based
-                    "old_count": old_count,
-                    "new_start": new_start - 1,  # Convert to 0-based
-                    "new_count": new_count,
-                    "lines": hunk_lines,
-                })
-                continue
-            except (ValueError, IndexError):
-                # Failed to parse hunk header, skip
-                pass
+                if hunk_line[:1] in {" ", "+", "-"}:
+                    hunk_lines.append(
+                        PatchHunkLine(
+                            operation=hunk_line[0],
+                            text=hunk_line[1:],
+                        )
+                    )
+                    i += 1
+                    continue
+
+                break
+
+            hunks.append(
+                PatchHunk(
+                    old_start=old_start - 1,
+                    old_count=old_count,
+                    new_start=new_start - 1,
+                    new_count=new_count,
+                    lines=hunk_lines,
+                )
+            )
+            continue
 
         i += 1
 
-    return hunks
+    return {
+        "old_path": old_path,
+        "new_path": new_path,
+        "header_count": header_count,
+        "hunks": hunks,
+    }
 
 
-def _apply_hunks(original_lines: list, hunks: list) -> tuple:
+def _apply_hunks(
+    original_lines: list[str],
+    hunks: list[PatchHunk],
+) -> tuple[list[str], list[PatchHunk]]:
     """
     Apply hunks to file content.
 
@@ -1132,39 +1323,32 @@ def _apply_hunks(original_lines: list, hunks: list) -> tuple:
         Tuple of (new_lines, failed_hunks)
     """
     # Sort hunks by old_start (apply from bottom to top to avoid line number shifts)
-    sorted_hunks = sorted(hunks, key=lambda h: h["old_start"], reverse=True)
+    sorted_hunks = sorted(hunks, key=lambda h: h.old_start, reverse=True)
 
     result_lines = original_lines.copy()
-    failed_hunks = []
+    failed_hunks: list[PatchHunk] = []
 
     for hunk in sorted_hunks:
-        old_start = hunk["old_start"]
-        old_count = hunk["old_count"]
-        hunk_lines = hunk["lines"]
+        old_start = hunk.old_start
+        old_count = hunk.old_count
 
-        # Check if old lines match (normalize by stripping newlines for comparison)
-        old_lines_from_hunk = [line[1:].rstrip("\n") for line in hunk_lines if line.startswith(" ") or line.startswith("-")]
-        actual_old_lines = [line.rstrip("\n") for line in result_lines[old_start:old_start + old_count]] if old_start < len(result_lines) else []
+        old_lines_from_hunk = [
+            line.render()
+            for line in hunk.lines
+            if line.operation in {" ", "-"}
+        ]
+        actual_old_lines = result_lines[old_start:old_start + old_count]
 
         if old_lines_from_hunk != actual_old_lines:
             failed_hunks.append(hunk)
             continue
 
-        # Apply hunk: remove old lines, insert new lines
-        # Remove old lines
-        del result_lines[old_start:old_start + old_count]
-
-        # Build new lines to insert
-        new_lines = []
-        for line in hunk_lines:
-            if line.startswith(" ") or line.startswith("+"):
-                new_lines.append(line[1:] + "\n")
-            elif line == "\\ No newline at end of file":
-                pass  # Special marker, no line to add
-
-        # Insert new lines at old_start position
-        for new_line in reversed(new_lines):
-            result_lines.insert(old_start, new_line)
+        new_lines = [
+            line.render()
+            for line in hunk.lines
+            if line.operation in {" ", "+"}
+        ]
+        result_lines[old_start:old_start + old_count] = new_lines
 
     return result_lines, failed_hunks
 

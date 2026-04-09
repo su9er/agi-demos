@@ -5,23 +5,23 @@ Supports dynamic resolution, audio control, and enhanced status.
 """
 
 import logging
-from typing import Optional
+from pathlib import Path
 
 from src.server.desktop_manager import DesktopManager
 from src.server.websocket_server import MCPTool
 
 logger = logging.getLogger(__name__)
 
-# Global desktop manager instance
-_desktop_manager: Optional[DesktopManager] = None
+# Global desktop manager instances by workspace
+_desktop_managers: dict[str, DesktopManager] = {}
 
 
 def get_desktop_manager(workspace_dir: str = "/workspace") -> DesktopManager:
-    """Get or create the global desktop manager."""
-    global _desktop_manager
-    if _desktop_manager is None:
-        _desktop_manager = DesktopManager(workspace_dir=workspace_dir)
-    return _desktop_manager
+    """Get or create the desktop manager for a workspace."""
+    workspace_key = str(Path(workspace_dir).resolve())
+    if workspace_key not in _desktop_managers:
+        _desktop_managers[workspace_key] = DesktopManager(workspace_dir=workspace_key)
+    return _desktop_managers[workspace_key]
 
 
 async def start_desktop(
@@ -47,19 +47,18 @@ async def start_desktop(
         Dictionary with status and connection URL
     """
     manager = get_desktop_manager(_workspace_dir)
-    manager.display = display
-    manager.resolution = resolution
-    manager.port = port
 
     try:
         if manager.is_running():
+            status = manager.get_status()
+            url = manager.get_web_url()
             return {
                 "success": True,
-                "message": "Desktop already running",
-                "url": manager.get_web_url(),
-                "display": display,
-                "resolution": resolution,
-                "port": port,
+                "message": f"Desktop already running. Open in browser: {url}",
+                "url": url,
+                "display": status.display,
+                "resolution": status.resolution,
+                "port": status.port,
                 "features": {
                     "dynamic_resize": True,
                     "clipboard": True,
@@ -69,15 +68,19 @@ async def start_desktop(
                 },
             }
 
+        manager.display = display
+        manager.resolution = resolution
+        manager.port = port
         await manager.start()
         status = manager.get_status()
+        url = manager.get_web_url()
         return {
             "success": True,
-            "message": "Desktop started successfully (KasmVNC)",
-            "url": manager.get_web_url(),
-            "display": display,
-            "resolution": resolution,
-            "port": port,
+            "message": f"Desktop started successfully (KasmVNC). Open in browser: {url}",
+            "url": url,
+            "display": status.display,
+            "resolution": status.resolution,
+            "port": status.port,
             "kasmvnc_pid": status.kasmvnc_pid,
             "features": {
                 "dynamic_resize": True,

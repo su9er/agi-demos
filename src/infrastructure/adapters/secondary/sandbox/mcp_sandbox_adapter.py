@@ -7,13 +7,17 @@ enabling file system operations via the MCP protocol over WebSocket.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import posixpath
 import socket
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, cast, override
 
 import docker
@@ -52,6 +56,57 @@ from src.infrastructure.agent.workspace.manifest import WorkspaceManifest
 from src.infrastructure.mcp.clients.websocket_client import MCPWebSocketClient
 
 logger = logging.getLogger(__name__)
+
+_PATH_ARG_NAMES = frozenset(
+    {
+        "cwd",
+        "destination",
+        "directory",
+        "file_path",
+        "font_path",
+        "input_dir",
+        "input_file",
+        "input_files",
+        "output_dir",
+        "output_excel",
+        "output_file",
+        "output_files",
+        "path",
+        "paths",
+        "script_path",
+        "venv_path",
+        "watermark_file",
+        "working_dir",
+    }
+)
+_PATH_ARG_SUFFIXES = ("_dir", "_dirs", "_file", "_files", "_path", "_paths")
+_URL_ARG_NAMES = frozenset({"endpoint", "resource_uri", "resourceuri", "uri", "url"})
+_WRITE_PATH_ARG_NAMES = frozenset(
+    {
+        "destination",
+        "output_dir",
+        "output_excel",
+        "output_file",
+        "output_files",
+    }
+)
+_CONTAINER_TOOL_PATHS = ("/output", "/tmp", "/var/tmp")
+_CONTAINER_EXEC_PATHS = ("/bin", "/opt", "/root", "/sbin", "/usr")
+_COMMAND_PATH_SUFFIXES = (
+    ".cjs",
+    ".js",
+    ".json",
+    ".mjs",
+    ".pdf",
+    ".py",
+    ".pyz",
+    ".sh",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".yaml",
+    ".yml",
+)
 
 
 @dataclass
@@ -452,6 +507,7 @@ class MCPSandboxAdapter(SandboxPort):
         mcp_port: int | None,
         desktop_port: int | None,
         terminal_port: int | None,
+        config: SandboxConfig | None = None,
     ) -> MCPSandboxInstance:
         """Build an MCPSandboxInstance from container metadata."""
         websocket_url, desktop_url, terminal_url = self._build_urls_from_ports(
@@ -464,7 +520,7 @@ class MCPSandboxAdapter(SandboxPort):
         return MCPSandboxInstance(
             id=sandbox_id,
             status=SandboxStatus.RUNNING,
-            config=SandboxConfig(image=self._mcp_image),
+            config=config or SandboxConfig(image=self._mcp_image),
             project_path=project_path,
             endpoint=websocket_url,
             created_at=now,
@@ -478,6 +534,401 @@ class MCPSandboxAdapter(SandboxPort):
             terminal_url=terminal_url,
             labels=labels,
         )
+
+    def _extract_config_from_mounts(self, container: Any) -> SandboxConfig:
+        """Reconstruct sandbox mount metadata from a Docker container."""
+        config = SandboxConfig(image=self._mcp_image)
+        for mount in container.attrs.get("Mounts", []):
+            source = mount.get("Source", "")
+            destination = mount.get("Destination", "")
+            if not source or not destination or destination == "/workspace":
+                continue
+
+            if mount.get("RW", False):
+                config.rw_volumes[source] = destination
+            else:
+                config.volumes[source] = destination
+
+        return config
+
+    def normalize_mcp_transport_config_for_sandbox(
+        self,
+        sandbox_id: str,
+        server_type: str,
+        transport_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Normalize MCP transport config paths for the sandbox environment."""
+        normalized = deepcopy(transport_config)
+        if server_type != "stdio":
+            return normalized
+
+        instance = self._active_sandboxes.get(sandbox_id)
+        if instance is None:
+            return normalized
+
+        command = normalized.get("command")
+        if isinstance(command, str) and self._looks_like_command_path(command):
+            normalized["command"] = self._normalize_path_value(
+                instance,
+                command,
+                allow_system_paths=True,
+                strict_host_mapping=True,
+            )
+
+        args = normalized.get("args")
+        if isinstance(args, list):
+            normalized["args"] = [
+                self._normalize_command_argument(instance, arg) if isinstance(arg, str) else arg
+                for arg in args
+            ]
+
+        return normalized
+
+    def _normalize_tool_arguments_for_sandbox(
+        self,
+        instance: MCPSandboxInstance,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Normalize tool arguments so child MCP tools resolve sandbox paths consistently."""
+        normalized = deepcopy(arguments)
+
+        if tool_name in {"mcp_server_install", "mcp_server_start"}:
+            transport_config = normalized.get("transport_config")
+            if isinstance(transport_config, str):
+                parsed = json.loads(transport_config)
+                if not isinstance(parsed, dict):
+                    msg = "transport_config must decode to an object"
+                    raise ValueError(msg)
+                normalized_config = self.normalize_mcp_transport_config_for_sandbox(
+                    instance.id,
+                    cast(str, normalized.get("server_type", "stdio")),
+                    parsed,
+                )
+                normalized["transport_config"] = json.dumps(normalized_config)
+            elif isinstance(transport_config, dict):
+                normalized["transport_config"] = self.normalize_mcp_transport_config_for_sandbox(
+                    instance.id,
+                    cast(str, normalized.get("server_type", "stdio")),
+                    transport_config,
+                )
+            return normalized
+
+        if tool_name == "mcp_server_call_tool":
+            raw_arguments = normalized.get("arguments")
+            if isinstance(raw_arguments, str):
+                parsed = json.loads(raw_arguments)
+                if not isinstance(parsed, dict):
+                    msg = "mcp_server_call_tool arguments must decode to an object"
+                    raise ValueError(msg)
+                normalized_payload = self._normalize_argument_structure(
+                    instance,
+                    parsed,
+                    strict_host_mapping=True,
+                )
+                normalized["arguments"] = json.dumps(normalized_payload)
+            return normalized
+
+        return cast(
+            "dict[str, Any]",
+            self._normalize_argument_structure(
+                instance,
+                normalized,
+                strict_host_mapping=True,
+            ),
+        )
+
+    def _normalize_command_argument(
+        self,
+        instance: MCPSandboxInstance,
+        value: str,
+    ) -> str:
+        """Normalize a command argument when it looks like a path token."""
+        if value.startswith("-") and "=" in value:
+            flag, candidate = value.split("=", 1)
+            if self._looks_like_command_path(candidate):
+                normalized_candidate = self._normalize_path_value(
+                    instance,
+                    candidate,
+                    allow_system_paths=True,
+                    strict_host_mapping=True,
+                )
+                return f"{flag}={normalized_candidate}"
+            return value
+
+        if not self._looks_like_command_path(value):
+            return value
+
+        return self._normalize_path_value(
+            instance,
+            value,
+            allow_system_paths=True,
+            strict_host_mapping=True,
+        )
+
+    def _normalize_argument_structure(
+        self,
+        instance: MCPSandboxInstance,
+        value: Any,
+        *,
+        key: str | None = None,
+        strict_host_mapping: bool,
+    ) -> Any:
+        """Recursively normalize path-like values within a tool payload."""
+        if isinstance(value, dict):
+            return {
+                child_key: self._normalize_argument_structure(
+                    instance,
+                    child_value,
+                    key=child_key,
+                    strict_host_mapping=strict_host_mapping,
+                )
+                for child_key, child_value in value.items()
+            }
+
+        if isinstance(value, list):
+            if key and self._is_path_argument_key(key):
+                write_target = self._is_write_path_key(key)
+                return [
+                    self._normalize_path_value(
+                        instance,
+                        item,
+                        allow_system_paths=False,
+                        write_target=write_target,
+                        strict_host_mapping=strict_host_mapping,
+                    )
+                    if isinstance(item, str)
+                    else self._normalize_argument_structure(
+                        instance,
+                        item,
+                        strict_host_mapping=strict_host_mapping,
+                    )
+                    for item in value
+                ]
+
+            return [
+                self._normalize_argument_structure(
+                    instance,
+                    item,
+                    strict_host_mapping=strict_host_mapping,
+                )
+                for item in value
+            ]
+
+        if isinstance(value, str):
+            if key and self._is_url_argument_key(key):
+                return value
+            if key and self._is_path_argument_key(key):
+                return self._normalize_path_value(
+                    instance,
+                    value,
+                    allow_system_paths=False,
+                    write_target=self._is_write_path_key(key),
+                    strict_host_mapping=strict_host_mapping,
+                )
+
+        return value
+
+    def _normalize_path_value(
+        self,
+        instance: MCPSandboxInstance,
+        value: str,
+        *,
+        allow_system_paths: bool = False,
+        write_target: bool = False,
+        strict_host_mapping: bool,
+    ) -> str:
+        """Normalize a path-like value to the sandbox filesystem view."""
+        raw_value = value.strip()
+        if not raw_value:
+            return value
+
+        if os.path.isabs(raw_value):
+            mapped = self._map_host_path_to_container(
+                instance,
+                raw_value,
+                write_target=write_target,
+            )
+            if mapped is not None:
+                return mapped
+
+            existing_container_path = self._normalize_existing_container_path(
+                raw_value,
+                instance,
+                allow_system_paths=allow_system_paths,
+            )
+            if existing_container_path is not None:
+                return existing_container_path
+
+            if strict_host_mapping:
+                msg = (
+                    f"Path '{raw_value}' is not mounted in the sandbox. "
+                    "Use /workspace/... or a mounted sandbox path instead."
+                )
+                raise ValueError(msg)
+
+            return raw_value
+
+        normalized = posixpath.normpath(posixpath.join("/workspace", raw_value))
+        if normalized != "/workspace" and not normalized.startswith("/workspace/"):
+            msg = f"Relative path escapes sandbox workspace: {value}"
+            raise ValueError(msg)
+        return normalized
+
+    def _map_host_path_to_container(
+        self,
+        instance: MCPSandboxInstance,
+        value: str,
+        *,
+        write_target: bool,
+    ) -> str | None:
+        """Map a host filesystem path to its container-visible path."""
+        candidate = Path(value).expanduser().resolve(strict=False)
+
+        for host_root, container_root in self._get_host_container_mappings(instance):
+            try:
+                relative = candidate.relative_to(host_root)
+            except ValueError:
+                continue
+
+            root = container_root
+            settings = get_settings()
+            host_source_root = settings.sandbox_host_source_path
+            host_source_mount = settings.sandbox_host_source_mount_point
+            if (
+                write_target
+                and host_source_root
+                and str(host_root) == str(Path(host_source_root).expanduser().resolve(strict=False))
+                and container_root == host_source_mount
+            ):
+                root = "/workspace"
+
+            return self._join_container_path(root, relative)
+
+        return None
+
+    def _get_host_container_mappings(
+        self,
+        instance: MCPSandboxInstance,
+    ) -> list[tuple[Path, str]]:
+        """Return host→container mount mappings known for the sandbox."""
+        mappings: list[tuple[Path, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        def _append_mapping(host_path: str, container_path: str) -> None:
+            if not host_path or not container_path:
+                return
+            resolved_host = str(Path(host_path).expanduser().resolve(strict=False))
+            key = (resolved_host, container_path)
+            if key in seen:
+                return
+            seen.add(key)
+            mappings.append((Path(resolved_host), container_path))
+
+        _append_mapping(instance.project_path, "/workspace")
+        for host_path, container_path in instance.config.rw_volumes.items():
+            _append_mapping(host_path, container_path)
+        for host_path, container_path in instance.config.volumes.items():
+            _append_mapping(host_path, container_path)
+
+        return mappings
+
+    def _normalize_existing_container_path(
+        self,
+        value: str,
+        instance: MCPSandboxInstance,
+        *,
+        allow_system_paths: bool,
+    ) -> str | None:
+        """Normalize a path that already targets the sandbox filesystem."""
+        normalized = self._normalize_container_path(value)
+        roots = {
+            "/workspace",
+            *instance.config.volumes.values(),
+            *instance.config.rw_volumes.values(),
+        }
+        roots.update(_CONTAINER_TOOL_PATHS)
+        if allow_system_paths:
+            roots.update(_CONTAINER_EXEC_PATHS)
+
+        for root in roots:
+            if not root:
+                continue
+            if value == root or value.startswith(f"{root}/"):
+                if not self._is_within_container_root(normalized, root):
+                    msg = f"Path '{value}' escapes sandbox mount {root}"
+                    raise ValueError(msg)
+                return normalized
+
+        if self._is_container_path(value, instance, allow_system_paths=allow_system_paths):
+            return normalized
+
+        return None
+
+    def _is_container_path(
+        self,
+        value: str,
+        instance: MCPSandboxInstance,
+        *,
+        allow_system_paths: bool,
+    ) -> bool:
+        """Return True when the path already points to the sandbox filesystem."""
+        normalized = self._normalize_container_path(value)
+        roots = {
+            "/workspace",
+            *instance.config.volumes.values(),
+            *instance.config.rw_volumes.values(),
+        }
+        roots.update(_CONTAINER_TOOL_PATHS)
+        if allow_system_paths:
+            roots.update(_CONTAINER_EXEC_PATHS)
+        return any(self._is_within_container_root(normalized, root) for root in roots if root)
+
+    @staticmethod
+    def _is_path_argument_key(key: str) -> bool:
+        lower_key = key.lower()
+        return lower_key in _PATH_ARG_NAMES or lower_key.endswith(_PATH_ARG_SUFFIXES)
+
+    @staticmethod
+    def _is_url_argument_key(key: str) -> bool:
+        return key.lower() in _URL_ARG_NAMES
+
+    @staticmethod
+    def _is_write_path_key(key: str) -> bool:
+        lower_key = key.lower()
+        return lower_key in _WRITE_PATH_ARG_NAMES or lower_key.startswith("output_")
+
+    @staticmethod
+    def _normalize_container_path(value: str) -> str:
+        return posixpath.normpath(value)
+
+    @staticmethod
+    def _is_within_container_root(path_value: str, root: str) -> bool:
+        try:
+            PurePosixPath(path_value).relative_to(PurePosixPath(root))
+        except ValueError:
+            return path_value == root
+        return True
+
+    @staticmethod
+    def _join_container_path(root: str, relative: Path) -> str:
+        container_path = PurePosixPath(root)
+        for part in relative.parts:
+            if part in {"", "."}:
+                continue
+            container_path /= part
+        return posixpath.normpath(container_path.as_posix())
+
+    @staticmethod
+    def _looks_like_command_path(value: str) -> bool:
+        stripped = value.strip()
+        if not stripped or stripped.startswith("-") or "://" in stripped:
+            return False
+        if stripped.startswith(("/", "./", "../", "~/")):
+            return True
+        if stripped.startswith("@") and stripped.count("/") == 1:
+            return False
+        return stripped.endswith(_COMMAND_PATH_SUFFIXES)
 
     def _track_ports(self, *ports: int | None) -> None:
         """Add non-None ports to the used ports set (must hold port_allocation_lock)."""
@@ -1004,6 +1455,7 @@ class MCPSandboxAdapter(SandboxPort):
             labels = container.labels or {}
             mcp_port, desktop_port, terminal_port = self._extract_ports_from_labels(labels)
             project_path = self._extract_project_path_from_mounts(container)
+            recovered_config = self._extract_config_from_mounts(container)
 
             instance = self._build_instance_from_container(
                 sandbox_id,
@@ -1012,6 +1464,7 @@ class MCPSandboxAdapter(SandboxPort):
                 mcp_port,
                 desktop_port,
                 terminal_port,
+                recovered_config,
             )
 
             # Use separate locks for instance and port tracking
@@ -1729,9 +2182,16 @@ class MCPSandboxAdapter(SandboxPort):
 
         mcp_port, desktop_port, terminal_port = self._extract_ports_from_labels(labels)
         project_path = self._extract_project_path_from_mounts(container)
+        recovered_config = self._extract_config_from_mounts(container)
 
         instance = self._build_instance_from_container(
-            sandbox_id, labels, project_path, mcp_port, desktop_port, terminal_port
+            sandbox_id,
+            labels,
+            project_path,
+            mcp_port,
+            desktop_port,
+            terminal_port,
+            recovered_config,
         )
         self._active_sandboxes[sandbox_id] = instance
         self._track_ports(mcp_port, desktop_port, terminal_port)
@@ -2189,7 +2649,9 @@ class MCPSandboxAdapter(SandboxPort):
         if not instance or not instance.last_activity_at:
             return timedelta(0)
 
-        idle_seconds = datetime.now().timestamp() - self._to_epoch_seconds(instance.last_activity_at)
+        idle_seconds = datetime.now().timestamp() - self._to_epoch_seconds(
+            instance.last_activity_at
+        )
         return timedelta(seconds=max(0.0, idle_seconds))
 
     # === Enhanced Cleanup ===
@@ -2903,15 +3365,36 @@ class MCPSandboxAdapter(SandboxPort):
 
         # Refresh instance reference after potential rebuild (under lock for safety)
         instance = await self._get_instance_for_tool_call(sandbox_id)
+        try:
+            normalized_arguments = self._normalize_tool_arguments_for_sandbox(
+                instance,
+                tool_name,
+                arguments,
+            )
+        except (TypeError, ValueError, json.JSONDecodeError) as e:
+            logger.warning("Path normalization failed for %s on %s: %s", tool_name, sandbox_id, e)
+            return self._build_tool_error_result(f"Error: {e}")
 
-        return await self._call_tool_with_retries(
+        result = await self._call_tool_with_retries(
             sandbox_id=sandbox_id,
             instance=instance,
             tool_name=tool_name,
-            arguments=arguments,
+            arguments=normalized_arguments,
             timeout=timeout,
             max_retries=max_retries,
         )
+        if (
+            tool_name == "mcp_server_start"
+            and not result.get("is_error", result.get("isError", False))
+            and isinstance(normalized_arguments.get("transport_config"), str)
+        ):
+            self.store_mcp_server_config(
+                sandbox_id=sandbox_id,
+                server_name=cast(str, normalized_arguments.get("name", "")),
+                server_type=cast(str, normalized_arguments.get("server_type", "stdio")),
+                transport_config=cast(str, normalized_arguments["transport_config"]),
+            )
+        return result
 
     # === Enhanced Orphan Cleanup ===
 
@@ -3351,6 +3834,17 @@ class MCPSandboxAdapter(SandboxPort):
             "transport_config": transport_config,
         }
         logger.debug(f"Stored config for MCP server {server_name}")
+
+    def get_stored_mcp_server_config(
+        self,
+        sandbox_id: str,
+        server_name: str,
+    ) -> dict[str, Any] | None:
+        """Return a copy of stored MCP server config for health-based restart flows."""
+        config = self._mcp_server_configs.get((sandbox_id, server_name))
+        if config is None:
+            return None
+        return deepcopy(config)
 
     def _parse_mcp_server_list(self, result: dict[str, Any]) -> list[dict[str, Any]]:
         """Parse server list from mcp_server_list result."""

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { createStreamEventHandlers } from '../../../stores/agent/streamEventHandlers';
+import { useCanvasStore } from '../../../stores/canvasStore';
+import { useLayoutModeStore } from '../../../stores/layoutMode';
 import { appendSSEEventToTimeline } from '../../../utils/sseEventAdapter';
 
 import type {
@@ -30,6 +32,8 @@ describe('streamEventHandlers', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    useCanvasStore.getState().reset();
+    useLayoutModeStore.getState().setMode('chat');
 
     // Initialize mock state with minimal required fields
     mockState = {
@@ -281,6 +285,8 @@ describe('streamEventHandlers', () => {
       type: 'complete',
       data: {
         content: 'final content',
+        trace_url: 'https://trace.example/1',
+        execution_summary: { step_count: 2, artifact_count: 1 },
       } as any,
     });
 
@@ -299,8 +305,206 @@ describe('streamEventHandlers', () => {
       completionUpdates.timeline.some((e: any) => e.type === 'text_end' && e.id === 'text-end-1')
     ).toBe(true);
     expect(completionUpdates.timeline.some((e: any) => e.type === 'assistant_message')).toBe(false);
+    const textEndEvent = completionUpdates.timeline.find((e: any) => e.type === 'text_end');
+    expect(textEndEvent?.metadata).toEqual({
+      traceUrl: 'https://trace.example/1',
+      executionSummary: {
+        stepCount: 2,
+        artifactCount: 1,
+        callCount: 0,
+        totalCost: 0,
+        totalCostFormatted: '$0.000000',
+        totalTokens: {
+          input: 0,
+          output: 0,
+          reasoning: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+        tasks: undefined,
+      },
+    });
     expect(completionUpdates.streamingThought).toBe('');
     expect(completionUpdates.isThinkingStreaming).toBe(false);
+  });
+
+  it('should preserve complete artifacts when merging into a text_end bubble', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    mockState.timeline = [
+      {
+        id: 'user-1',
+        type: 'user_message',
+        content: 'generate a file',
+        timestamp: Date.now() - 100,
+      } as any,
+      {
+        id: 'text-end-1',
+        type: 'text_end',
+        fullText: 'generated',
+        timestamp: Date.now(),
+      } as any,
+    ];
+    (mockDeps.timelineToMessages as any).mockReturnValue([
+      { id: 'text-end-1', role: 'assistant', content: 'generated' },
+    ]);
+
+    handlers.onComplete!({
+      type: 'complete',
+      data: {
+        content: 'generated',
+        artifacts: [
+          {
+            url: 'https://example.com/output/report.pdf',
+            object_key: 'artifacts/report.pdf',
+            mime_type: 'application/pdf',
+            size_bytes: 2048,
+          },
+        ],
+      } as any,
+    });
+
+    const completionCall = mockUpdateConversationState.mock.calls.find(
+      ([, updates]) => (updates as any).isStreaming === false
+    );
+    const completionUpdates = completionCall?.[1] as any;
+    const textEndEvent = completionUpdates.timeline.find((e: any) => e.type === 'text_end');
+
+    expect(textEndEvent?.artifacts).toEqual([
+      expect.objectContaining({
+        url: 'https://example.com/output/report.pdf',
+        object_key: 'artifacts/report.pdf',
+      }),
+    ]);
+    expect(textEndEvent?.metadata).toEqual({
+      artifacts: [
+        expect.objectContaining({
+          url: 'https://example.com/output/report.pdf',
+          object_key: 'artifacts/report.pdf',
+        }),
+      ],
+    });
+  });
+
+  it('should append metadata-only complete events when no text_end exists', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    mockState.timeline = [];
+    (mockDeps.timelineToMessages as any).mockReturnValue([
+      { id: 'assistant-1', role: 'assistant', content: '' },
+    ]);
+
+    handlers.onComplete!({
+      type: 'complete',
+      data: {
+        trace_url: 'https://trace.example/2',
+        execution_summary: { step_count: 1 },
+      } as any,
+    });
+
+    const completionCall = mockUpdateConversationState.mock.calls.find(
+      ([, updates]) => (updates as any).isStreaming === false
+    );
+    const completionUpdates = completionCall?.[1] as any;
+    const assistantEvent = completionUpdates.timeline.find((e: any) => e.type === 'assistant_message');
+
+    expect(assistantEvent).toBeDefined();
+    expect(assistantEvent.metadata).toEqual({
+      traceUrl: 'https://trace.example/2',
+      executionSummary: {
+        stepCount: 1,
+        artifactCount: 0,
+        callCount: 0,
+        totalCost: 0,
+        totalCostFormatted: '$0.000000',
+        totalTokens: {
+          input: 0,
+          output: 0,
+          reasoning: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+        tasks: undefined,
+      },
+    });
+  });
+
+  it('should not merge a new complete-only turn into an older text_end bubble', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    mockState.timeline = [
+      {
+        id: 'text-end-old',
+        type: 'text_end',
+        fullText: 'older final content',
+        timestamp: Date.now() - 1000,
+      } as any,
+      {
+        id: 'user-message-new',
+        type: 'user_message',
+        content: 'new question',
+        timestamp: Date.now(),
+      } as any,
+    ];
+    (mockDeps.timelineToMessages as any).mockReturnValue([
+      { id: 'text-end-old', role: 'assistant', content: 'older final content' },
+      { id: 'assistant-new', role: 'assistant', content: 'new final content' },
+    ]);
+
+    handlers.onComplete!({
+      type: 'complete',
+      data: {
+        content: 'new final content',
+        trace_url: 'https://trace.example/3',
+      } as any,
+    });
+
+    const completionCall = mockUpdateConversationState.mock.calls.find(
+      ([, updates]) => (updates as any).isStreaming === false
+    );
+    const completionUpdates = completionCall?.[1] as any;
+    const oldTextEnd = completionUpdates.timeline.find((e: any) => e.id === 'text-end-old');
+    const assistantMessages = completionUpdates.timeline.filter((e: any) => e.type === 'assistant_message');
+
+    expect(oldTextEnd?.metadata).toBeUndefined();
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0].content).toBe('new final content');
+    expect(assistantMessages[0].metadata).toEqual({ traceUrl: 'https://trace.example/3' });
+  });
+
+  it('should append completion metadata when no user-message turn anchor exists', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    mockState.timeline = [
+      {
+        id: 'text-end-old',
+        type: 'text_end',
+        fullText: 'older final content',
+        timestamp: Date.now() - 1000,
+      } as any,
+    ];
+    (mockDeps.timelineToMessages as any).mockReturnValue([
+      { id: 'text-end-old', role: 'assistant', content: 'older final content' },
+      { id: 'assistant-new', role: 'assistant', content: 'new final content' },
+    ]);
+
+    handlers.onComplete!({
+      type: 'complete',
+      data: {
+        content: 'new final content',
+        trace_url: 'https://trace.example/4',
+      } as any,
+    });
+
+    const completionCall = mockUpdateConversationState.mock.calls.find(
+      ([, updates]) => (updates as any).isStreaming === false
+    );
+    const completionUpdates = completionCall?.[1] as any;
+    const oldTextEnd = completionUpdates.timeline.find((e: any) => e.id === 'text-end-old');
+    const assistantMessages = completionUpdates.timeline.filter((e: any) => e.type === 'assistant_message');
+
+    expect(oldTextEnd?.metadata).toBeUndefined();
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0].content).toBe('new final content');
+    expect(assistantMessages[0].metadata).toEqual({ traceUrl: 'https://trace.example/4' });
   });
 
   it('should clear stale thinking state on onClose', () => {
@@ -388,6 +592,179 @@ describe('streamEventHandlers', () => {
     const calls = updates.activeToolCalls;
     expect(calls.get('search').status).toBe('success');
     expect(calls.get('search').result).toBe('Found results');
+  });
+
+  it('should derive A2UI surface id from payload content when metadata is missing', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    const content = [
+      '{"beginRendering":{"surfaceId":"surface-42","root":"root-1"}}',
+      '{"surfaceUpdate":{"surfaceId":"surface-42","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+    ].join('\n');
+
+    handlers.onCanvasUpdated!({
+      type: 'canvas_updated',
+      data: {
+        conversation_id: conversationId,
+        block_id: 'block-1',
+        action: 'created',
+        block: {
+          id: 'block-1',
+          block_type: 'a2ui_surface',
+          title: 'Surface',
+          content,
+          metadata: {
+            hitl_request_id: 'hitl-req-1',
+          },
+          version: 1,
+        },
+      } as any,
+    });
+
+    const tab = useCanvasStore.getState().tabs.find((item) => item.id === 'block-1');
+    expect(tab?.a2uiSurfaceId).toBe('surface-42');
+    expect(tab?.a2uiHitlRequestId).toBe('hitl-req-1');
+    expect(tab?.a2uiMessages).toBe(content);
+    expect(mockState.timeline.some((item: any) => item.type === 'canvas_updated')).toBe(true);
+    expect(useLayoutModeStore.getState().mode).toBe('canvas');
+  });
+
+  it('should clear a2uiHitlRequestId when canvas metadata clears the request marker', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    const content = [
+      '{"beginRendering":{"surfaceId":"surface-42","root":"root-1"}}',
+      '{"surfaceUpdate":{"surfaceId":"surface-42","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+    ].join('\n');
+
+    handlers.onA2UIActionAsked!({
+      type: 'a2ui_action_asked',
+      data: {
+        request_id: 'hitl-req-buffered',
+        conversation_id: conversationId,
+        block_id: 'block-1',
+      } as any,
+    });
+
+    useCanvasStore.getState().openTab({
+      id: 'block-1',
+      title: 'Surface',
+      type: 'a2ui-surface',
+      content,
+      a2uiSurfaceId: 'surface-42',
+      a2uiMessages: content,
+      a2uiHitlRequestId: 'hitl-req-1',
+    });
+
+    handlers.onCanvasUpdated!({
+      type: 'canvas_updated',
+      data: {
+        conversation_id: conversationId,
+        block_id: 'block-1',
+        action: 'updated',
+        block: {
+          id: 'block-1',
+          block_type: 'a2ui_surface',
+          title: 'Surface',
+          content,
+          metadata: {
+            hitl_request_id: '',
+          },
+          version: 2,
+        },
+      } as any,
+    });
+
+    const tab = useCanvasStore.getState().tabs.find((item) => item.id === 'block-1');
+    expect(tab?.a2uiHitlRequestId).toBeUndefined();
+  });
+
+  it('should append a2ui_action_asked to the timeline', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+
+    handlers.onA2UIActionAsked!({
+      type: 'a2ui_action_asked',
+      data: {
+        request_id: 'hitl-req-1',
+        conversation_id: conversationId,
+        block_id: 'block-1',
+      } as any,
+    });
+
+    expect(mockState.timeline.some((item: any) => item.type === 'a2ui_action_asked')).toBe(true);
+  });
+
+  it('should buffer A2UI request ids that arrive before the canvas tab exists', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    const content = [
+      '{"beginRendering":{"surfaceId":"surface-42","root":"root-1"}}',
+      '{"surfaceUpdate":{"surfaceId":"surface-42","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+    ].join('\n');
+
+    handlers.onA2UIActionAsked!({
+      type: 'a2ui_action_asked',
+      data: {
+        request_id: 'hitl-req-buffered',
+        conversation_id: conversationId,
+        block_id: 'block-1',
+      } as any,
+    });
+
+    handlers.onCanvasUpdated!({
+      type: 'canvas_updated',
+      data: {
+        conversation_id: conversationId,
+        block_id: 'block-1',
+        action: 'created',
+        block: {
+          id: 'block-1',
+          block_type: 'a2ui_surface',
+          title: 'Surface',
+          content,
+          metadata: {},
+          version: 1,
+        },
+      } as any,
+    });
+
+    const tab = useCanvasStore.getState().tabs.find((item) => item.id === 'block-1');
+    expect(tab?.a2uiHitlRequestId).toBe('hitl-req-buffered');
+  });
+
+  it('should scope buffered A2UI request ids by conversation', () => {
+    const handlersA = createStreamEventHandlers('conv-a', undefined, mockDeps);
+    const handlersB = createStreamEventHandlers('conv-b', undefined, mockDeps);
+    const content = [
+      '{"beginRendering":{"surfaceId":"surface-42","root":"root-1"}}',
+      '{"surfaceUpdate":{"surfaceId":"surface-42","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+    ].join('\n');
+
+    handlersA.onA2UIActionAsked!({
+      type: 'a2ui_action_asked',
+      data: {
+        request_id: 'hitl-req-a',
+        conversation_id: 'conv-a',
+        block_id: 'block-shared',
+      } as any,
+    });
+
+    handlersB.onCanvasUpdated!({
+      type: 'canvas_updated',
+      data: {
+        conversation_id: 'conv-b',
+        block_id: 'block-shared',
+        action: 'created',
+        block: {
+          id: 'block-shared',
+          block_type: 'a2ui_surface',
+          title: 'Surface',
+          content,
+          metadata: {},
+          version: 1,
+        },
+      } as any,
+    });
+
+    const tab = useCanvasStore.getState().tabs.find((item) => item.id === 'block-shared');
+    expect(tab?.a2uiHitlRequestId).toBeUndefined();
   });
 
   it('should buffer and flush onThoughtDelta', () => {
@@ -539,6 +916,37 @@ describe('streamEventHandlers', () => {
     expect(mockUpdateConversationState).toHaveBeenCalledWith(conversationId, {
       tasks,
     });
+  });
+
+  it('should ignore malformed task_list_updated payloads', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+
+    expect(() =>
+      handlers.onTaskListUpdated!({
+        type: 'task_list_updated',
+        data: {
+          conversation_id: conversationId,
+        },
+      } as any)
+    ).not.toThrow();
+
+    expect(mockUpdateConversationState).not.toHaveBeenCalled();
+  });
+
+  it('should ignore malformed task_updated payloads', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+
+    expect(() =>
+      handlers.onTaskUpdated!({
+        type: 'task_updated',
+        data: {
+          conversation_id: conversationId,
+          content: 'Missing task id and status',
+        },
+      } as any)
+    ).not.toThrow();
+
+    expect(mockUpdateConversationState).not.toHaveBeenCalled();
   });
 
   it('should handle onModelSwitchRequested and merge appModelContext', () => {

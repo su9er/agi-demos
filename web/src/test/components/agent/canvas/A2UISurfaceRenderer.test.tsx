@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 
 const { viewerSpy, respondToA2UIActionSpy, viewerThrowState } = vi.hoisted(() => ({
   viewerSpy: vi.fn(),
@@ -192,11 +192,13 @@ describe('A2UISurfaceRenderer', () => {
         }
       | undefined;
 
-    props?.onAction?.({
-      actionName: 'approve',
-      sourceComponentId: 'btn-1',
-      timestamp: new Date().toISOString(),
-      context: { ok: true },
+    await act(async () => {
+      props?.onAction?.({
+        actionName: 'approve',
+        sourceComponentId: 'btn-1',
+        timestamp: new Date().toISOString(),
+        context: { ok: true },
+      });
     });
 
     await waitFor(() => {
@@ -204,6 +206,55 @@ describe('A2UISurfaceRenderer', () => {
         ok: true,
       });
     });
+  });
+
+  it('shows an inline error and skips dispatch when HITL request_id is missing', async () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"server-surface","root":"root-1"}}',
+      `{"surfaceUpdate":{"surfaceId":"server-surface","components":${JSON.stringify(components)}}}`,
+    ].join('\n');
+
+    useAgentV3Store.setState({ activeConversationId: 'conv-1' });
+    useCanvasStore.setState({
+      tabs: [
+        {
+          id: 'a2ui-tab-1',
+          title: 'A2UI',
+          type: 'a2ui-surface',
+          content: '',
+          dirty: false,
+          createdAt: Date.now(),
+          history: [],
+          historyIndex: -1,
+          a2uiSurfaceId: 'server-surface',
+        },
+      ],
+      activeTabId: 'a2ui-tab-1',
+    });
+
+    render(<A2UISurfaceRenderer surfaceId="client-tab-id" messages={messages} />);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          onAction?: (action: {
+            actionName: string;
+            sourceComponentId: string;
+            timestamp: string;
+            context: Record<string, unknown>;
+          }) => void;
+        }
+      | undefined;
+
+    props?.onAction?.({
+      actionName: 'approve',
+      sourceComponentId: 'btn-1',
+      timestamp: new Date().toISOString(),
+      context: { ok: true },
+    });
+
+    expect(respondToA2UIActionSpy).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText('This interactive surface is no longer awaiting input.')
+    ).toBeInTheDocument();
   });
 
   it('repairs malformed surfaceUpdate-only payloads and infers a synthetic root', () => {
@@ -266,6 +317,62 @@ describe('A2UISurfaceRenderer', () => {
     expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
       root: '__a2ui_text_fallback_root',
     });
+  });
+
+  it('normalizes legacy TextField value and onChange payloads into text bindings', () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"field-1"}}',
+      '{"surfaceUpdate":{"surfaceId":"s1","components":[{"id":"field-1","component":{"TextField":{"label":{"literal":"Name"},"value":"Alice","onChange":{"name":"form/name"}}}}]}}',
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    const textFieldPayload = props?.components?.[0]?.component?.TextField as
+      | { text?: { path?: string; literal?: string } }
+      | undefined;
+    expect(textFieldPayload?.text).toMatchObject({
+      path: '/form/name',
+      literal: 'Alice',
+    });
+  });
+
+  it('supports A2UI valueMap data updates and path-bound string values', () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"field-1"}}',
+      '{"surfaceUpdate":{"surfaceId":"s1","components":[{"id":"field-1","component":{"TextField":{"label":{"path":"/labels/name"},"text":{"path":"/form/name"}}}}]}}',
+      '{"dataModelUpdate":{"surfaceId":"s1","path":"/","contents":[{"key":"labels","valueMap":[{"key":"name","valueString":"Name"}]},{"key":"form","valueMap":[{"key":"name","valueString":"Alice"}]},{"key":"profile","valueMap":[{"key":"nickname"}]},{"key":"items","valueMap":[{"key":"0","valueString":"a"},{"key":"1","valueString":"b"}]},{"key":"rawJson","valueString":"[1,2]"}]}}',
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
+      data: {
+        labels: { name: 'Name' },
+        form: { name: 'Alice' },
+        profile: { nickname: null },
+        items: ['a', 'b'],
+        rawJson: '[1,2]',
+      },
+    });
+  });
+
+  it('clears rendered state after deleteSurface', () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"root-1"}}',
+      '{"surfaceUpdate":{"surfaceId":"s1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+      '{"deleteSurface":{"surfaceId":"s1"}}',
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    expect(screen.getByText(waitingText)).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
   });
 
   it('shows text fallback when A2UIViewer throws', () => {

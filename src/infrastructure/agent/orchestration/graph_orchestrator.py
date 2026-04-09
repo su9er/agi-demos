@@ -63,6 +63,28 @@ class GraphOrchestrator:
         self._graph_repo = graph_repo
         self._run_repo = run_repo
 
+    @staticmethod
+    def _ensure_graph_scope(
+        graph: AgentGraph,
+        *,
+        tenant_id: str,
+        project_id: str,
+    ) -> None:
+        """Ensure a graph belongs to the requested tenant/project scope."""
+        if graph.tenant_id != tenant_id or graph.project_id != project_id:
+            raise ValueError(f"Agent graph scope mismatch: {graph.id}")
+
+    @staticmethod
+    def _ensure_graph_matches_run(
+        graph: AgentGraph,
+        run: GraphRun,
+    ) -> None:
+        """Ensure a graph run stays bound to the graph's tenant/project scope."""
+        if run.graph_id != graph.id:
+            raise ValueError(f"Graph run {run.id} does not belong to graph {graph.id}")
+        if graph.tenant_id != run.tenant_id or graph.project_id != run.project_id:
+            raise ValueError(f"Graph run scope mismatch: {run.id}")
+
     async def start_run(
         self,
         graph_id: str,
@@ -72,11 +94,12 @@ class GraphOrchestrator:
         *,
         initial_context: dict[str, Any] | None = None,
         parent_session_id: str = "",
-        parent_agent_id: str = "system",
+        parent_agent_id: str = "__system__",
     ) -> tuple[GraphRun, list[GraphRunStartedEvent | GraphNodeStartedEvent]]:
         graph = await self._graph_repo.find_by_id(graph_id)
         if graph is None:
             raise ValueError(f"Agent graph not found: {graph_id}")
+        self._ensure_graph_scope(graph, tenant_id=tenant_id, project_id=project_id)
         if not graph.is_active:
             raise ValueError(f"Agent graph is inactive: {graph_id}")
 
@@ -159,7 +182,7 @@ class GraphOrchestrator:
         output_context: dict[str, Any] | None = None,
         *,
         parent_session_id: str = "",
-        parent_agent_id: str = "system",
+        parent_agent_id: str = "__system__",
     ) -> tuple[GraphRun, list[Any]]:
         graph = await self._graph_repo.find_by_id(graph_id)
         if graph is None:
@@ -168,6 +191,7 @@ class GraphOrchestrator:
         run = await self._run_repo.find_by_id(run_id)
         if run is None:
             raise ValueError(f"Graph run not found: {run_id}")
+        self._ensure_graph_matches_run(graph, run)
         if run.is_terminal:
             return run, []
 
@@ -236,6 +260,7 @@ class GraphOrchestrator:
         run = await self._run_repo.find_by_id(run_id)
         if run is None:
             raise ValueError(f"Graph run not found: {run_id}")
+        self._ensure_graph_matches_run(graph, run)
         if run.is_terminal:
             return run, []
 
@@ -310,7 +335,7 @@ class GraphOrchestrator:
         *,
         context_summary: str = "",
         parent_session_id: str = "",
-        parent_agent_id: str = "system",
+        parent_agent_id: str = "__system__",
     ) -> tuple[GraphRun, list[Any]]:
         graph = await self._graph_repo.find_by_id(graph_id)
         if graph is None:
@@ -319,6 +344,7 @@ class GraphOrchestrator:
         run = await self._run_repo.find_by_id(run_id)
         if run is None:
             raise ValueError(f"Graph run not found: {run_id}")
+        self._ensure_graph_matches_run(graph, run)
         if run.is_terminal:
             return run, []
 
@@ -464,4 +490,5 @@ class GraphOrchestrator:
             project_id=project_id,
             conversation_id=conversation_id,
             metadata=metadata,
+            tenant_id=run.tenant_id,
         )

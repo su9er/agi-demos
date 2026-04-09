@@ -15,9 +15,10 @@ Migration Benefits:
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import override
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,9 +27,42 @@ from src.domain.ports.repositories.agent_repository import AgentExecutionEventRe
 from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
 from src.infrastructure.adapters.secondary.persistence.models import (
     AgentExecutionEvent as DBAgentExecutionEvent,
+    Conversation as DBConversation,
 )
 
 logger = logging.getLogger(__name__)
+
+_MESSAGE_EVENT_TYPES = ("user_message", "assistant_message")
+
+
+async def apply_conversation_event_projection_delta(
+    session: AsyncSession,
+    conversation_id: str,
+    *,
+    inserted_message_count: int,
+    latest_event_time_us: int | None,
+) -> None:
+    """Apply an atomic, monotonic conversation projection update."""
+    values: dict[str, object] = {}
+
+    if inserted_message_count > 0:
+        values["message_count"] = DBConversation.message_count + inserted_message_count
+
+    if latest_event_time_us:
+        latest_event_at = datetime.fromtimestamp(latest_event_time_us / 1_000_000, tz=UTC)
+        values["updated_at"] = case(
+            (DBConversation.updated_at.is_(None), latest_event_at),
+            else_=func.greatest(DBConversation.updated_at, latest_event_at),
+        )
+
+    if not values:
+        return
+
+    _ = await session.execute(
+        update(DBConversation)
+        .where(DBConversation.id == conversation_id)
+        .values(**values)
+    )
 
 
 class SqlAgentExecutionEventRepository(
@@ -74,8 +108,21 @@ class SqlAgentExecutionEventRepository(
             .on_conflict_do_nothing(
                 index_elements=["conversation_id", "event_time_us", "event_counter"]
             )
+            .returning(
+                DBAgentExecutionEvent.event_type,
+                DBAgentExecutionEvent.event_time_us,
+            )
         )
-        await self._session.execute(stmt)
+        insert_result = await self._session.execute(stmt)
+        inserted_row = insert_result.one_or_none()
+        if inserted_row is not None:
+            inserted_event_type, inserted_event_time_us = inserted_row
+            await apply_conversation_event_projection_delta(
+                self._session,
+                domain_entity.conversation_id,
+                inserted_message_count=1 if inserted_event_type in _MESSAGE_EVENT_TYPES else 0,
+                latest_event_time_us=int(inserted_event_time_us),
+            )
         await self._session.flush()
         return domain_entity
     @override
@@ -109,8 +156,30 @@ class SqlAgentExecutionEventRepository(
             .on_conflict_do_nothing(
                 index_elements=["conversation_id", "event_time_us", "event_counter"]
             )
+            .returning(
+                DBAgentExecutionEvent.conversation_id,
+                DBAgentExecutionEvent.event_type,
+                DBAgentExecutionEvent.event_time_us,
+            )
         )
-        await self._session.execute(stmt)
+        insert_result = await self._session.execute(stmt)
+        projection_deltas: dict[str, dict[str, int]] = {}
+        for conversation_id, event_type, event_time_us in insert_result.all():
+            delta = projection_deltas.setdefault(
+                str(conversation_id),
+                {"inserted_message_count": 0, "latest_event_time_us": 0},
+            )
+            if event_type in _MESSAGE_EVENT_TYPES:
+                delta["inserted_message_count"] += 1
+            delta["latest_event_time_us"] = max(delta["latest_event_time_us"], int(event_time_us))
+
+        for conversation_id, delta in projection_deltas.items():
+            await apply_conversation_event_projection_delta(
+                self._session,
+                conversation_id,
+                inserted_message_count=delta["inserted_message_count"],
+                latest_event_time_us=delta["latest_event_time_us"] or None,
+            )
         await self._session.flush()
 
     @override
@@ -189,12 +258,16 @@ class SqlAgentExecutionEventRepository(
     @override
     async def get_events_by_message(
         self,
+        conversation_id: str,
         message_id: str,
     ) -> list[AgentExecutionEvent]:
         """Get all events for a specific message."""
         result = await self._session.execute(
             select(DBAgentExecutionEvent)
-            .where(DBAgentExecutionEvent.message_id == message_id)
+            .where(
+                DBAgentExecutionEvent.conversation_id == conversation_id,
+                DBAgentExecutionEvent.message_id == message_id,
+            )
             .order_by(
                 DBAgentExecutionEvent.event_time_us.asc(),
                 DBAgentExecutionEvent.event_counter.asc(),
@@ -202,6 +275,38 @@ class SqlAgentExecutionEventRepository(
         )
         db_events = result.scalars().all()
         return [d for e in db_events if (d := self._to_domain(e)) is not None]
+
+    @override
+    async def get_events_by_message_ids(
+        self,
+        conversation_id: str,
+        message_ids: set[str],
+    ) -> dict[str, list[AgentExecutionEvent]]:
+        """Get all events for multiple message IDs."""
+        if not message_ids:
+            return {}
+
+        result = await self._session.execute(
+            select(DBAgentExecutionEvent)
+            .where(
+                DBAgentExecutionEvent.conversation_id == conversation_id,
+                DBAgentExecutionEvent.message_id.in_(message_ids),
+            )
+            .order_by(
+                DBAgentExecutionEvent.message_id.asc(),
+                DBAgentExecutionEvent.event_time_us.asc(),
+                DBAgentExecutionEvent.event_counter.asc(),
+            )
+        )
+
+        events_by_message_id: dict[str, list[AgentExecutionEvent]] = {}
+        for db_event in result.scalars().all():
+            domain_event = self._to_domain(db_event)
+            if domain_event is None or db_event.message_id is None:
+                continue
+            events_by_message_id.setdefault(db_event.message_id, []).append(domain_event)
+
+        return events_by_message_id
 
     @override
     async def delete_by_conversation(self, conversation_id: str) -> None:

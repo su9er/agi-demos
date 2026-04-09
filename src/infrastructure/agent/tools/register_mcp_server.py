@@ -36,7 +36,8 @@ TOOL_DESCRIPTION = (
     "HTML is fetched live from the server each time, never cached in the database. "
     "The read_resource handler MUST return: "
     '{"contents": [{"uri": "...", "mimeType": "text/html", "text": "..."}]}\n\n'
-    "IMPORTANT: Use absolute paths for server scripts in args. "
+    "IMPORTANT: Prefer /workspace/... absolute paths for server scripts in args. "
+    "Relative or mounted host paths are normalized to sandbox paths when possible. "
     "Example: args=['/workspace/my-server/server.py']\n\n"
     "Example for stdio server (recommended for sandbox):\n"
     "  server_type='stdio', command='python', args=['/workspace/my-server/server.py']\n\n"
@@ -47,7 +48,6 @@ TOOL_DESCRIPTION = (
     "Example for WebSocket server:\n"
     "  server_type='websocket', url='ws://localhost:3001/ws'"
 )
-
 
 
 # =============================================================================
@@ -117,6 +117,7 @@ def _register_mcp_parse_result(result: dict[str, Any]) -> Any:
                 return {"text": text}
     return {}
 
+
 # ---------------------------------------------------------------------------
 # Helper: validate parameters
 # ---------------------------------------------------------------------------
@@ -142,10 +143,74 @@ def _register_mcp_validate_params(
         return f"Error: 'url' is required for {server_type} servers."
     if not _register_mcp_sandbox_adapter or not _register_mcp_sandbox_id:
         return (
-            "Error: Sandbox not available. "
-            "This tool requires a running sandbox with MCP support."
+            "Error: Sandbox not available. This tool requires a running sandbox with MCP support."
         )
     return None
+
+
+def _register_mcp_normalize_transport_config(
+    server_type: str,
+    transport_config: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize transport config paths using sandbox adapter metadata when available."""
+    adapter = _register_mcp_sandbox_adapter
+    sandbox_id = _register_mcp_sandbox_id
+    if not adapter or not sandbox_id:
+        return transport_config
+
+    if not (
+        hasattr(type(adapter), "normalize_mcp_transport_config_for_sandbox")
+        or "normalize_mcp_transport_config_for_sandbox" in vars(adapter)
+    ):
+        return transport_config
+
+    normalizer = getattr(adapter, "normalize_mcp_transport_config_for_sandbox", None)
+    if not callable(normalizer):
+        return transport_config
+
+    normalized = normalizer(
+        sandbox_id=sandbox_id,
+        server_type=server_type,
+        transport_config=transport_config,
+    )
+    if not isinstance(normalized, dict):
+        msg = "Normalized transport config must be an object"
+        raise ValueError(msg)
+    return cast("dict[str, Any]", normalized)
+
+
+def _register_mcp_resolve_runtime_transport_config(
+    server_name: str,
+    fallback_transport_config: dict[str, Any],
+) -> dict[str, Any]:
+    """Use the adapter's runtime-normalized config when it is available."""
+    resolved_transport_config = fallback_transport_config
+    adapter = _register_mcp_sandbox_adapter
+    sandbox_id = _register_mcp_sandbox_id
+    if (
+        adapter
+        and sandbox_id
+        and (
+            hasattr(type(adapter), "get_stored_mcp_server_config")
+            or "get_stored_mcp_server_config" in vars(adapter)
+        )
+    ):
+        getter = getattr(adapter, "get_stored_mcp_server_config", None)
+        if callable(getter):
+            stored = getter(sandbox_id=sandbox_id, server_name=server_name)
+            if isinstance(stored, dict):
+                raw_transport_config = stored.get("transport_config")
+                if isinstance(raw_transport_config, dict):
+                    resolved_transport_config = cast("dict[str, Any]", raw_transport_config)
+                elif isinstance(raw_transport_config, str):
+                    try:
+                        parsed = json.loads(raw_transport_config)
+                    except json.JSONDecodeError:
+                        parsed = None
+                    if isinstance(parsed, dict):
+                        resolved_transport_config = cast("dict[str, Any]", parsed)
+
+    return resolved_transport_config
 
 
 # ---------------------------------------------------------------------------
@@ -237,9 +302,7 @@ async def _register_mcp_persist_server(
 ) -> str | None:
     """Persist MCPServer to DB. Returns server_id or None."""
     if not _register_mcp_session_factory:
-        logger.warning(
-            "Cannot persist MCPServer '%s': no session_factory", server_name
-        )
+        logger.warning("Cannot persist MCPServer '%s': no session_factory", server_name)
         return None
 
     from src.infrastructure.adapters.secondary.persistence.sql_mcp_server_repository import (
@@ -249,9 +312,7 @@ async def _register_mcp_persist_server(
     try:
         async with _register_mcp_session_factory() as session:
             repo = SqlMCPServerRepository(session)
-            existing = await repo.get_by_name(
-                project_id=_register_mcp_project_id, name=server_name
-            )
+            existing = await repo.get_by_name(project_id=_register_mcp_project_id, name=server_name)
             if existing:
                 await _register_mcp_update_existing_server(
                     repo, session, existing, server_type, transport_config, server_name
@@ -281,9 +342,7 @@ async def _register_mcp_update_existing_server(
         transport_config=transport_config,
         enabled=True,
     )
-    await repo.update_runtime_metadata(
-        server_id=existing.id, runtime_status="running"
-    )
+    await repo.update_runtime_metadata(server_id=existing.id, runtime_status="running")
     await session.commit()
     logger.info("Updated existing MCPServer '%s' (id=%s) in DB", server_name, existing.id)
 
@@ -305,9 +364,7 @@ async def _register_mcp_create_new_server(
         transport_config=transport_config,
         enabled=True,
     )
-    await repo.update_runtime_metadata(
-        server_id=server_id, runtime_status="running"
-    )
+    await repo.update_runtime_metadata(server_id=server_id, runtime_status="running")
     await session.commit()
     logger.info("Persisted new MCPServer '%s' (id=%s) to DB", server_name, server_id)
     return server_id
@@ -341,12 +398,11 @@ async def _register_mcp_update_discovered_tools(
             await session.commit()
             logger.info(
                 "Updated discovered tools for MCPServer %s: %d tools",
-                server_id, len(tools),
+                server_id,
+                len(tools),
             )
     except Exception as e:
-        logger.warning(
-            "Failed to update discovered tools for MCPServer %s: %s", server_id, e
-        )
+        logger.warning("Failed to update discovered tools for MCPServer %s: %s", server_id, e)
 
 
 # ---------------------------------------------------------------------------
@@ -451,13 +507,9 @@ async def _register_mcp_lookup_server_id(server_name: str) -> str | None:
     try:
         async with _register_mcp_session_factory() as session:
             repo = SqlMCPServerRepository(session)
-            entity = await repo.get_by_name(
-                project_id=_register_mcp_project_id, name=server_name
-            )
+            entity = await repo.get_by_name(project_id=_register_mcp_project_id, name=server_name)
             if entity:
-                logger.debug(
-                    "Found MCPServer entity for %s: id=%s", server_name, entity.id
-                )
+                logger.debug("Found MCPServer entity for %s: id=%s", server_name, entity.id)
                 return entity.id
     except Exception as e:
         logger.warning("Failed to look up MCPServer entity: %s", e)
@@ -501,7 +553,8 @@ async def _register_mcp_emit_events(
     )
     logger.info(
         "Emitted AgentToolsUpdatedEvent for server %s with %d tools",
-        server_name, len(namespaced_tool_names),
+        server_name,
+        len(namespaced_tool_names),
     )
 
     lifecycle_result = SelfModifyingLifecycleOrchestrator.run_post_change(
@@ -514,7 +567,8 @@ async def _register_mcp_emit_events(
     )
     logger.info(
         "register_mcp_server lifecycle completed for project %s: %s",
-        _register_mcp_project_id, lifecycle_result["cache_invalidation"],
+        _register_mcp_project_id,
+        lifecycle_result["cache_invalidation"],
     )
     event_data: dict[str, Any] = {
         "source": TOOL_NAME,
@@ -526,11 +580,13 @@ async def _register_mcp_emit_events(
     }
     if discovered_tools:
         event_data["discovered_tools"] = discovered_tools
-    await ctx.emit({
-        "type": "toolset_changed",
-        "data": event_data,
-        "timestamp": datetime.now(UTC).isoformat(),
-    })
+    await ctx.emit(
+        {
+            "type": "toolset_changed",
+            "data": event_data,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+    )
     return lifecycle_result
 
 
@@ -572,8 +628,7 @@ async def _register_mcp_emit_events(
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "Arguments for the command "
-                    "(e.g., ['server.js', '--port', '3001'])."
+                    "Arguments for the command (e.g., ['server.js', '--port', '3001'])."
                 ),
             },
             "url": {
@@ -604,15 +659,20 @@ async def register_mcp_server_tool(
     if args is None:
         args = []
 
-    validation_error = _register_mcp_validate_params(
-        server_name, server_type, command, url
-    )
+    validation_error = _register_mcp_validate_params(server_name, server_type, command, url)
     if validation_error:
         return ToolResult(output=validation_error, is_error=True)
 
     transport_config = (
         {"command": command, "args": args} if server_type == "stdio" else {"url": url}
     )
+    try:
+        transport_config = _register_mcp_normalize_transport_config(
+            server_type,
+            transport_config,
+        )
+    except ValueError as e:
+        return ToolResult(output=f"Error: {e}", is_error=True)
     config_json = json.dumps(transport_config)
 
     try:
@@ -635,16 +695,19 @@ async def _register_mcp_execute_core(
     transport_config: dict[str, Any],
 ) -> ToolResult:
     """Core execution logic for register_mcp_server_tool."""
-    install_error = await _register_mcp_install_and_start(
-        server_name, server_type, config_json
-    )
+    install_error = await _register_mcp_install_and_start(server_name, server_type, config_json)
     if install_error:
         return ToolResult(output=install_error, is_error=True)
+
+    runtime_transport_config = _register_mcp_resolve_runtime_transport_config(
+        server_name,
+        transport_config,
+    )
 
     server_id = await _register_mcp_persist_server(
         server_name=server_name,
         server_type=server_type,
-        transport_config=transport_config,
+        transport_config=runtime_transport_config,
     )
 
     tools, discover_error = await _register_mcp_discover_tools(server_name)
@@ -665,12 +728,11 @@ async def _register_mcp_execute_core(
     if lifecycle_result["probe"].get("status") == "missing_tools":
         logger.warning(
             "register_mcp_server probe detected missing tools for %s: %s",
-            server_name, lifecycle_result["probe"].get("missing_tools"),
+            server_name,
+            lifecycle_result["probe"].get("missing_tools"),
         )
 
-    return _register_mcp_build_result(
-        server_name, namespaced_tool_names, app_tools
-    )
+    return _register_mcp_build_result(server_name, namespaced_tool_names, app_tools)
 
 
 def _register_mcp_build_result(

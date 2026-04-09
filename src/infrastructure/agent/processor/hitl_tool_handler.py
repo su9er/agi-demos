@@ -11,6 +11,8 @@ a Future that is resolved when the user responds, keeping the processor
 generator alive across consecutive HITL calls.
 """
 
+# ruff: noqa: PLR0915
+
 import json
 import logging
 import time
@@ -31,9 +33,16 @@ from src.domain.events.agent_events import (
     AgentObserveEvent,
 )
 from src.domain.model.agent.hitl_types import HITLType
+from src.infrastructure.adapters.secondary.persistence.database import async_session_factory
+from src.infrastructure.adapters.secondary.persistence.sql_hitl_request_repository import (
+    SqlHITLRequestRepository,
+)
+from src.infrastructure.agent.canvas.a2ui_builder import extract_surface_id
+from src.infrastructure.agent.canvas.manager import CanvasManager
+from src.infrastructure.agent.canvas.models import CanvasBlock
 
 from ..core.message import ToolPart, ToolState
-from ..hitl.coordinator import HITLCoordinator
+from ..hitl.coordinator import HITLCoordinator, unregister_coordinator
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +75,14 @@ async def handle_clarification_tool(
 
         clarification_options: list[dict[str, Any]] = []
         for i, opt in enumerate(options_raw):
-            clarification_options.append({
-                "id": opt.get("id") or str(i),
-                "label": opt.get("label", ""),
-                "description": opt.get("description"),
-                "recommended": opt.get("recommended", False),
-            })
+            clarification_options.append(
+                {
+                    "id": opt.get("id") or str(i),
+                    "label": opt.get("label", ""),
+                    "description": opt.get("description"),
+                    "recommended": opt.get("recommended", False),
+                }
+            )
 
         # Auto-enable allow_custom when options are empty
         if not clarification_options:
@@ -177,15 +188,17 @@ async def handle_decision_tool(
 
         decision_options: list[dict[str, Any]] = []
         for i, opt in enumerate(options_raw):
-            decision_options.append({
-                "id": opt.get("id") or str(i),
-                "label": opt.get("label", ""),
-                "description": opt.get("description"),
-                "recommended": opt.get("recommended", False),
-                "estimated_time": opt.get("estimated_time"),
-                "estimated_cost": opt.get("estimated_cost"),
-                "risks": opt.get("risks", []),
-            })
+            decision_options.append(
+                {
+                    "id": opt.get("id") or str(i),
+                    "label": opt.get("label", ""),
+                    "description": opt.get("description"),
+                    "recommended": opt.get("recommended", False),
+                    "estimated_time": opt.get("estimated_time"),
+                    "estimated_cost": opt.get("estimated_cost"),
+                    "risks": opt.get("risks", []),
+                }
+            )
 
         # Auto-enable allow_custom when options are empty
         if not decision_options:
@@ -480,12 +493,22 @@ def _repair_jsonl(raw: str) -> str:
 
     # Common suffixes LLMs forget: closing braces, brackets, or combos
     _suffixes = [
-        "}", "}}", "}}}", "}}}}",
-        "]}", "]}}", "]}}}",
-        "]}]", "]}}]",
-        "]", "]]",
-        "}]", "}}]", "}}}]",
-        "}}]}}", "]}}]}}",
+        "}",
+        "}}",
+        "}}}",
+        "}}}}",
+        "]}",
+        "]}}",
+        "]}}}",
+        "]}]",
+        "]}}]",
+        "]",
+        "]]",
+        "}]",
+        "}}]",
+        "}}}]",
+        "}}]}}",
+        "]}}]}}",
     ]
 
     repaired_lines: list[str] = []
@@ -511,6 +534,215 @@ def _repair_jsonl(raw: str) -> str:
     return "\n".join(repaired_lines)
 
 
+def _upsert_a2ui_canvas_block(
+    canvas_mgr: CanvasManager,
+    conversation_id: str,
+    title: str,
+    components: str,
+    block_id: str,
+) -> tuple[CanvasBlock, str, str | None, CanvasBlock | None]:
+    """Create or update the A2UI canvas block before waiting for HITL input."""
+    from src.infrastructure.agent.canvas.tools import _resolve_block_id
+
+    resolved_block_id = block_id
+    existing_block = canvas_mgr.get_block(conversation_id, resolved_block_id)
+    if existing_block is None and block_id:
+        resolved_id = _resolve_block_id(canvas_mgr, conversation_id, block_id)
+        if resolved_id is not None:
+            resolved_block_id = resolved_id
+            existing_block = canvas_mgr.get_block(conversation_id, resolved_block_id)
+
+    if existing_block is not None and existing_block.block_type.value != "a2ui_surface":
+        msg = f"Canvas block '{resolved_block_id}' is not an A2UI surface"
+        raise ValueError(msg)
+
+    surface_id = extract_surface_id(components) or (
+        existing_block.metadata.get("surface_id") if existing_block is not None else None
+    )
+
+    canvas_metadata = {"surface_id": surface_id} if surface_id else None
+    if existing_block is not None:
+        block = canvas_mgr.update_block(
+            conversation_id=conversation_id,
+            block_id=resolved_block_id,
+            content=components,
+            title=title,
+            metadata=canvas_metadata,
+        )
+        return block, "updated", surface_id, existing_block
+
+    block = canvas_mgr.create_block(
+        conversation_id=conversation_id,
+        block_type="a2ui_surface",
+        title=title,
+        content=components,
+        metadata=canvas_metadata,
+    )
+    return block, "created", surface_id, None
+
+
+def _attach_hitl_request_metadata(
+    canvas_mgr: CanvasManager,
+    conversation_id: str,
+    block: CanvasBlock,
+    request_id: str,
+    surface_id: str | None,
+) -> CanvasBlock:
+    """Persist the HITL request ID onto the canvas block for frontend hydration."""
+    metadata = {
+        "hitl_request_id": request_id,
+        **({"surface_id": surface_id} if surface_id else {}),
+    }
+    return canvas_mgr.update_block(
+        conversation_id=conversation_id,
+        block_id=block.id,
+        metadata=metadata,
+    )
+
+
+def _canvas_updated_event(
+    conversation_id: str,
+    block: CanvasBlock,
+    action: str,
+) -> AgentCanvasUpdatedEvent:
+    """Create a canvas updated event for an A2UI block."""
+    return AgentCanvasUpdatedEvent(
+        conversation_id=conversation_id,
+        block_id=block.id,
+        action=action,
+        block=block.to_dict(),
+    )
+
+
+def _clear_hitl_request_metadata(
+    canvas_mgr: CanvasManager,
+    conversation_id: str,
+    block_id: str,
+    surface_id: str | None,
+) -> CanvasBlock:
+    """Clear the active HITL request marker after the interaction ends."""
+    metadata = {
+        "hitl_request_id": "",
+        **({"surface_id": surface_id} if surface_id else {}),
+    }
+    return canvas_mgr.update_block(
+        conversation_id=conversation_id,
+        block_id=block_id,
+        metadata=metadata,
+    )
+
+
+def _clear_hitl_request_event(
+    canvas_mgr: CanvasManager | None,
+    conversation_id: str,
+    block_id: str | None,
+    surface_id: str | None,
+) -> AgentCanvasUpdatedEvent | None:
+    """Clear HITL request metadata and return the corresponding canvas event."""
+    if canvas_mgr is None or block_id is None:
+        return None
+    block = _clear_hitl_request_metadata(
+        canvas_mgr=canvas_mgr,
+        conversation_id=conversation_id,
+        block_id=block_id,
+        surface_id=surface_id,
+    )
+    return _canvas_updated_event(conversation_id, block, "updated")
+
+
+async def _discard_prepared_request(
+    coordinator: HITLCoordinator,
+    request_id: str,
+    reason: str,
+) -> None:
+    """Remove a prepared HITL request when setup fails before waiting."""
+    pending_future = coordinator._pending.pop(request_id, None)
+    if pending_future is not None and not pending_future.done():
+        pending_future.set_result({"cancelled": True, "reason": reason})
+    unregister_coordinator(request_id)
+    async with async_session_factory() as session:
+        repo = SqlHITLRequestRepository(session)
+        _ = await repo.mark_cancelled(request_id)
+        await session.commit()
+
+
+def _rollback_a2ui_canvas_block(
+    canvas_mgr: CanvasManager | None,
+    conversation_id: str,
+    block: CanvasBlock | None,
+    previous_block: CanvasBlock | None,
+    canvas_action: str,
+) -> None:
+    """Restore canvas state when interactive setup fails before any event is emitted."""
+    if canvas_mgr is None or block is None:
+        return
+    if canvas_action == "created":
+        try:
+            canvas_mgr.delete_block(conversation_id, block.id)
+        except KeyError:
+            logger.debug("A2UI rollback skipped missing block %s", block.id)
+        return
+    if previous_block is not None:
+        canvas_mgr._get_or_create_state(conversation_id).add(previous_block)
+
+
+def _extract_a2ui_response(
+    answer: object,
+    block_id: str,
+) -> tuple[str, str, dict[str, Any], dict[str, Any]]:
+    """Normalize the returned HITL payload into the tool result contract."""
+    answer_dict = answer if isinstance(answer, dict) else {}
+    action_name = answer_dict.get("action_name", "")
+    source_component_id = answer_dict.get("source_component_id", "")
+    action_context = _ensure_dict(answer_dict.get("context", {}))
+    result = {
+        "action_name": action_name,
+        "source_component_id": source_component_id,
+        "context": action_context,
+        "cancelled": answer_dict.get("cancelled", False),
+        "block_id": block_id,
+    }
+    return action_name, source_component_id, action_context, result
+
+
+def _set_tool_part_error(tool_part: ToolPart, error: str) -> None:
+    """Store an error result on the in-flight tool part."""
+    tool_part.status = ToolState.ERROR
+    tool_part.error = error
+    tool_part.end_time = time.time()
+
+
+def _complete_a2ui_tool_part(
+    tool_part: ToolPart,
+    result: dict[str, Any],
+    end_time: float,
+) -> None:
+    """Persist the completed A2UI action result onto the tool part."""
+    tool_part.status = ToolState.COMPLETED
+    tool_part.output = json.dumps(result)
+    tool_part.end_time = end_time
+
+
+def _observe_event(
+    *,
+    tool_name: str,
+    call_id: str,
+    tool_part: ToolPart,
+    result: dict[str, Any] | None = None,
+    error: str | None = None,
+    duration_ms: int | None = None,
+) -> AgentObserveEvent:
+    """Create an observe event for the current tool execution."""
+    return AgentObserveEvent(
+        tool_name=tool_name,
+        result=result,
+        error=error,
+        duration_ms=duration_ms,
+        call_id=call_id,
+        tool_execution_id=tool_part.tool_execution_id,
+    )
+
+
 async def handle_a2ui_action_tool(
     coordinator: HITLCoordinator,
     call_id: str,
@@ -524,6 +756,14 @@ async def handle_a2ui_action_tool(
     with it (button click, form submission, etc.).  The user action is
     returned as a dict with action_name, source_component_id, and context.
     """
+    request_id: str | None = None
+    canvas_mgr: CanvasManager | None = None
+    block: CanvasBlock | None = None
+    previous_block: CanvasBlock | None = None
+    canvas_action = "created"
+    canvas_emitted = False
+    effective_block_id: str | None = None
+    surface_id: str | None = None
     try:
         title = arguments.get("title", "")
         components = arguments.get("components", "")
@@ -534,44 +774,39 @@ async def handle_a2ui_action_tool(
         context = _ensure_dict(arguments.get("context", {}))
         timeout = arguments.get("timeout", 300.0)
 
+        # Create a canvas block so the frontend renders the A2UI surface tab
+        from src.infrastructure.agent.canvas.tools import get_canvas_manager
+
+        canvas_mgr = get_canvas_manager()
+        block, canvas_action, surface_id, previous_block = _upsert_a2ui_canvas_block(
+            canvas_mgr=canvas_mgr,
+            conversation_id=coordinator.conversation_id,
+            title=title,
+            components=components,
+            block_id=block_id,
+        )
+        effective_block_id = block.id
+
         request_data = {
-            "block_id": block_id,
+            "block_id": effective_block_id,
             "title": title,
             "components": components,
             "context": context,
         }
-
         request_id = await coordinator.prepare_request(
             HITLType.A2UI_ACTION,
             request_data,
             timeout,
         )
-
-        # Create a canvas block so the frontend renders the A2UI surface tab
-        effective_block_id = block_id
-        try:
-            from src.infrastructure.agent.canvas.tools import get_canvas_manager
-
-            canvas_mgr = get_canvas_manager()
-            block = canvas_mgr.create_block(
-                conversation_id=coordinator.conversation_id,
-                block_type="a2ui_surface",
-                title=title,
-                content=components,
-                metadata={"surface_id": block_id or request_id},
-            )
-            yield AgentCanvasUpdatedEvent(
-                conversation_id=coordinator.conversation_id,
-                block_id=block.id,
-                action="created",
-                block=block.to_dict(),
-            )
-            effective_block_id = block.id
-        except Exception:
-            logger.warning(
-                "Could not create canvas block for A2UI interactive surface",
-                exc_info=True,
-            )
+        block = _attach_hitl_request_metadata(
+            canvas_mgr=canvas_mgr,
+            conversation_id=coordinator.conversation_id,
+            block=block,
+            request_id=request_id,
+            surface_id=surface_id,
+        )
+        canvas_emitted = True
+        yield _canvas_updated_event(coordinator.conversation_id, block, canvas_action)
 
         yield AgentA2UIActionAskedEvent(
             request_id=request_id,
@@ -589,12 +824,10 @@ async def handle_a2ui_action_tool(
             timeout,
         )
         end_time = time.time()
-
-        # Extract action fields from the response
-        answer_dict = answer if isinstance(answer, dict) else {}
-        action_name = answer_dict.get("action_name", "")
-        source_component_id = answer_dict.get("source_component_id", "")
-        action_context = _ensure_dict(answer_dict.get("context", {}))
+        action_name, source_component_id, action_context, result = _extract_a2ui_response(
+            answer,
+            effective_block_id,
+        )
 
         yield AgentA2UIActionAnsweredEvent(
             request_id=request_id,
@@ -602,47 +835,70 @@ async def handle_a2ui_action_tool(
             source_component_id=source_component_id,
             context=action_context,
         )
+        cleared_event = _clear_hitl_request_event(
+            canvas_mgr=canvas_mgr,
+            conversation_id=coordinator.conversation_id,
+            block_id=effective_block_id,
+            surface_id=surface_id,
+        )
+        if cleared_event is not None:
+            yield cleared_event
 
-        tool_part.status = ToolState.COMPLETED
-        result = {
-            "action_name": action_name,
-            "source_component_id": source_component_id,
-            "context": action_context,
-            "cancelled": answer_dict.get("cancelled", False),
-            "block_id": effective_block_id,
-        }
-        tool_part.output = json.dumps(result)
-        tool_part.end_time = end_time
-
-        yield AgentObserveEvent(
+        _complete_a2ui_tool_part(
+            tool_part=tool_part,
+            result=result,
+            end_time=end_time,
+        )
+        yield _observe_event(
             tool_name=tool_name,
             result=result,
             duration_ms=int((end_time - start_time) * 1000),
             call_id=call_id,
-            tool_execution_id=tool_part.tool_execution_id,
+            tool_part=tool_part,
         )
 
     except TimeoutError:
-        tool_part.status = ToolState.ERROR
-        tool_part.error = "A2UI action request timed out"
-        tool_part.end_time = time.time()
-
-        yield AgentObserveEvent(
+        cleared_event = _clear_hitl_request_event(
+            canvas_mgr=canvas_mgr,
+            conversation_id=coordinator.conversation_id,
+            block_id=effective_block_id,
+            surface_id=surface_id,
+        )
+        if cleared_event is not None:
+            yield cleared_event
+        _set_tool_part_error(tool_part, "A2UI action request timed out")
+        yield _observe_event(
             tool_name=tool_name,
             error="A2UI action request timed out",
             call_id=call_id,
-            tool_execution_id=tool_part.tool_execution_id,
+            tool_part=tool_part,
         )
 
     except Exception as e:
+        if request_id is not None and request_id in coordinator.pending_request_ids:
+            await _discard_prepared_request(coordinator, request_id, "a2ui canvas setup failed")
+        if not canvas_emitted:
+            _rollback_a2ui_canvas_block(
+                canvas_mgr=canvas_mgr,
+                conversation_id=coordinator.conversation_id,
+                block=block,
+                previous_block=previous_block,
+                canvas_action=canvas_action,
+            )
+        else:
+            cleared_event = _clear_hitl_request_event(
+                canvas_mgr=canvas_mgr,
+                conversation_id=coordinator.conversation_id,
+                block_id=effective_block_id,
+                surface_id=surface_id,
+            )
+            if cleared_event is not None:
+                yield cleared_event
         logger.error(f"A2UI action tool error: {e}", exc_info=True)
-        tool_part.status = ToolState.ERROR
-        tool_part.error = str(e)
-        tool_part.end_time = time.time()
-
-        yield AgentObserveEvent(
+        _set_tool_part_error(tool_part, str(e))
+        yield _observe_event(
             tool_name=tool_name,
             error=str(e),
             call_id=call_id,
-            tool_execution_id=tool_part.tool_execution_id,
+            tool_part=tool_part,
         )

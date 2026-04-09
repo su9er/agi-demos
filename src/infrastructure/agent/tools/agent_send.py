@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 _orchestrator: AgentOrchestrator | None = None
 
 
+def _get_runtime_string(ctx: ToolContext, key: str) -> str:
+    """Read a normalized string value from runtime_context."""
+    value = ctx.runtime_context.get(key)
+    return value.strip() if isinstance(value, str) else ""
+
+
 def configure_agent_send(orchestrator: AgentOrchestrator) -> None:
     """Inject orchestrator at agent startup."""
     global _orchestrator
@@ -70,19 +76,23 @@ async def agent_send_tool(
             output=json.dumps({"error": "Multi-agent not configured"}),
             is_error=True,
         )
+    sender_agent_ref = _get_runtime_string(ctx, "selected_agent_id") or ctx.agent_name
+    sender_agent_name = _get_runtime_string(ctx, "selected_agent_name") or ctx.agent_name
     try:
         send_result = await _orchestrator.send_message(
-            from_agent_id=ctx.agent_name,
+            from_agent_id=sender_agent_ref,
             to_agent_id=agent_id,
             message=message,
             session_id=session_id,
-            project_id=ctx.project_id,
+            sender_session_id=ctx.session_id,
+            project_id=ctx.project_id or None,
+            tenant_id=ctx.tenant_id,
         )
         await ctx.emit(
             AgentMessageSentEvent(
                 from_agent_id=send_result.from_agent_id,
                 to_agent_id=send_result.to_agent_id,
-                from_agent_name=ctx.agent_name,
+                from_agent_name=sender_agent_name,
                 to_agent_name=agent_id,
                 message_preview=message[:200],
             ).to_event_dict()

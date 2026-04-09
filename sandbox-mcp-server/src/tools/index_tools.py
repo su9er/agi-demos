@@ -5,16 +5,22 @@ Provides code indexing and navigation capabilities for Python projects.
 
 import ast
 import asyncio
-import json
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from src.server.websocket_server import MCPTool
+from src.tools.file_tools import _resolve_path
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_index_pattern(pattern: str) -> None:
+    """Reject glob patterns that escape the workspace."""
+    pattern_path = Path(pattern)
+    if pattern_path.is_absolute() or ".." in pattern_path.parts:
+        raise ValueError(f"Pattern '{pattern}' is outside workspace directory")
 
 
 # =============================================================================
@@ -58,7 +64,7 @@ class CodeIndexer:
         Args:
             workspace_dir: Root workspace directory
         """
-        self.workspace_dir = Path(workspace_dir)
+        self.workspace_dir = Path(workspace_dir).resolve()
         self.index = SymbolIndex()
         self._index_lock = asyncio.Lock()
 
@@ -82,17 +88,38 @@ class CodeIndexer:
             if exclude_dirs is None:
                 exclude_dirs = ["venv", ".venv", "__pycache__", ".git", "node_modules", "dist", "build"]
 
-            project = self.workspace_dir / project_path
+            try:
+                project = _resolve_path(project_path, str(self.workspace_dir))
+            except ValueError as exc:
+                return {
+                    "error": str(exc),
+                    "files_indexed": 0,
+                }
             if not project.exists():
                 return {
                     "error": f"Project path not found: {project_path}",
                     "files_indexed": 0,
                 }
 
+            self.index = SymbolIndex()
+            search_pattern = pattern or "**/*.py"
+            try:
+                _validate_index_pattern(search_pattern)
+            except ValueError as exc:
+                return {
+                    "error": str(exc),
+                    "files_indexed": 0,
+                }
+
             # Find all Python files
-            py_files = []
-            for py_file in project.rglob("*.py"):
-                # Skip excluded directories
+            py_files: list[Path] = []
+            for py_file in project.glob(search_pattern):
+                if not py_file.is_file():
+                    continue
+                try:
+                    py_file.resolve().relative_to(self.workspace_dir)
+                except ValueError:
+                    continue
                 if any(excluded in py_file.parts for excluded in exclude_dirs):
                     continue
                 py_files.append(py_file)
@@ -406,6 +433,11 @@ def create_code_index_build_tool() -> MCPTool:
                     "description": "Directories to exclude from indexing",
                     "default": ["venv", ".venv", "__pycache__", ".git"],
                 },
+                "pattern": {
+                    "type": "string",
+                    "description": "Glob pattern for Python source files",
+                    "default": "**/*.py",
+                },
             },
             "required": ["project_path"],
         },
@@ -436,11 +468,18 @@ async def find_definition(
     """
     try:
         indexer = get_indexer(_workspace_dir)
+        if not indexer.index.files_indexed:
+            build_result = await indexer.build(".")
+            if "error" in build_result:
+                return {
+                    "content": [{"type": "text", "text": build_result["error"]}],
+                    "isError": True,
+                }
         definitions = indexer.find_definition(symbol_name)
 
         if not definitions:
             return {
-                "content": [{"type": "text", "text": f"Definition not found: {symbol_name}\n\nTip: Run code_index_build first to create the index."}],
+                "content": [{"type": "text", "text": f"Definition not found: {symbol_name}"}],
                 "isError": False,
                 "metadata": {"found": False, "symbol": symbol_name},
             }
@@ -531,11 +570,18 @@ async def find_references(
     """
     try:
         indexer = get_indexer(_workspace_dir)
+        if not indexer.index.files_indexed:
+            build_result = await indexer.build(".")
+            if "error" in build_result:
+                return {
+                    "content": [{"type": "text", "text": build_result["error"]}],
+                    "isError": True,
+                }
         references = indexer.find_references(symbol_name)
 
         if not references:
             return {
-                "content": [{"type": "text", "text": f"No references found: {symbol_name}\n\nTip: Run code_index_build first to create the index."}],
+                "content": [{"type": "text", "text": f"No references found: {symbol_name}"}],
                 "isError": False,
                 "metadata": {"found": False, "symbol": symbol_name},
             }
@@ -641,6 +687,13 @@ async def get_call_graph(
     """
     try:
         indexer = get_indexer(_workspace_dir)
+        if not indexer.index.files_indexed:
+            build_result = await indexer.build(".")
+            if "error" in build_result:
+                return {
+                    "content": [{"type": "text", "text": build_result["error"]}],
+                    "isError": True,
+                }
 
         if symbol_name:
             graph = indexer.get_call_graph(symbol_name)
@@ -685,7 +738,7 @@ async def get_call_graph(
             total_edges = sum(len(callees) for callees in all_calls.values())
 
             lines = [
-                f"Project call graph summary:",
+                "Project call graph summary:",
                 f"  Functions with calls: {len(all_calls)}",
                 f"  Total call edges: {total_edges}",
                 "",
@@ -766,6 +819,13 @@ async def get_dependency_graph(
     """
     try:
         indexer = get_indexer(_workspace_dir)
+        if not indexer.index.import_graph:
+            build_result = await indexer.build(project_path)
+            if "error" in build_result:
+                return {
+                    "content": [{"type": "text", "text": build_result["error"]}],
+                    "isError": True,
+                }
 
         if not indexer.index.import_graph:
             return {

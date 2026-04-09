@@ -146,6 +146,21 @@ class TestSessionProcessorToolRefresh:
 
         assert result == 3
 
+    def test_refresh_tools_keeps_goal_evaluator_tool_reference_in_sync(self):
+        """GoalEvaluator should observe refreshed tools without re-binding."""
+
+        def provider() -> list:
+            return [create_tool_def("todoread")]
+
+        config = ProcessorConfig(model="test-model", tool_provider=provider)
+        processor = SessionProcessor(config=config, tools=[create_tool_def("initial")])
+        original_tools_ref = processor._goal_evaluator._tools
+
+        processor._refresh_tools()
+
+        assert processor.tools is original_tools_ref
+        assert processor._goal_evaluator.has_task_reader() is True
+
 
 @pytest.mark.unit
 class TestProcessorToolRefreshAfterRegister:

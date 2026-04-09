@@ -20,6 +20,7 @@ from src.infrastructure.agent.canvas.models import (
 )
 from src.infrastructure.agent.canvas.tools import (
     canvas_create,
+    canvas_create_interactive,
     canvas_delete,
     canvas_update,
     configure_canvas,
@@ -495,5 +496,140 @@ class TestCanvasTools:
         events = ctx.consume_pending_events()
         event_block = events[0]["data"]["block"]
         assert event_block["metadata"] == {"language": "python"}
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_create_a2ui_infers_surface_id_metadata(self, ctx: ToolContext) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-42","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-42","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            ]
+        )
+
+        result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=content,
+        )
+        assert not result.is_error
+
+        events = ctx.consume_pending_events()
+        event_block = events[0]["data"]["block"]
+        assert event_block["metadata"]["surface_id"] == "surface-42"
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_update_a2ui_refreshes_surface_id_metadata(self, ctx: ToolContext) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        initial_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            ]
+        )
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=initial_content,
+        )
+        block_id = json.loads(create_result.output)["block_id"]
+        ctx.consume_pending_events()
+
+        updated_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-2","root":"root-2"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-2","components":[{"id":"root-2","component":{"Text":{"text":{"literal":"updated"}}}}]}}',
+            ]
+        )
+        result = await canvas_update.execute(ctx, block_id=block_id, content=updated_content)
+        assert not result.is_error
+
+        events = ctx.consume_pending_events()
+        event_block = events[0]["data"]["block"]
+        assert event_block["metadata"]["surface_id"] == "surface-2"
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_update_a2ui_resets_stale_surface_id_for_invalid_payload(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        initial_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            ]
+        )
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=initial_content,
+        )
+        block_id = json.loads(create_result.output)["block_id"]
+        ctx.consume_pending_events()
+
+        invalid_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-a","root":"root-1"}}',
+                '{"beginRendering":{"surfaceId":"surface-b","root":"root-2"}}',
+            ]
+        )
+        result = await canvas_update.execute(ctx, block_id=block_id, content=invalid_content)
+        assert not result.is_error
+
+        events = ctx.consume_pending_events()
+        event_block = events[0]["data"]["block"]
+        assert event_block["metadata"]["surface_id"] == "surface-1"
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_create_interactive_reuses_existing_block(self, ctx: ToolContext) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        initial_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            ]
+        )
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=initial_content,
+        )
+        block_id = json.loads(create_result.output)["block_id"]
+        ctx.consume_pending_events()
+
+        updated_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-2"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-2","component":{"Text":{"text":{"literal":"updated"}}}}]}}',
+            ]
+        )
+        result = await canvas_create_interactive.execute(
+            ctx,
+            title="Interactive Surface",
+            components=updated_content,
+            block_id=block_id,
+        )
+        assert not result.is_error
+        assert json.loads(result.output)["block_id"] == block_id
+
+        events = ctx.consume_pending_events()
+        assert events[0]["data"]["action"] == "updated"
+        assert events[0]["data"]["block_id"] == block_id
 
         configure_canvas(None)  # reset global

@@ -260,8 +260,11 @@ class ReActLoop:
         self._work_plan: dict[str, Any] | None = None
         self._current_plan_step: int = 0
         self._task_statuses: dict[str, str] = {}
+        self._has_verified_task_snapshot = False
+        self._task_state_unverifiable = False
         self._no_progress_steps: int = 0
         self._last_evaluated_result: LoopResult = LoopResult.CONTINUE
+        self._pending_completion_status: str | None = None
 
     @property
     def state(self) -> LoopState:
@@ -282,7 +285,10 @@ class ReActLoop:
         self._step_count = 0
         self._state = LoopState.IDLE
         self._task_statuses = {}
+        self._has_verified_task_snapshot = False
+        self._task_state_unverifiable = False
         self._no_progress_steps = 0
+        self._pending_completion_status = None
         if self._doom_loop_detector:
             self._doom_loop_detector.reset()
 
@@ -342,6 +348,29 @@ class ReActLoop:
 
         self._last_evaluated_result = step_loop_result
 
+    async def _emit_final_result(self, result: LoopResult) -> AsyncIterator[AgentDomainEvent]:
+        """Emit final terminal events after the loop exits."""
+        if result == LoopResult.COMPLETE:
+            final_task_goal = self._evaluate_task_goal()
+            if final_task_goal is not None and not final_task_goal.achieved:
+                self._pending_completion_status = None
+                yield AgentStatusEvent(status=f"goal_pending:{final_task_goal.source}")
+                yield AgentErrorEvent(
+                    message=final_task_goal.reason or "Goal not achieved",
+                    code="GOAL_NOT_ACHIEVED",
+                )
+                self._state = LoopState.ERROR
+                return
+            if self._pending_completion_status:
+                yield AgentStatusEvent(status=self._pending_completion_status)
+                self._pending_completion_status = None
+            yield AgentCompleteEvent()
+            self._state = LoopState.COMPLETED
+            return
+
+        if result == LoopResult.COMPACT:
+            yield AgentStatusEvent(status="compact_needed")
+
     async def run(
         self,
         messages: list[dict[str, Any]],
@@ -376,12 +405,8 @@ class ReActLoop:
                     yield event
                 result = self._last_evaluated_result
 
-            # Emit completion
-            if result == LoopResult.COMPLETE:
-                yield AgentCompleteEvent()
-                self._state = LoopState.COMPLETED
-            elif result == LoopResult.COMPACT:
-                yield AgentStatusEvent(status="compact_needed")
+            async for event in self._emit_final_result(result):
+                yield event
 
         except asyncio.CancelledError:
             yield AgentErrorEvent(message="Processing cancelled", code="CANCELLED")
@@ -474,7 +499,7 @@ class ReActLoop:
 
         if goal_check.achieved:
             self._no_progress_steps = 0
-            yield AgentStatusEvent(status=f"goal_achieved:{goal_check.source}")
+            self._pending_completion_status = f"goal_achieved:{goal_check.source}"
             self._last_evaluated_result = LoopResult.COMPLETE
             return
 
@@ -488,11 +513,12 @@ class ReActLoop:
                 )
             else:
                 self._no_progress_steps = 0
-                yield AgentStatusEvent(status="goal_achieved:conversational_response")
+                self._pending_completion_status = "goal_achieved:conversational_response"
                 self._last_evaluated_result = LoopResult.COMPLETE
                 return
 
         if goal_check.should_stop:
+            self._pending_completion_status = None
             yield AgentErrorEvent(
                 message=goal_check.reason or "Goal cannot be completed",
                 code="GOAL_NOT_ACHIEVED",
@@ -502,6 +528,7 @@ class ReActLoop:
             return
 
         self._no_progress_steps += 1
+        self._pending_completion_status = None
         yield AgentStatusEvent(status=f"goal_pending:{goal_check.source}")
         if self._no_progress_steps > 1:
             yield AgentStatusEvent(status="planning_recheck")
@@ -523,20 +550,41 @@ class ReActLoop:
         """Update task status cache from a task list event."""
         tasks = getattr(event, "tasks", None)
         if not isinstance(tasks, list):
+            self._task_state_unverifiable = True
             return
-        for task in tasks:
+        next_statuses: dict[str, str] = {}
+        for index, task in enumerate(tasks):
             if isinstance(task, dict):
-                task_id = str(task.get("id", "")).strip()
-                status = str(task.get("status", "")).strip().lower()
+                task_id_raw = task.get("id")
+                status_raw = task.get("status")
+                task_id = task_id_raw.strip() if isinstance(task_id_raw, str) else ""
+                status = status_raw.strip().lower() if isinstance(status_raw, str) else ""
                 if task_id and status:
-                    self._task_statuses[task_id] = status
+                    next_statuses[task_id] = status
+                    continue
+            logger.warning(
+                "[ReActLoop] Ignoring malformed task_list_updated entry at index %s",
+                index,
+            )
+            self._task_state_unverifiable = True
+            return
+        self._task_statuses = next_statuses
+        self._has_verified_task_snapshot = True
+        self._task_state_unverifiable = False
 
     def _ingest_task_update_event(self, event: AgentDomainEvent) -> None:
         """Update task status cache from a single task update event."""
-        task_id = str(getattr(event, "task_id", "")).strip()
-        status = str(getattr(event, "status", "")).strip().lower()
+        if not self._has_verified_task_snapshot:
+            self._task_state_unverifiable = True
+            return
+        task_id_raw = getattr(event, "task_id", None)
+        status_raw = getattr(event, "status", None)
+        task_id = task_id_raw.strip() if isinstance(task_id_raw, str) else ""
+        status = status_raw.strip().lower() if isinstance(status_raw, str) else ""
         if task_id and status:
             self._task_statuses[task_id] = status
+            return
+        self._task_state_unverifiable = True
 
     def _evaluate_goal_state(self, thought_text: str) -> LoopGoalCheck:
         """Evaluate completion from tasks first, then explicit self-check text."""
@@ -547,6 +595,13 @@ class ReActLoop:
 
     def _evaluate_task_goal(self) -> LoopGoalCheck | None:
         """Evaluate completion from cached task statuses."""
+        if self._task_state_unverifiable:
+            return LoopGoalCheck(
+                achieved=False,
+                should_stop=True,
+                reason="Unable to verify task completion state",
+                source="tasks",
+            )
         if not self._task_statuses:
             return None
 

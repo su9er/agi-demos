@@ -6,6 +6,7 @@
  */
 
 import { isCanvasPreviewable } from '../../utils/filePreview';
+import { normalizeExecutionSummary } from '../../utils/executionSummary';
 import { appendSSEEventToTimeline } from '../../utils/sseEventAdapter';
 import { tabSync } from '../../utils/tabSync';
 import { useAgentDefinitionStore } from '../agentDefinitions';
@@ -16,9 +17,8 @@ import { useGraphStore } from '../graphStore';
 import { useUnifiedHITLStore } from '../hitlStore.unified';
 import { useLayoutModeStore } from '../layoutMode';
 
+import { extractA2UISurfaceId, mergeA2UIMessageStream } from './a2uiMessages';
 import { useExecutionStore } from './executionStore';
-
-import { mergeA2UIMessageStream } from './a2uiMessages';
 
 import type { DeltaBufferState } from './deltaBuffers';
 import type { AdditionalAgentHandlers } from './types';
@@ -65,6 +65,20 @@ import type {
 import type { ConversationState, CostTrackingState } from '../../types/conversationState';
 import type { AgentNode } from '../../types/multiAgent';
 
+const pendingA2UIRequestIds = new Map<string, string>();
+
+const getPendingA2UIRequestKey = (conversationId: string, blockId: string): string =>
+  `${conversationId}:${blockId}`;
+
+const clearPendingA2UIRequestIds = (conversationId: string): void => {
+  const prefix = `${conversationId}:`;
+  for (const key of pendingA2UIRequestIds.keys()) {
+    if (key.startsWith(prefix)) {
+      pendingA2UIRequestIds.delete(key);
+    }
+  }
+};
+
 // Re-export DeltaBufferState from canonical source for backward compatibility
 export type { DeltaBufferState } from './deltaBuffers';
 
@@ -93,6 +107,72 @@ export interface StreamHandlerDeps {
     immediateStateUpdates?: Partial<ConversationState>
   ) => void;
   flushTimelineBufferSync: () => void;
+}
+
+type TimelineEventWithCompletionMetadata = TimelineEvent & {
+  artifacts?: CompleteEventData['artifacts'];
+};
+
+function buildCompletionMetadata(event: AgentEvent<CompleteEventData>): Record<string, unknown> {
+  const executionSummary = normalizeExecutionSummary(event.data.execution_summary);
+  return {
+    ...(event.data.trace_url ? { traceUrl: event.data.trace_url } : {}),
+    ...(executionSummary ? { executionSummary } : {}),
+  };
+}
+
+function hasRenderableCompletionData(event: AgentEvent<CompleteEventData>): boolean {
+  return (
+    Object.keys(buildCompletionMetadata(event)).length > 0 ||
+    (Array.isArray(event.data.artifacts) && event.data.artifacts.length > 0)
+  );
+}
+
+function mergeCompletionIntoLastAssistant(
+  timeline: TimelineEvent[],
+  event: AgentEvent<CompleteEventData>,
+  turnStartIndex: number
+): TimelineEvent[] {
+  const completionMetadata = buildCompletionMetadata(event);
+  const hasArtifacts = Array.isArray(event.data.artifacts) && event.data.artifacts.length > 0;
+
+  if (Object.keys(completionMetadata).length === 0 && !hasArtifacts) {
+    return timeline;
+  }
+
+  for (let index = timeline.length - 1; index > turnStartIndex; index -= 1) {
+    const timelineEvent = timeline[index];
+    if (!timelineEvent) {
+      continue;
+    }
+    if (timelineEvent.type !== 'assistant_message' && timelineEvent.type !== 'text_end') {
+      continue;
+    }
+
+    const updatedEvent: TimelineEventWithCompletionMetadata = {
+      ...timelineEvent,
+      metadata: {
+        ...(timelineEvent.metadata ?? {}),
+        ...completionMetadata,
+        ...(hasArtifacts ? { artifacts: event.data.artifacts } : {}),
+      },
+      ...(hasArtifacts ? { artifacts: event.data.artifacts } : {}),
+    };
+
+    return [...timeline.slice(0, index), updatedEvent, ...timeline.slice(index + 1)];
+  }
+
+  return timeline;
+}
+
+function findCurrentTurnStartIndex(timeline: TimelineEvent[]): number {
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    if (timeline[index]?.type === 'user_message') {
+      return index;
+    }
+  }
+
+  return -1;
 }
 
 /**
@@ -330,7 +410,11 @@ export function createStreamEventHandlers(
 
     // Task list handlers
     onTaskListUpdated: (event) => {
-      const data = event.data as { conversation_id: string; tasks: unknown[] };
+      const data = event.data as { conversation_id?: string; tasks?: unknown };
+      if (!Array.isArray(data.tasks)) {
+        console.warn('[TaskSync] Ignoring malformed task_list_updated payload:', event.data);
+        return;
+      }
       console.log('[TaskSync] task_list_updated received:', {
         conversationId: handlerConversationId,
         taskCount: data.tasks.length,
@@ -343,11 +427,15 @@ export function createStreamEventHandlers(
 
     onTaskUpdated: (event) => {
       const data = event.data as {
-        conversation_id: string;
-        task_id: string;
-        status: string;
+        conversation_id?: string;
+        task_id?: string;
+        status?: string;
         content?: string | undefined;
       };
+      if (typeof data.task_id !== 'string' || typeof data.status !== 'string') {
+        console.warn('[TaskSync] Ignoring malformed task_updated payload:', event.data);
+        return;
+      }
       console.log('[TaskSync] task_updated received:', {
         taskId: data.task_id,
         status: data.status,
@@ -1642,6 +1730,24 @@ export function createStreamEventHandlers(
       const data = event.data;
       const canvasStore = useCanvasStore.getState();
       const layoutStore = useLayoutModeStore.getState();
+      const blockMetadata = data.block?.metadata;
+      const metadataSurfaceId =
+        typeof blockMetadata?.surface_id === 'string' && blockMetadata.surface_id.length > 0
+          ? blockMetadata.surface_id
+          : undefined;
+      const rawMetadataHitlRequestId = blockMetadata?.hitl_request_id;
+      const hasExplicitHitlRequestId = typeof rawMetadataHitlRequestId === 'string';
+      const metadataHitlRequestId =
+        hasExplicitHitlRequestId && rawMetadataHitlRequestId.length > 0
+          ? rawMetadataHitlRequestId
+          : undefined;
+      const pendingKey = getPendingA2UIRequestKey(handlerConversationId, data.block_id);
+      const bufferedHitlRequestId = pendingA2UIRequestIds.get(pendingKey);
+      const resolvedHitlRequestId = hasExplicitHitlRequestId
+        ? metadataHitlRequestId
+        : bufferedHitlRequestId;
+      const shouldClearBufferedHitlRequestId =
+        hasExplicitHitlRequestId || bufferedHitlRequestId !== undefined;
 
       if (data.action === 'created' && data.block) {
         // Map backend CanvasBlock type to frontend CanvasContentType
@@ -1657,6 +1763,7 @@ export function createStreamEventHandlers(
         };
         const tabType = typeMap[data.block.block_type] ?? 'code';
 
+        const derivedSurfaceId = extractA2UISurfaceId(data.block.content);
         canvasStore.openTab({
           id: data.block.id,
           title: data.block.title,
@@ -1666,14 +1773,15 @@ export function createStreamEventHandlers(
           mimeType: data.block.metadata.mime_type,
           ...(tabType === 'a2ui-surface'
             ? {
-                a2uiSurfaceId:
-                  typeof data.block.metadata.surface_id === 'string'
-                    ? data.block.metadata.surface_id
-                    : data.block.id,
+                a2uiSurfaceId: metadataSurfaceId ?? derivedSurfaceId ?? data.block.id,
+                a2uiHitlRequestId: resolvedHitlRequestId,
                 a2uiMessages: data.block.content,
               }
             : {}),
         });
+        if (shouldClearBufferedHitlRequestId) {
+          pendingA2UIRequestIds.delete(pendingKey);
+        }
 
         // Auto-switch to canvas layout
         if (layoutStore.mode !== 'canvas') {
@@ -1687,16 +1795,19 @@ export function createStreamEventHandlers(
               existingTab.a2uiMessages ?? existingTab.content,
               data.block.content
             );
+            const derivedSurfaceId = extractA2UISurfaceId(mergedA2UI);
             canvasStore.updateContent(data.block_id, mergedA2UI);
             canvasStore.updateTab(data.block_id, {
               a2uiMessages: mergedA2UI,
               a2uiSurfaceId:
-                (typeof data.block.metadata.surface_id === 'string'
-                  ? data.block.metadata.surface_id
-                  : undefined) ??
-                existingTab.a2uiSurfaceId ??
-                data.block.id,
+                metadataSurfaceId ?? derivedSurfaceId ?? existingTab.a2uiSurfaceId ?? data.block.id,
+              ...(shouldClearBufferedHitlRequestId
+                ? { a2uiHitlRequestId: resolvedHitlRequestId }
+                : {}),
             });
+            if (shouldClearBufferedHitlRequestId) {
+              pendingA2UIRequestIds.delete(pendingKey);
+            }
           } else {
             canvasStore.updateContent(data.block_id, data.block.content);
           }
@@ -1718,6 +1829,7 @@ export function createStreamEventHandlers(
               a2ui_surface: 'a2ui-surface',
             };
           const fallbackTabType = typeMap[data.block.block_type] ?? 'code';
+          const derivedSurfaceId = extractA2UISurfaceId(data.block.content);
           canvasStore.openTab({
             id: data.block.id,
             title: data.block.title,
@@ -1727,14 +1839,15 @@ export function createStreamEventHandlers(
             mimeType: data.block.metadata.mime_type,
             ...(fallbackTabType === 'a2ui-surface'
               ? {
-                  a2uiSurfaceId:
-                    typeof data.block.metadata.surface_id === 'string'
-                      ? data.block.metadata.surface_id
-                      : data.block.id,
+                  a2uiSurfaceId: metadataSurfaceId ?? derivedSurfaceId ?? data.block.id,
+                  a2uiHitlRequestId: resolvedHitlRequestId,
                   a2uiMessages: data.block.content,
                 }
               : {}),
           });
+          if (shouldClearBufferedHitlRequestId) {
+            pendingA2UIRequestIds.delete(pendingKey);
+          }
         }
 
         if (layoutStore.mode !== 'canvas') {
@@ -1742,6 +1855,7 @@ export function createStreamEventHandlers(
         }
       } else if (data.action === 'deleted') {
         canvasStore.closeTab(data.block_id, true);
+        pendingA2UIRequestIds.delete(getPendingA2UIRequestKey(handlerConversationId, data.block_id));
 
         // If no more tabs, switch back to chat mode
         if (useCanvasStore.getState().tabs.length === 0) {
@@ -1765,6 +1879,7 @@ export function createStreamEventHandlers(
       // Store the server-assigned request_id into the canvas tab so the
       // A2UISurfaceRenderer can use it when dispatching user actions back.
       const canvasStore = useCanvasStore.getState();
+      pendingA2UIRequestIds.set(getPendingA2UIRequestKey(handlerConversationId, blockId), requestId);
       canvasStore.updateTab(blockId, { a2uiHitlRequestId: requestId });
 
       // Add to timeline
@@ -2026,9 +2141,6 @@ export function createStreamEventHandlers(
         type: string;
         fullText?: string;
       }
-      const hasTextEndMessages = convState.timeline.some(
-        (e) => e.type === 'text_end' && !!(e as TextEndTimelineEvent).fullText?.trim()
-      );
       const cleanedTimeline = convState.timeline.filter((e) => {
         if (e.type === 'text_start' || e.type === 'text_delta') {
           return false;
@@ -2038,16 +2150,24 @@ export function createStreamEventHandlers(
         }
         return true;
       });
+      const hadTransientTextEvents = convState.timeline.some(
+        (e) => e.type === 'text_start' || e.type === 'text_delta'
+      );
+      const currentTurnStartIndex = findCurrentTurnStartIndex(cleanedTimeline);
+      const currentTurnTimeline = cleanedTimeline.slice(currentTurnStartIndex + 1);
+      const hasCurrentTurnAnchor = currentTurnStartIndex >= 0;
+      const hasTextEndMessages = currentTurnTimeline.some(
+        (e) => e.type === 'text_end' && !!(e as TextEndTimelineEvent).fullText?.trim()
+      );
 
-      // Only add assistant_message from complete event when no text_end segment exists,
-      // to avoid duplicating final output.
       const completeEvent: AgentEvent<CompleteEventData> = event;
       interface CompleteEventWithContent {
         content?: string;
       }
       const hasContent = !!(completeEvent.data as CompleteEventWithContent).content?.trim();
-      const updatedTimeline =
-        hasContent && !hasTextEndMessages
+      const updatedTimeline = (hasCurrentTurnAnchor || hadTransientTextEvents) && hasTextEndMessages
+        ? mergeCompletionIntoLastAssistant(cleanedTimeline, completeEvent, currentTurnStartIndex)
+        : hasContent || hasRenderableCompletionData(completeEvent)
           ? appendSSEEventToTimeline(cleanedTimeline, completeEvent)
           : cleanedTimeline;
 
@@ -2083,7 +2203,9 @@ export function createStreamEventHandlers(
           interface TaskResponse {
             tasks?: unknown[];
           }
-          const res = await httpClient.get<TaskResponse>(`/agent/plan/tasks/${handlerConversationId}`);
+          const res = await httpClient.get<TaskResponse>(
+            `/agent/plan/tasks/${handlerConversationId}`
+          );
           if (res && Array.isArray(res.tasks) && res.tasks.length > 0) {
             const { updateConversationState } = get();
             updateConversationState(handlerConversationId, {
@@ -2106,6 +2228,7 @@ export function createStreamEventHandlers(
 
       clearThoughtIdleResetTimer();
       clearDeltaBuffers(handlerConversationId);
+      clearPendingA2UIRequestIds(handlerConversationId);
 
       const convState = getConversationState(handlerConversationId);
 
@@ -2125,6 +2248,7 @@ export function createStreamEventHandlers(
 
       clearThoughtIdleResetTimer();
       clearDeltaBuffers(handlerConversationId);
+      clearPendingA2UIRequestIds(handlerConversationId);
 
       updateConversationState(handlerConversationId, {
         streamingThought: '',

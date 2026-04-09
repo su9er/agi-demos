@@ -192,6 +192,35 @@ class TestEnvVarStrategy:
         value = strategy.extract_response_value(response_data)
         assert value == {"API_KEY": "secret123"}
 
+    def test_create_request_sanitizes_text_and_context(self):
+        """Env-var requests should sanitize user-visible and contextual fields."""
+        strategy = EnvVarStrategy()
+        request = strategy.create_request(
+            conversation_id="conv-env-sanitize",
+            request_data={
+                "tool_name": 'github<script>alert(1)</script>',
+                "message": 'Need <b>token</b>',
+                "context": {"note": '<img src=x onerror=alert(1)>', "count": 1},
+                "fields": [
+                    {
+                        "name": 'API_<script>',
+                        "label": '<b>API Key</b>',
+                        "description": 'Paste <token>',
+                        "placeholder": '<placeholder>',
+                    }
+                ],
+            },
+        )
+
+        assert request.env_var_data is not None
+        assert request.env_var_data.tool_name == "github&lt;script&gt;alert(1)&lt;/script&gt;"
+        assert request.env_var_data.message == "Need &lt;b&gt;token&lt;/b&gt;"
+        assert request.env_var_data.context["note"] == "&lt;img src=x onerror=alert(1)&gt;"
+        assert request.env_var_data.fields[0].name == "API_&lt;script&gt;"
+        assert request.env_var_data.fields[0].label == "&lt;b&gt;API Key&lt;/b&gt;"
+        assert request.env_var_data.fields[0].description == "Paste &lt;token&gt;"
+        assert request.env_var_data.fields[0].placeholder == "&lt;placeholder&gt;"
+
 
 @pytest.mark.unit
 class TestPermissionStrategy:
@@ -249,3 +278,32 @@ class TestPermissionStrategy:
         response_data = {"action": "allow_always", "remember": True}
         value = strategy.extract_response_value(response_data)
         assert value is True
+
+    def test_extract_response_value_conflicting_granted_flag_fails_closed(self):
+        """Conflicting permission payloads must not resolve to allow."""
+        strategy = PermissionStrategy()
+        response_data = {"action": "deny", "granted": True}
+        value = strategy.extract_response_value(response_data)
+        assert value is False
+
+    def test_create_request_sanitizes_text_and_context(self):
+        """Permission requests should sanitize visible fields before persistence."""
+        strategy = PermissionStrategy()
+        request = strategy.create_request(
+            conversation_id="conv-perm-sanitize",
+            request_data={
+                "tool_name": "terminal<script>",
+                "action": "execute<script>",
+                "risk_level": "medium",
+                "description": "Run <b>command</b>",
+                "details": {"cmd": "<rm -rf />"},
+                "context": {"note": "<danger>"},
+            },
+        )
+
+        assert request.permission_data is not None
+        assert request.permission_data.tool_name == "terminal&lt;script&gt;"
+        assert request.permission_data.action == "execute&lt;script&gt;"
+        assert request.permission_data.description == "Run &lt;b&gt;command&lt;/b&gt;"
+        assert request.permission_data.details["cmd"] == "&lt;rm -rf /&gt;"
+        assert request.permission_data.context["note"] == "&lt;danger&gt;"

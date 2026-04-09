@@ -9,6 +9,7 @@ import type {
   ActEvent,
   ObserveEvent,
   ArtifactCreatedEvent,
+  ArtifactReference,
 } from '../../../types/agent';
 
 // Re-export commonly used types
@@ -78,6 +79,8 @@ export interface UserMessageProps {
  */
 export interface AssistantMessageProps {
   content: string;
+  metadata?: Record<string, unknown> | undefined;
+  artifacts?: ArtifactReference[] | undefined;
   isStreaming?: boolean | undefined;
   isPinned?: boolean | undefined;
   onPin?: (() => void) | undefined;

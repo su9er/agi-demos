@@ -28,6 +28,212 @@ def _str_val(s: str) -> dict[str, str]:
     """Wrap a string as an A2UI StringValue literal."""
     return {"literal": s}
 
+
+SURFACE_KEYS = (
+    "beginRendering",
+    "begin_rendering",
+    "surfaceUpdate",
+    "surface_update",
+    "dataModelUpdate",
+    "data_model_update",
+    "deleteSurface",
+    "delete_surface",
+)
+TYPED_SURFACE_TYPES = set(SURFACE_KEYS)
+
+
+def _normalize_data_path(path_or_alias: str) -> str:
+    """Normalize an A2UI data binding path."""
+    stripped = path_or_alias.strip()
+    if not stripped:
+        return "/"
+    if stripped.startswith("/"):
+        return stripped
+    return f"/{stripped.lstrip('/')}"
+
+
+def _is_value_map(entry: object) -> bool:
+    """Return True when an entry already matches A2UI ValueMap shape."""
+    if not isinstance(entry, dict):
+        return False
+    return isinstance(entry.get("key"), str) and (
+        len(entry) == 1
+        or any(name in entry for name in ("valueString", "valueNumber", "valueBoolean", "valueMap"))
+    )
+
+
+def _to_value_map(key: str, value: object) -> dict[str, object]:
+    """Convert a Python value into an A2UI ValueMap entry."""
+    if value is None:
+        return {"key": key}
+    if isinstance(value, bool):
+        return {"key": key, "valueBoolean": value}
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return {"key": key, "valueNumber": value}
+    if isinstance(value, dict):
+        return {
+            "key": key,
+            "valueMap": [
+                _to_value_map(child_key, child_value) for child_key, child_value in value.items()
+            ],
+        }
+    if isinstance(value, list):
+        return {
+            "key": key,
+            "valueMap": [_to_value_map(str(index), item) for index, item in enumerate(value)],
+        }
+    return {"key": key, "valueString": str(value)}
+
+
+def _normalize_data_model_contents(contents: object) -> list[dict[str, object]]:
+    """Normalize plain objects into A2UI ValueMap entries."""
+    if isinstance(contents, dict):
+        return [_to_value_map(key, value) for key, value in contents.items()]
+    if isinstance(contents, list):
+        return [
+            entry if _is_value_map(entry) else _to_value_map(str(index), entry)
+            for index, entry in enumerate(contents)
+        ]
+    return [_to_value_map(".", contents)]
+
+
+def _strip_markdown_code_fence(messages: str) -> str:
+    """Strip a surrounding markdown code fence from a JSONL payload."""
+    stripped = messages.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.splitlines()
+    if len(lines) < 3 or not lines[-1].strip().startswith("```"):
+        return stripped
+    return "\n".join(lines[1:-1]).strip()
+
+
+def _coerce_message_dicts(raw: object) -> list[dict[str, object]]:
+    """Coerce parsed JSON payloads into a list of envelope dictionaries."""
+    if isinstance(raw, dict):
+        messages = raw.get("messages")
+        if isinstance(messages, list):
+            return [entry for entry in messages if isinstance(entry, dict)]
+        return [raw]
+    if isinstance(raw, list):
+        return [entry for entry in raw if isinstance(entry, dict)]
+    return []
+
+
+def _extract_json_objects(raw: str) -> list[str]:
+    """Extract brace-balanced JSON objects from a string."""
+    objects: list[str] = []
+    start_index: int | None = None
+    depth = 0
+    in_string = False
+    escape_next = False
+
+    for index, char in enumerate(raw):
+        if in_string:
+            if escape_next:
+                escape_next = False
+            elif char == "\\":
+                escape_next = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            if depth == 0:
+                start_index = index
+            depth += 1
+            continue
+        if char != "}":
+            continue
+        depth -= 1
+        if depth == 0 and start_index is not None:
+            objects.append(raw[start_index : index + 1])
+            start_index = None
+
+    return objects
+
+
+def _iter_message_dicts(messages: str) -> list[dict[str, object]]:
+    """Parse A2UI message payloads into top-level envelope dictionaries."""
+    stripped = _strip_markdown_code_fence(messages)
+    if not stripped:
+        return []
+
+    try:
+        return _coerce_message_dicts(json.loads(stripped))
+    except json.JSONDecodeError:
+        parsed_lines: list[dict[str, object]] = []
+        for line in stripped.splitlines():
+            candidate = line.strip()
+            if not candidate or candidate.startswith("```"):
+                continue
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            parsed_lines.extend(_coerce_message_dicts(parsed))
+        if parsed_lines:
+            return parsed_lines
+
+        parsed_objects: list[dict[str, object]] = []
+        for chunk in _extract_json_objects(stripped):
+            try:
+                parsed = json.loads(chunk)
+            except json.JSONDecodeError:
+                continue
+            parsed_objects.extend(_coerce_message_dicts(parsed))
+        return parsed_objects
+
+
+def _surface_id_from_record(record: dict[str, object]) -> str | None:
+    """Extract a surface ID from supported top-level A2UI envelope shapes."""
+    for key in SURFACE_KEYS:
+        payload = record.get(key)
+        if isinstance(payload, dict):
+            surface_id = payload.get("surfaceId") or payload.get("surface_id")
+            if isinstance(surface_id, str) and surface_id:
+                return surface_id
+
+    envelope_type = record.get("type")
+    payload = record.get("payload")
+    if (
+        isinstance(envelope_type, str)
+        and envelope_type in TYPED_SURFACE_TYPES
+        and isinstance(payload, dict)
+    ):
+        surface_id = payload.get("surfaceId") or payload.get("surface_id")
+        if isinstance(surface_id, str) and surface_id:
+            return surface_id
+
+    return None
+
+
+def extract_surface_ids(messages: str) -> list[str]:
+    """Return unique surface IDs discovered in A2UI message payloads."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for record in _iter_message_dicts(messages):
+        surface_id = _surface_id_from_record(record)
+        if surface_id is None:
+            continue
+        if surface_id in seen:
+            continue
+        seen.add(surface_id)
+        ordered.append(surface_id)
+    return ordered
+
+
+def extract_surface_id(messages: str) -> str | None:
+    """Return the single discovered surface ID, if the payload is unambiguous."""
+    surface_ids = extract_surface_ids(messages)
+    if len(surface_ids) != 1:
+        return None
+    return surface_ids[0]
+
+
 # ---------------------------------------------------------------------------
 # Component helpers
 # ---------------------------------------------------------------------------
@@ -123,15 +329,25 @@ def text_field_component(
     placeholder: str = "",
     value: str = "",
 ) -> dict[str, Any]:
-    """Build an A2UI ``TextField`` input component."""
+    """Build an A2UI ``TextField`` input component.
+
+    The ``action_id`` argument is normalized into the TextField's bound data path
+    for compatibility with earlier callers that used it as a logical field name.
+    To seed an initial value in the data model, pair this component with a
+    ``data_model_update()`` envelope for the same path.
+    """
+    text_binding: dict[str, str] = {
+        "path": _normalize_data_path(action_id),
+    }
+    if value:
+        text_binding["literal"] = value
     return {
         "id": _new_id(),
         "component": {
             "TextField": {
                 "label": _str_val(label),
-                "placeholder": placeholder,
-                "value": value,
-                "onChange": {"name": action_id},
+                "text": text_binding,
+                **({"placeholder": placeholder} if placeholder else {}),
             },
         },
     }
@@ -165,16 +381,20 @@ def surface_update(
 
 def data_model_update(
     surface_id: str,
-    contents: list[dict[str, Any]],
+    contents: list[dict[str, object]] | list[object] | dict[str, object] | object,
     *,
     path: str = "/",
 ) -> dict[str, Any]:
-    """Build a ``dataModelUpdate`` JSONL envelope."""
+    """Build a ``dataModelUpdate`` JSONL envelope.
+
+    Plain Python objects are normalized into A2UI ValueMap entries so the
+    envelope matches the v0.8 data model contract.
+    """
     return {
         "dataModelUpdate": {
             "surfaceId": surface_id,
             "path": path,
-            "contents": contents,
+            "contents": _normalize_data_model_contents(contents),
         },
     }
 

@@ -7,8 +7,17 @@
  */
 
 import { agentService } from '../../services/agentService';
-import type { AgentStreamHandler, AgentTask, Message, SubscribeOptions, TimelineEvent } from '../../types/agent';
-import { type ConversationState, createDefaultConversationState } from '../../types/conversationState';
+import type {
+  AgentStreamHandler,
+  AgentTask,
+  Message,
+  SubscribeOptions,
+  TimelineEvent,
+} from '../../types/agent';
+import {
+  type ConversationState,
+  createDefaultConversationState,
+} from '../../types/conversationState';
 import { loadConversationState, saveConversationState } from '../../utils/conversationDB';
 import { logger } from '../../utils/logger';
 import { replayCanvasEventsFromTimeline } from './canvasReplay';
@@ -73,12 +82,12 @@ export function createMessageLoadActions(deps: MessageLoadActionDeps) {
         tls.setAgentHasEarlier(cachedState?.hasEarlier || false);
         tls.setAgentEarliestPointers(
           cachedState?.earliestTimeUs || null,
-          cachedState?.earliestCounter || null,
+          cachedState?.earliestCounter || null
         );
         if (!hasExistingData) {
           tls.setAgentTimeline(cachedState?.timeline || []);
           tls.setAgentMessages(
-            cachedState?.timeline ? timelineToMessages(cachedState.timeline) : [],
+            cachedState?.timeline ? timelineToMessages(cachedState.timeline) : []
           );
         }
 
@@ -101,11 +110,7 @@ export function createMessageLoadActions(deps: MessageLoadActionDeps) {
         // Parallelize independent API calls (async-parallel)
         const [response, execStatus, _contextStatusResult, planModeResult, taskListResult] =
           await Promise.all([
-            agentService.getConversationMessages(
-              conversationId,
-              projectId,
-              200
-            ),
+            agentService.getConversationMessages(conversationId, projectId, 200),
             agentService
               .getExecutionStatus(conversationId, true, lastKnownTimeUs)
               .catch((_err: unknown) => {
@@ -131,7 +136,9 @@ export function createMessageLoadActions(deps: MessageLoadActionDeps) {
             // Fetch tasks for conversation
             (async () => {
               const { httpClient } = await import('../../services/client/httpClient');
-              const res = await httpClient.get<{ tasks?: AgentTask[] }>(`/agent/plan/tasks/${conversationId}`);
+              const res = await httpClient.get<{ tasks?: AgentTask[] }>(
+                `/agent/plan/tasks/${conversationId}`
+              );
               return res;
             })().catch((_err: unknown) => {
               logger.debug(`[AgentV3] fetchTasks failed:`, _err);
@@ -243,7 +250,6 @@ export function createMessageLoadActions(deps: MessageLoadActionDeps) {
 
         // Update both global state and conversation-specific state
         const newConvState: Partial<ConversationState> = {
-          timeline: mergedTimeline,
           hasEarlier: response.has_more ?? false,
           earliestTimeUs: firstTimeUs,
           earliestCounter: firstCounter,
@@ -277,6 +283,7 @@ export function createMessageLoadActions(deps: MessageLoadActionDeps) {
           finalTimeline = mergedTimeline;
           finalMessages = messages;
         }
+        newConvState.timeline = finalTimeline;
 
         set((state) => {
           const newStates = new Map(state.conversationStates);
@@ -303,7 +310,7 @@ export function createMessageLoadActions(deps: MessageLoadActionDeps) {
         saveConversationState(conversationId, newConvState).catch(console.error);
 
         // Replay canvas_updated events to rebuild canvas tabs from server history.
-        replayCanvasEventsFromTimeline(mergedTimeline);
+        replayCanvasEventsFromTimeline(finalTimeline);
 
         // DEBUG: Log execution status for recovery debugging
         logger.debug(`[AgentV3] execStatus for ${conversationId}:`, {
@@ -372,15 +379,16 @@ export function createMessageLoadActions(deps: MessageLoadActionDeps) {
           if (typeof currentMsgId === 'string') {
             subscribeOpts.message_id = currentMsgId;
           }
-          if (typeof execStatus?.last_event_time_us === 'number') {
+          if (typeof response.last_time_us === 'number') {
+            subscribeOpts.from_time_us = response.last_time_us;
+            if (typeof response.last_counter === 'number') {
+              subscribeOpts.from_counter = response.last_counter;
+            }
+          } else if (typeof execStatus?.last_event_time_us === 'number') {
             subscribeOpts.from_time_us = execStatus.last_event_time_us;
-          } else if (typeof lastTimeUs === 'number') {
-            subscribeOpts.from_time_us = lastTimeUs;
-          }
-          if (typeof execStatus?.last_event_counter === 'number') {
-            subscribeOpts.from_counter = execStatus.last_event_counter;
-          } else if (typeof response.last_counter === 'number') {
-            subscribeOpts.from_counter = response.last_counter;
+            if (typeof execStatus?.last_event_counter === 'number') {
+              subscribeOpts.from_counter = execStatus.last_event_counter;
+            }
           }
           agentService.subscribe(conversationId, streamHandler, subscribeOpts);
           logger.debug(`[AgentV3] Subscribed to conversation ${conversationId}`);

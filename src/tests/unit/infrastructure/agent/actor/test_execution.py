@@ -188,12 +188,14 @@ async def test_persist_events_skips_complete_when_assistant_exists() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_persist_events_converts_complete_to_assistant_message() -> None:
-    """_persist_events should persist complete content when no assistant exists."""
+async def test_persist_events_skips_complete_when_text_end_assistant_exists() -> None:
+    """A persisted text_end assistant message should keep complete metadata as a complete event."""
     session = MagicMock()
     existing_result = MagicMock()
-    existing_result.scalars.return_value.all.return_value = []
-    session.execute = AsyncMock(side_effect=[existing_result, MagicMock()])
+    existing_result.scalars.return_value.all.return_value = [{"source": "text_end"}]
+    insert_result = MagicMock()
+    insert_result.one_or_none.return_value = ("complete", 123)
+    session.execute = AsyncMock(side_effect=[existing_result, insert_result, MagicMock()])
 
     begin_ctx = AsyncMock()
     begin_ctx.__aenter__.return_value = None
@@ -211,5 +213,194 @@ async def test_persist_events_converts_complete_to_assistant_message() -> None:
             events=[{"type": "complete", "data": {"content": "final answer"}}],
         )
 
-    # One query for existing assistant + one insert for converted assistant_message.
-    assert session.execute.await_count == 2
+    assert session.execute.await_count == 3
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_persist_events_converts_complete_to_assistant_message() -> None:
+    """_persist_events should persist complete content when no assistant exists."""
+    session = MagicMock()
+    existing_result = MagicMock()
+    existing_result.scalars.return_value.all.return_value = []
+    insert_result = MagicMock()
+    insert_result.one_or_none.return_value = ("assistant_message", 123)
+    session.execute = AsyncMock(side_effect=[existing_result, insert_result, MagicMock()])
+
+    begin_ctx = AsyncMock()
+    begin_ctx.__aenter__.return_value = None
+    begin_ctx.__aexit__.return_value = None
+    session.begin.return_value = begin_ctx
+
+    session_ctx = AsyncMock()
+    session_ctx.__aenter__.return_value = session
+    session_ctx.__aexit__.return_value = None
+
+    with patch.object(execution, "async_session_factory", return_value=session_ctx):
+        await execution._persist_events(
+            conversation_id="conv-1",
+            message_id="msg-1",
+            events=[{"type": "complete", "data": {"content": "final answer"}}],
+        )
+
+    # Existing assistant check + insert + atomic projection update.
+    assert session.execute.await_count == 3
+
+
+@pytest.mark.unit
+def test_prepare_complete_assistant_message_carries_execution_summary() -> None:
+    """Complete synthesis should preserve trace and execution summary metadata."""
+    persistable_event, has_text_end_messages, has_complete = execution._prepare_event_for_persistence(
+        {
+            "type": "complete",
+            "data": {
+                "content": "final answer",
+                "trace_url": "https://trace.example/123",
+                "execution_summary": {"step_count": 2, "artifact_count": 1},
+            },
+            "event_time_us": 100,
+            "event_counter": 1,
+        },
+        has_text_end_messages=False,
+        has_complete_assistant_message=False,
+    )
+
+    assert persistable_event is not None
+    assert persistable_event.event_type == "assistant_message"
+    assert persistable_event.event_data["trace_url"] == "https://trace.example/123"
+    assert persistable_event.event_data["execution_summary"] == {
+        "step_count": 2,
+        "artifact_count": 1,
+    }
+    assert has_text_end_messages is False
+    assert has_complete is True
+
+
+@pytest.mark.unit
+def test_prepare_complete_assistant_message_without_content_keeps_metadata() -> None:
+    """Metadata-only complete events should still persist as assistant history."""
+    persistable_event, has_text_end_messages, has_complete = execution._prepare_event_for_persistence(
+        {
+            "type": "complete",
+            "data": {
+                "content": "",
+                "trace_url": "https://trace.example/empty",
+                "execution_summary": {"step_count": 2},
+            },
+            "event_time_us": 100,
+            "event_counter": 1,
+        },
+        has_text_end_messages=False,
+        has_complete_assistant_message=False,
+    )
+
+    assert persistable_event is not None
+    assert persistable_event.event_type == "assistant_message"
+    assert persistable_event.event_data["content"] == ""
+    assert persistable_event.event_data["trace_url"] == "https://trace.example/empty"
+    assert persistable_event.event_data["execution_summary"] == {"step_count": 2}
+    assert has_text_end_messages is False
+    assert has_complete is True
+
+
+@pytest.mark.unit
+def test_prepare_complete_persists_complete_event_when_text_end_exists() -> None:
+    """Complete events should persist separately when text_end already created history."""
+    persistable_event, has_text_end_messages, has_complete = execution._prepare_event_for_persistence(
+        {
+            "type": "complete",
+            "data": {
+                "content": "final answer",
+                "execution_summary": {"step_count": 2},
+            },
+            "event_time_us": 100,
+            "event_counter": 1,
+        },
+        has_text_end_messages=True,
+        has_complete_assistant_message=False,
+    )
+
+    assert persistable_event is not None
+    assert persistable_event.event_type == "complete"
+    assert persistable_event.event_data["execution_summary"] == {"step_count": 2}
+    assert has_text_end_messages is True
+    assert has_complete is False
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_persist_events_uses_top_level_payload_for_legacy_dict_event() -> None:
+    """Legacy dict events should persist top-level payload into event_data."""
+    session = MagicMock()
+    existing_result = MagicMock()
+    existing_result.scalars.return_value.all.return_value = []
+    insert_result = MagicMock()
+    insert_result.one_or_none.return_value = ("assistant_message", 123)
+    session.execute = AsyncMock(side_effect=[existing_result, insert_result, MagicMock()])
+
+    begin_ctx = AsyncMock()
+    begin_ctx.__aenter__.return_value = None
+    begin_ctx.__aexit__.return_value = None
+    session.begin.return_value = begin_ctx
+
+    session_ctx = AsyncMock()
+    session_ctx.__aenter__.return_value = session
+    session_ctx.__aexit__.return_value = None
+
+    with patch.object(execution, "async_session_factory", return_value=session_ctx):
+        await execution._persist_events(
+            conversation_id="conv-1",
+            message_id="msg-1",
+            events=[
+                {
+                    "type": "assistant_message",
+                    "content": "legacy reply",
+                    "role": "assistant",
+                    "source": "legacy",
+                    "event_time_us": 123,
+                    "event_counter": 0,
+                }
+            ],
+        )
+
+    insert_stmt = session.execute.await_args_list[1].args[0]
+    params = insert_stmt.compile().params
+    assert "assistant_message" in params.values()
+    assert {
+        "content": "legacy reply",
+        "role": "assistant",
+        "source": "legacy",
+    } in params.values()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_persist_events_updates_conversation_projection_fields() -> None:
+    """Persisting events should refresh conversation message_count and updated_at."""
+    session = MagicMock()
+    existing_result = MagicMock()
+    existing_result.scalars.return_value.all.return_value = []
+    insert_result = MagicMock()
+    insert_result.one_or_none.return_value = ("assistant_message", 123)
+    session.execute = AsyncMock(side_effect=[existing_result, insert_result, MagicMock()])
+
+    begin_ctx = AsyncMock()
+    begin_ctx.__aenter__.return_value = None
+    begin_ctx.__aexit__.return_value = None
+    session.begin.return_value = begin_ctx
+
+    session_ctx = AsyncMock()
+    session_ctx.__aenter__.return_value = session
+    session_ctx.__aexit__.return_value = None
+
+    with patch.object(execution, "async_session_factory", return_value=session_ctx):
+        await execution._persist_events(
+            conversation_id="conv-1",
+            message_id="msg-1",
+            events=[{"type": "complete", "data": {"content": "final answer"}}],
+        )
+
+    executed_sql = [str(call.args[0]) for call in session.execute.await_args_list]
+    assert any("UPDATE conversations" in sql for sql in executed_sql)
+    assert any("message_count" in sql for sql in executed_sql)
+    assert any("updated_at" in sql for sql in executed_sql)

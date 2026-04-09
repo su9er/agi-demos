@@ -6,7 +6,6 @@ TDD Cycle:
 3. REFACTOR - Improve while keeping tests passing
 """
 
-import asyncio
 import pytest
 
 from src.tools.edit_tools import (
@@ -80,6 +79,127 @@ def old_function():
             content = test_file.read_text()
             assert "def new_function():" in content
             assert "def old_function():" not in content
+
+    @pytest.mark.asyncio
+    async def test_edit_method_name(self):
+        """Test renaming a method without renaming a top-level function."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test_sample.py"
+            test_file.write_text('''
+class Greeter:
+    def old_name(self):
+        return "instance"
+
+def old_name():
+    return "module"
+''')
+
+            result = await edit_by_ast(
+                file_path=str(test_file),
+                target_type="method",
+                target_name="old_name",
+                operation="rename",
+                new_value="new_name",
+                _workspace_dir=tmpdir,
+            )
+
+            assert not result.get("isError")
+
+            content = test_file.read_text()
+            assert "def new_name(self):" in content
+            assert "def old_name():" in content
+
+    @pytest.mark.asyncio
+    async def test_edit_method_renames_self_references(self):
+        """Test renaming a method also updates self/cls call sites."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test_sample.py"
+            test_file.write_text('''
+class Greeter:
+    def old_name(self):
+        return "instance"
+
+    def wrapper(self):
+        return self.old_name()
+''')
+
+            result = await edit_by_ast(
+                file_path=str(test_file),
+                target_type="method",
+                target_name="old_name",
+                operation="rename",
+                new_value="new_name",
+                _workspace_dir=tmpdir,
+            )
+
+            assert not result.get("isError")
+
+            content = test_file.read_text()
+            assert "def new_name(self):" in content
+            assert "self.new_name()" in content
+            assert "self.old_name()" not in content
+
+    @pytest.mark.asyncio
+    async def test_edit_method_does_not_rename_nested_local_function(self):
+        """Only direct class methods should be renamed."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test_sample.py"
+            test_file.write_text('''
+class Greeter:
+    def wrapper(self):
+        def old_name():
+            return "local"
+        return old_name()
+
+    def old_name(self):
+        return "method"
+''')
+
+            result = await edit_by_ast(
+                file_path=str(test_file),
+                target_type="method",
+                target_name="old_name",
+                operation="rename",
+                new_value="new_name",
+                _workspace_dir=tmpdir,
+            )
+
+            assert not result.get("isError")
+
+            content = test_file.read_text()
+            assert "def new_name(self):" in content
+            assert "def old_name():" in content
+
+    @pytest.mark.asyncio
+    async def test_edit_by_ast_rejects_path_escape(self):
+        """AST edits should stay inside the workspace."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outside_root = Path(tmpdir).parent
+            escaped_path = outside_root / "outside.py"
+            escaped_path.write_text("class Escaped:\n    pass\n")
+
+            result = await edit_by_ast(
+                file_path=str(escaped_path),
+                target_type="class",
+                target_name="Escaped",
+                operation="rename",
+                new_value="Renamed",
+                _workspace_dir=tmpdir,
+            )
+
+            assert result.get("isError") is True
 
     @pytest.mark.asyncio
     async def test_edit_nonexistent_file(self):
@@ -204,6 +324,31 @@ class TestBatchEdit:
             assert metadata.get("successful") >= 1
             assert metadata.get("failed") >= 1
 
+    @pytest.mark.asyncio
+    async def test_batch_edit_rejects_path_escape(self):
+        """Batch edits should reject files outside the workspace."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            escaped_path = Path(tmpdir).parent / "outside.py"
+            escaped_path.write_text("VALUE = 1\n")
+
+            result = await batch_edit(
+                edits=[
+                    {
+                        "file_path": str(escaped_path),
+                        "old_string": "VALUE",
+                        "new_string": "UPDATED",
+                    }
+                ],
+                stop_on_error=True,
+                _workspace_dir=tmpdir,
+            )
+
+            metadata = result.get("metadata", {})
+            assert metadata.get("failed") == 1
+
 
 class TestPreviewEdit:
     """Test suite for preview_edit tool."""
@@ -276,6 +421,25 @@ def function_two():
             assert not result.get("isError")
             metadata = result.get("metadata", {})
             assert metadata.get("changes_found") == 0
+
+    @pytest.mark.asyncio
+    async def test_preview_rejects_path_escape(self):
+        """Preview should reject files outside the workspace."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            escaped_path = Path(tmpdir).parent / "outside.py"
+            escaped_path.write_text("VALUE = 1\n")
+
+            result = await preview_edit(
+                file_path=str(escaped_path),
+                old_string="VALUE",
+                new_string="UPDATED",
+                _workspace_dir=tmpdir,
+            )
+
+            assert result.get("isError") is True
 
 
 class TestEditToolsIntegration:

@@ -295,6 +295,9 @@ class SessionProcessor:
         self._pending_tool_calls: dict[str, ToolPart] = {}
         self._pending_tool_args: dict[str, str] = {}  # call_id -> accumulated raw args
         self._abort_event: asyncio.Event | None = None
+        self._saw_task_events = False
+        self._pending_completion_status: str | None = None
+        self._artifact_count = 0
 
         # Task tracking for timeline integration
         self._current_task: dict[str, Any] | None = None
@@ -466,7 +469,8 @@ class SessionProcessor:
             # This ensures built-in tools survive even if the provider only
             # returns the newly discovered MCP tools.
             merged = {**self.tools, **new_tools_map}
-            self.tools = merged
+            self.tools.clear()
+            self.tools.update(merged)
             logger.info(
                 "[Processor] Refreshed tools from provider: %d tools available "
                 "(%d new/updated, %d total)",
@@ -619,6 +623,9 @@ class SessionProcessor:
             return
 
         try:
+            self._saw_task_events = False
+            self._pending_completion_status = None
+            self._artifact_count = 0
             result = ProcessorResult.CONTINUE
 
             while result == ProcessorResult.CONTINUE:
@@ -664,12 +671,21 @@ class SessionProcessor:
             async for event in self._emit_completion_events(result, session_id, messages):
                 yield event
 
+            effective_result = (
+                self._last_process_result
+                if result == ProcessorResult.COMPLETE
+                else result
+            )
             await self._notify_plugin_hook(
                 "on_session_end",
                 {
                     "session_id": session_id,
                     "step_count": self._step_count,
-                    "result": result.name if hasattr(result, "name") else str(result),
+                    "result": (
+                        effective_result.name
+                        if hasattr(effective_result, "name")
+                        else str(effective_result)
+                    ),
                 },
             )
         except Exception as e:
@@ -876,6 +892,8 @@ class SessionProcessor:
             return current_result, True
         if event_type == AgentEventType.COMPACT_NEEDED.value:
             return ProcessorResult.COMPACT, had_tool_calls
+        if event_type in {"task_list_updated", "task_updated"}:
+            self._saw_task_events = True
         return current_result, had_tool_calls
 
     async def _evaluate_no_tool_result(
@@ -888,8 +906,18 @@ class SessionProcessor:
         goal_check = await self._goal_evaluator.evaluate_goal_completion(session_id, messages)
         if goal_check.achieved:
             self._no_progress_steps = 0
-            yield AgentStatusEvent(status=f"goal_achieved:{goal_check.source}")
+            self._pending_completion_status = f"goal_achieved:{goal_check.source}"
             self._last_process_result = ProcessorResult.COMPLETE
+            return
+
+        if goal_check.should_stop:
+            self._pending_completion_status = None
+            yield AgentErrorEvent(
+                message=goal_check.reason or "Goal cannot be completed",
+                code="GOAL_NOT_ACHIEVED",
+            )
+            self._state = ProcessorState.ERROR
+            self._last_process_result = ProcessorResult.STOP
             return
 
         full_text = self._current_message.get_full_text().strip() if self._current_message else ""
@@ -927,20 +955,12 @@ class SessionProcessor:
                 )
             else:
                 self._no_progress_steps = 0
-                yield AgentStatusEvent(status="goal_achieved:conversational_response")
+                self._pending_completion_status = "goal_achieved:conversational_response"
                 self._last_process_result = ProcessorResult.COMPLETE
                 return
 
-        if goal_check.should_stop:
-            yield AgentErrorEvent(
-                message=goal_check.reason or "Goal cannot be completed",
-                code="GOAL_NOT_ACHIEVED",
-            )
-            self._state = ProcessorState.ERROR
-            self._last_process_result = ProcessorResult.STOP
-            return
-
         # No progress -- check if we should give up
+        self._pending_completion_status = None
         self._no_progress_steps += 1
         yield AgentStatusEvent(status=f"goal_pending:{goal_check.source}")
         if self._no_progress_steps > 1:
@@ -990,6 +1010,30 @@ class SessionProcessor:
     ) -> AsyncIterator[ProcessorEvent]:
         """Emit final completion or compact events."""
         if result == ProcessorResult.COMPLETE:
+            if self._saw_task_events and not self._goal_evaluator.has_task_reader():
+                self._pending_completion_status = None
+                yield AgentStatusEvent(status="goal_pending:tasks")
+                yield AgentErrorEvent(
+                    message="Unable to verify task completion state",
+                    code="GOAL_NOT_ACHIEVED",
+                )
+                self._state = ProcessorState.ERROR
+                self._last_process_result = ProcessorResult.STOP
+                return
+            task_gate = await self._goal_evaluator.evaluate_task_completion_gate(session_id)
+            if task_gate is not None and not task_gate.achieved:
+                self._pending_completion_status = None
+                yield AgentStatusEvent(status=f"goal_pending:{task_gate.source}")
+                yield AgentErrorEvent(
+                    message=task_gate.reason or "Goal not achieved",
+                    code="GOAL_NOT_ACHIEVED",
+                )
+                self._state = ProcessorState.ERROR
+                self._last_process_result = ProcessorResult.STOP
+                return
+            if self._pending_completion_status:
+                yield AgentStatusEvent(status=self._pending_completion_status)
+                self._pending_completion_status = None
             _suggestions = await self._goal_evaluator.generate_suggestions(messages)
             suggestions_event = (
                 AgentSuggestionsEvent(suggestions=_suggestions) if _suggestions else None
@@ -997,10 +1041,31 @@ class SessionProcessor:
             if suggestions_event:
                 yield suggestions_event
             trace_url = self._build_trace_url(session_id)
-            yield AgentCompleteEvent(trace_url=trace_url)
+            execution_summary = await self._build_execution_summary(session_id)
+            yield AgentCompleteEvent(
+                trace_url=trace_url,
+                execution_summary=execution_summary,
+            )
             self._state = ProcessorState.COMPLETED
+            self._last_process_result = ProcessorResult.COMPLETE
         elif result == ProcessorResult.COMPACT:
             yield AgentStatusEvent(status="compact_needed")
+
+    async def _build_execution_summary(self, session_id: str) -> dict[str, Any]:
+        """Build a deterministic summary for the final completion event."""
+        session_summary = self.cost_tracker.get_session_summary()
+        summary: dict[str, Any] = {
+            "step_count": self._step_count,
+            "artifact_count": self._artifact_count,
+            "call_count": session_summary.get("call_count", 0),
+            "total_cost": session_summary.get("total_cost", 0.0),
+            "total_cost_formatted": session_summary.get("total_cost_formatted", "$0.000000"),
+            "total_tokens": session_summary.get("total_tokens", {}),
+        }
+        task_summary = await self._goal_evaluator.summarize_tasks(session_id)
+        if task_summary is not None:
+            summary["tasks"] = task_summary
+        return summary
 
     def _build_trace_url(self, session_id: str) -> str | None:
         """Build Langfuse trace URL if context is available."""
@@ -2380,6 +2445,8 @@ class SessionProcessor:
                 result=result,
                 tool_execution_id=tool_part.tool_execution_id,
             ):
+                if getattr(artifact_event, "event_type", None) == AgentEventType.ARTIFACT_CREATED:
+                    self._artifact_count += 1
                 yield artifact_event
         except Exception as artifact_err:
             logger.error(

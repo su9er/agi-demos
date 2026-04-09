@@ -16,6 +16,7 @@ from src.infrastructure.agent.canvas.a2ui_builder import (
     data_model_update,
     delete_surface,
     divider_component,
+    extract_surface_id,
     pack_messages,
     row_component,
     surface_update,
@@ -168,9 +169,9 @@ class TestTextFieldComponent:
         assert "TextField" in comp["component"]
         field = comp["component"]["TextField"]
         assert field["label"] == {"literal": "Name"}
-        assert field["onChange"] == {"name": "name_change"}
-        assert field["placeholder"] == ""
-        assert field["value"] == ""
+        assert field["text"] == {"path": "/name_change"}
+        assert "onChange" not in field
+        assert "value" not in field
 
     def test_field_with_defaults(self) -> None:
         comp = text_field_component(
@@ -178,7 +179,7 @@ class TestTextFieldComponent:
         )
         field = comp["component"]["TextField"]
         assert field["placeholder"] == "you@example.com"
-        assert field["value"] == "test@test.com"
+        assert field["text"] == {"path": "/email_change", "literal": "test@test.com"}
 
     def test_no_legacy_fields(self) -> None:
         comp = text_field_component("X", "x")
@@ -221,14 +222,40 @@ class TestDataModelUpdate:
     """Tests for data_model_update()."""
 
     def test_default_path(self) -> None:
-        contents = [{"key": "value"}]
+        contents = {"status": "ok", "count": 2}
         envelope = data_model_update("surf-1", contents)
         assert envelope["dataModelUpdate"]["path"] == "/"
-        assert envelope["dataModelUpdate"]["contents"] == contents
+        assert envelope["dataModelUpdate"]["contents"] == [
+            {"key": "status", "valueString": "ok"},
+            {"key": "count", "valueNumber": 2},
+        ]
 
     def test_custom_path(self) -> None:
         envelope = data_model_update("surf-1", [{"x": 1}], path="/items")
         assert envelope["dataModelUpdate"]["path"] == "/items"
+        assert envelope["dataModelUpdate"]["contents"] == [
+            {"key": "0", "valueMap": [{"key": "x", "valueNumber": 1}]},
+        ]
+
+    def test_preformatted_value_maps_pass_through(self) -> None:
+        contents = [{"key": "name", "valueString": "Alice"}]
+        envelope = data_model_update("surf-1", contents)
+        assert envelope["dataModelUpdate"]["contents"] == contents
+
+    def test_mixed_value_map_lists_preserve_existing_entries(self) -> None:
+        envelope = data_model_update(
+            "surf-1",
+            [
+                {"key": "name", "valueString": "Alice"},
+                {"key": "nickname"},
+                {"x": 1},
+            ],
+        )
+        assert envelope["dataModelUpdate"]["contents"] == [
+            {"key": "name", "valueString": "Alice"},
+            {"key": "nickname"},
+            {"key": "2", "valueMap": [{"key": "x", "valueNumber": 1}]},
+        ]
 
 
 class TestBeginRendering:
@@ -251,6 +278,72 @@ class TestDeleteSurface:
     def test_envelope(self) -> None:
         envelope = delete_surface("surf-1")
         assert envelope["deleteSurface"]["surfaceId"] == "surf-1"
+
+
+class TestExtractSurfaceId:
+    """Tests for extract_surface_id()."""
+
+    def test_single_surface(self) -> None:
+        messages = pack_messages(
+            [
+                begin_rendering("surf-1", "root"),
+                surface_update("surf-1", [text_component("hello")]),
+            ]
+        )
+        assert extract_surface_id(messages) == "surf-1"
+
+    def test_multiple_surfaces_returns_none(self) -> None:
+        messages = pack_messages(
+            [
+                begin_rendering("surf-1", "root-1"),
+                surface_update("surf-1", [text_component("hello")]),
+                begin_rendering("surf-2", "root-2"),
+            ]
+        )
+        assert extract_surface_id(messages) is None
+
+    def test_nested_surface_id_fields_are_ignored(self) -> None:
+        messages = json.dumps(
+            {
+                "surfaceUpdate": {
+                    "surfaceId": "surf-1",
+                    "components": [
+                        {
+                            "id": "btn-1",
+                            "component": {
+                                "Button": {
+                                    "child": "label-1",
+                                    "action": {
+                                        "name": "submit",
+                                        "context": {
+                                            "surfaceId": "domain-object-id",
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    ],
+                },
+            }
+        )
+        assert extract_surface_id(messages) == "surf-1"
+
+    def test_pretty_printed_multiline_payload_is_supported(self) -> None:
+        messages = """
+        {
+          "beginRendering": {
+            "surfaceId": "surf-1",
+            "root": "root-1"
+          }
+        }
+        {
+          "surfaceUpdate": {
+            "surfaceId": "surf-1",
+            "components": []
+          }
+        }
+        """
+        assert extract_surface_id(messages) == "surf-1"
 
 
 # ---------------------------------------------------------------------------

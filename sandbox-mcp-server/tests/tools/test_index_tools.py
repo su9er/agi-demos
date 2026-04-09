@@ -6,7 +6,8 @@ TDD Cycle:
 3. REFACTOR - Improve while keeping tests passing
 """
 
-import asyncio
+from pathlib import Path
+
 import pytest
 
 from src.tools.index_tools import (
@@ -16,7 +17,19 @@ from src.tools.index_tools import (
     get_call_graph,
     get_dependency_graph,
     get_indexer,
+    reset_indexer,
 )
+
+WORKSPACE_DIR = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def _reset_indexer_state(monkeypatch: pytest.MonkeyPatch):
+    """Reset the shared in-memory index between tests."""
+    monkeypatch.chdir(WORKSPACE_DIR)
+    reset_indexer(".")
+    yield
+    reset_indexer(".")
 
 
 class TestCodeIndexBuild:
@@ -52,7 +65,7 @@ class TestCodeIndexBuild:
     async def test_build_index_force_rebuild(self):
         """Test force rebuilding the index."""
         # Build once
-        result1 = await code_index_build(
+        await code_index_build(
             project_path="tests/fixtures",
             _workspace_dir=".",
         )
@@ -72,6 +85,64 @@ class TestCodeIndexBuild:
         result = await code_index_build(
             project_path="tests/fixtures/nonexistent",
             _workspace_dir=".",
+        )
+
+        assert result.get("isError") is True
+
+    @pytest.mark.asyncio
+    async def test_build_index_rejects_project_path_escape(self, tmp_path):
+        """Project paths should stay inside the workspace."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        result = await code_index_build(
+            project_path="..",
+            _workspace_dir=str(workspace),
+        )
+
+        assert result.get("isError") is True
+
+    @pytest.mark.asyncio
+    async def test_build_index_respects_pattern(self, tmp_path):
+        """Test building index with a narrowed glob pattern."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "included.py").write_text("class Included:\n    pass\n", encoding="utf-8")
+        (workspace / "excluded.py").write_text("class Excluded:\n    pass\n", encoding="utf-8")
+
+        result = await code_index_build(
+            project_path=".",
+            pattern="**/included.py",
+            force_rebuild=True,
+            _workspace_dir=str(workspace),
+        )
+
+        assert not result.get("isError")
+        assert result["metadata"]["files_indexed"] == 1
+
+        included = await find_definition(
+            symbol_name="Included",
+            _workspace_dir=str(workspace),
+        )
+        excluded = await find_definition(
+            symbol_name="Excluded",
+            _workspace_dir=str(workspace),
+        )
+
+        assert included["metadata"]["found"] is True
+        assert excluded["metadata"]["found"] is False
+
+    @pytest.mark.asyncio
+    async def test_build_index_rejects_pattern_escape(self, tmp_path):
+        """Glob patterns should not escape the workspace."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "included.py").write_text("class Included:\n    pass\n", encoding="utf-8")
+
+        result = await code_index_build(
+            project_path=".",
+            pattern="../*.py",
+            _workspace_dir=str(workspace),
         )
 
         assert result.get("isError") is True
@@ -157,6 +228,24 @@ class TestFindDefinition:
         metadata = result["metadata"]
         assert metadata["found"] is False
 
+    @pytest.mark.asyncio
+    async def test_find_definition_auto_builds_when_index_missing(self, tmp_path):
+        """Query tools should auto-build when no index exists yet."""
+        workspace = tmp_path / "workspace"
+        package = workspace / "pkg"
+        package.mkdir(parents=True)
+        (package / "sample.py").write_text("class AutoBuilt:\n    pass\n", encoding="utf-8")
+
+        reset_indexer(str(workspace))
+
+        result = await find_definition(
+            symbol_name="AutoBuilt",
+            _workspace_dir=str(workspace),
+        )
+
+        assert not result.get("isError")
+        assert result["metadata"]["found"] is True
+
 
 class TestFindReferences:
     """Test suite for find_references tool."""
@@ -211,6 +300,27 @@ class TestFindReferences:
         metadata = result["metadata"]
         if metadata["found"]:
             assert metadata["total_references"] <= 10
+
+    @pytest.mark.asyncio
+    async def test_find_references_auto_builds_when_index_missing(self, tmp_path):
+        """Reference lookup should auto-build when no index exists yet."""
+        workspace = tmp_path / "workspace"
+        package = workspace / "pkg"
+        package.mkdir(parents=True)
+        (package / "sample.py").write_text(
+            "class AutoBuilt:\n    pass\n\nitem = AutoBuilt()\n",
+            encoding="utf-8",
+        )
+
+        reset_indexer(str(workspace))
+
+        result = await find_references(
+            symbol_name="AutoBuilt",
+            _workspace_dir=str(workspace),
+        )
+
+        assert not result.get("isError")
+        assert result["metadata"]["found"] is True
 
 
 class TestCallGraph:

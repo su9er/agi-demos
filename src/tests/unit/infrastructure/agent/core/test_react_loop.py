@@ -14,6 +14,7 @@ Tests cover:
 
 import asyncio
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -23,6 +24,8 @@ from src.domain.events.agent_events import (
     AgentDomainEvent,
     AgentEventType,
     AgentObserveEvent,
+    AgentTaskListUpdatedEvent,
+    AgentTaskUpdatedEvent,
     AgentThoughtEvent,
 )
 from src.infrastructure.agent.core.react_loop import (
@@ -455,6 +458,229 @@ class TestLoopExecution:
         async for event in loop.run(sample_messages, sample_tools, context):
             events.append(event)
 
+        assert any(
+            e.event_type == AgentEventType.ERROR and e.code == "GOAL_NOT_ACHIEVED" for e in events
+        )
+        assert not any(
+            getattr(e, "status", "").startswith("goal_achieved:") for e in events if hasattr(e, "status")
+        )
+
+    async def test_run_does_not_emit_conversational_goal_achieved_when_tasks_are_pending(
+        self, sample_messages, sample_tools, context
+    ):
+        """Pending tasks should block conversational completion."""
+        invoker = MockLLMInvoker()
+        invoker.set_events(
+            [
+                AgentTaskListUpdatedEvent(
+                    conversation_id="session-001",
+                    tasks=[{"id": "t1", "status": "pending"}],
+                ),
+                make_thought("Here is the answer in plain English."),
+            ]
+        )
+        loop = ReActLoop(
+            llm_invoker=invoker,
+            tool_executor=MockToolExecutor(),
+            config=LoopConfig(max_steps=2, max_no_progress_steps=1),
+        )
+
+        events = []
+        async for event in loop.run(sample_messages, sample_tools, context):
+            events.append(event)
+
+        assert not any(getattr(e, "status", None) == "goal_achieved:conversational_response" for e in events)
+        assert any(getattr(e, "status", None) == "goal_pending:tasks" for e in events)
+        assert any(
+            e.event_type == AgentEventType.ERROR and e.code == "GOAL_NOT_ACHIEVED" for e in events
+        )
+        assert not any(
+            getattr(e, "status", "").startswith("goal_achieved:") for e in events if hasattr(e, "status")
+        )
+
+    async def test_run_blocks_final_complete_when_task_gate_fails(
+        self, sample_messages, sample_tools, context
+    ):
+        """Final completion should still fail when cached tasks remain pending."""
+        loop = ReActLoop(
+            llm_invoker=MockLLMInvoker(),
+            tool_executor=MockToolExecutor(),
+            config=LoopConfig(max_steps=2, max_no_progress_steps=1),
+        )
+
+        async def _mock_run_iteration(messages, tools, run_context):
+            loop._task_statuses = {"t1": "pending"}
+            loop._last_evaluated_result = LoopResult.COMPLETE
+            if False:
+                yield AgentThoughtEvent(content="noop")
+
+        loop._run_iteration = _mock_run_iteration  # type: ignore[method-assign]
+
+        events = []
+        async for event in loop.run(sample_messages, sample_tools, context):
+            events.append(event)
+
+        assert not any(e.event_type == AgentEventType.COMPLETE for e in events)
+        assert any(
+            e.event_type == AgentEventType.ERROR and e.code == "GOAL_NOT_ACHIEVED" for e in events
+        )
+
+    async def test_task_list_update_replaces_cached_tasks(
+        self, sample_messages, sample_tools, context
+    ):
+        """A full task-list refresh should clear stale pending tasks."""
+        invoker = MockLLMInvoker()
+        invoker.set_events(
+            [
+                AgentTaskListUpdatedEvent(
+                    conversation_id="session-001",
+                    tasks=[{"id": "t1", "status": "pending"}],
+                ),
+                AgentTaskListUpdatedEvent(
+                    conversation_id="session-001",
+                    tasks=[],
+                ),
+                make_thought("Here is the answer in plain English."),
+            ]
+        )
+        loop = ReActLoop(
+            llm_invoker=invoker,
+            tool_executor=MockToolExecutor(),
+            config=LoopConfig(max_steps=2, max_no_progress_steps=1),
+        )
+
+        events = []
+        async for event in loop.run(sample_messages, sample_tools, context):
+            events.append(event)
+
+        assert any(
+            getattr(e, "status", None) == "goal_achieved:conversational_response" for e in events
+        )
+        assert any(e.event_type == AgentEventType.COMPLETE for e in events)
+        assert not any(getattr(e, "status", None) == "goal_pending:tasks" for e in events)
+
+    async def test_malformed_task_list_update_does_not_clear_existing_cache(
+        self, sample_messages, sample_tools, context
+    ):
+        """Malformed full-list updates should not drop previously known pending tasks."""
+        invoker = MockLLMInvoker()
+        invoker.set_events(
+            [
+                AgentTaskListUpdatedEvent(
+                    conversation_id="session-001",
+                    tasks=[{"id": "t1", "status": "pending"}],
+                ),
+                AgentTaskListUpdatedEvent(
+                    conversation_id="session-001",
+                    tasks=[{"id": None, "status": "completed"}],
+                ),
+                make_thought("Here is the answer in plain English."),
+            ]
+        )
+        loop = ReActLoop(
+            llm_invoker=invoker,
+            tool_executor=MockToolExecutor(),
+            config=LoopConfig(max_steps=2, max_no_progress_steps=1),
+        )
+
+        events = []
+        async for event in loop.run(sample_messages, sample_tools, context):
+            events.append(event)
+
+        assert not any(e.event_type == AgentEventType.COMPLETE for e in events)
+        assert any(
+            e.event_type == AgentEventType.ERROR and e.code == "GOAL_NOT_ACHIEVED" for e in events
+        )
+
+    async def test_malformed_first_task_list_update_fails_closed(
+        self, sample_messages, sample_tools, context
+    ):
+        """A malformed first task snapshot should block completion."""
+        invoker = MockLLMInvoker()
+        invoker.set_events(
+            [
+                AgentTaskListUpdatedEvent(
+                    conversation_id="session-001",
+                    tasks=[{"id": None, "status": "completed"}],
+                ),
+                make_thought("Here is the answer in plain English."),
+            ]
+        )
+        loop = ReActLoop(
+            llm_invoker=invoker,
+            tool_executor=MockToolExecutor(),
+            config=LoopConfig(max_steps=2, max_no_progress_steps=1),
+        )
+
+        events = []
+        async for event in loop.run(sample_messages, sample_tools, context):
+            events.append(event)
+
+        assert not any(e.event_type == AgentEventType.COMPLETE for e in events)
+        assert any(
+            e.event_type == AgentEventType.ERROR and e.code == "GOAL_NOT_ACHIEVED" for e in events
+        )
+
+    async def test_task_update_before_verified_snapshot_fails_closed(
+        self, sample_messages, sample_tools, context
+    ):
+        """Incremental task updates cannot establish completion without a snapshot."""
+        invoker = MockLLMInvoker()
+        invoker.set_events(
+            [
+                AgentTaskUpdatedEvent(
+                    conversation_id="session-001",
+                    task_id="t1",
+                    status="completed",
+                ),
+                make_thought("Here is the answer in plain English."),
+            ]
+        )
+        loop = ReActLoop(
+            llm_invoker=invoker,
+            tool_executor=MockToolExecutor(),
+            config=LoopConfig(max_steps=2, max_no_progress_steps=1),
+        )
+
+        events = []
+        async for event in loop.run(sample_messages, sample_tools, context):
+            events.append(event)
+
+        assert not any(e.event_type == AgentEventType.COMPLETE for e in events)
+        assert any(
+            e.event_type == AgentEventType.ERROR and e.code == "GOAL_NOT_ACHIEVED" for e in events
+        )
+
+    async def test_malformed_task_update_after_verified_snapshot_fails_closed(
+        self, sample_messages, sample_tools, context
+    ):
+        """Malformed incremental updates invalidate the cached task state."""
+        invoker = MockLLMInvoker()
+        invoker.set_events(
+            [
+                AgentTaskListUpdatedEvent(
+                    conversation_id="session-001",
+                    tasks=[{"id": "t1", "status": "in_progress"}],
+                ),
+                SimpleNamespace(
+                    event_type=AgentEventType.TASK_UPDATED,
+                    task_id=None,
+                    status=None,
+                ),
+                make_thought("Here is the answer in plain English."),
+            ]
+        )
+        loop = ReActLoop(
+            llm_invoker=invoker,
+            tool_executor=MockToolExecutor(),
+            config=LoopConfig(max_steps=2, max_no_progress_steps=1),
+        )
+
+        events = []
+        async for event in loop.run(sample_messages, sample_tools, context):
+            events.append(event)
+
+        assert not any(e.event_type == AgentEventType.COMPLETE for e in events)
         assert any(
             e.event_type == AgentEventType.ERROR and e.code == "GOAL_NOT_ACHIEVED" for e in events
         )

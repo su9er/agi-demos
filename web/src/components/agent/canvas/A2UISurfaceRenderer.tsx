@@ -5,7 +5,7 @@
  * dataModelUpdate) emitted by the backend canvas tool, then delegates
  * to CopilotKit's <A2UIViewer />.
  */
-import { type ReactNode, Component, memo, useCallback, useMemo, useRef } from 'react';
+import { type ReactNode, Component, memo, useCallback, useMemo, useState } from 'react';
 
 import { A2UIViewer, type A2UIViewerProps } from '@copilotkit/a2ui-renderer';
 
@@ -35,10 +35,15 @@ interface DataModelUpdatePayload {
   contents: unknown[];
 }
 
+interface DeleteSurfacePayload {
+  surfaceId: string;
+}
+
 type A2UIEnvelope =
   | { beginRendering: BeginRenderingPayload }
   | { surfaceUpdate: SurfaceUpdatePayload }
-  | { dataModelUpdate: DataModelUpdatePayload };
+  | { dataModelUpdate: DataModelUpdatePayload }
+  | { deleteSurface: DeleteSurfacePayload };
 
 // ---------------------------------------------------------------------------
 // JSONL parser
@@ -59,6 +64,10 @@ interface ParsedSurfaceResult {
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 type EnvelopeRecord = Record<string, unknown>;
+interface ParsedValueMapEntry {
+  key: string;
+  value: unknown;
+}
 const FORBIDDEN_DATA_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const PARSE_FAILED = Symbol('a2ui-parse-failed');
 const A2UI_COMPONENT_KEYS = new Set([
@@ -80,11 +89,239 @@ function normalizeEnvelopePayload(payload: unknown): EnvelopeRecord | null {
   return payload as EnvelopeRecord;
 }
 
-function normalizeStringValue(input: unknown): { literal: string } | null {
+function normalizeStringValue(
+  input: unknown
+): { literal?: string; literalString?: string; path?: string } | null {
   if (typeof input === 'string') return { literal: input };
   const record = normalizeEnvelopePayload(input);
   if (!record) return null;
-  return typeof record.literal === 'string' ? { literal: record.literal } : null;
+  if (typeof record.literalString === 'string') {
+    return { literalString: record.literalString };
+  }
+  if (typeof record.literal === 'string') {
+    return { literal: record.literal };
+  }
+  if (typeof record.path === 'string' && record.path.trim().length > 0) {
+    return { path: record.path };
+  }
+  return null;
+}
+
+function unwrapLiteralStringValue(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return input;
+  }
+  const record = input as Record<string, unknown>;
+  if (typeof record.literalString === 'string') return record.literalString;
+  if (typeof record.literal === 'string') return record.literal;
+  return input;
+}
+
+function normalizeDataPath(input: unknown): string | undefined {
+  if (typeof input === 'string' && input.trim().length > 0) {
+    return input.startsWith('/') ? input : `/${input.replace(/^\/+/, '')}`;
+  }
+  const record = normalizeEnvelopePayload(input);
+  if (!record) return undefined;
+
+  const candidate =
+    (typeof record.path === 'string' && record.path) ||
+    (typeof record.name === 'string' && record.name) ||
+    (typeof record.actionId === 'string' && record.actionId) ||
+    undefined;
+  if (!candidate) return undefined;
+  return candidate.startsWith('/') ? candidate : `/${candidate.replace(/^\/+/, '')}`;
+}
+
+function normalizeActionContextValue(input: unknown): EnvelopeRecord | null {
+  if (typeof input === 'string') return { literalString: input };
+  if (typeof input === 'number') return { literalNumber: input };
+  if (typeof input === 'boolean') return { literalBoolean: input };
+
+  const record = normalizeEnvelopePayload(input);
+  if (!record) return null;
+  if (typeof record.path === 'string' && record.path.trim().length > 0) {
+    return { path: record.path };
+  }
+  if (typeof record.literalString === 'string') {
+    return { literalString: record.literalString };
+  }
+  if (typeof record.literalNumber === 'number') {
+    return { literalNumber: record.literalNumber };
+  }
+  if (typeof record.literalBoolean === 'boolean') {
+    return { literalBoolean: record.literalBoolean };
+  }
+  if ('literal' in record) {
+    const literal = record.literal;
+    if (typeof literal === 'string') return { literalString: literal };
+    if (typeof literal === 'number') return { literalNumber: literal };
+    if (typeof literal === 'boolean') return { literalBoolean: literal };
+  }
+  return null;
+}
+
+function normalizeActionContext(
+  input: unknown
+): Array<{ key: string; value: Record<string, unknown> }> | undefined {
+  if (Array.isArray(input)) {
+    const normalizedItems = input.flatMap((item) => {
+      const record = normalizeEnvelopePayload(item);
+      if (!record || typeof record.key !== 'string' || !record.key) return [];
+      const value = normalizeActionContextValue(record.value);
+      if (!value) return [];
+      return [{ key: record.key, value }];
+    });
+    return normalizedItems.length > 0 ? normalizedItems : undefined;
+  }
+
+  const record = normalizeEnvelopePayload(input);
+  if (!record) return undefined;
+  const normalizedItems = Object.entries(record).flatMap(([key, value]) => {
+    if (!key) return [];
+    const normalizedValue = normalizeActionContextValue(value) ?? {
+      literalString: JSON.stringify(value ?? ''),
+    };
+    return [{ key, value: normalizedValue }];
+  });
+  return normalizedItems.length > 0 ? normalizedItems : undefined;
+}
+
+function getPathSegments(path: string): string[] {
+  if (!path || path === '/') return [];
+  const normalized = path.startsWith('/') ? path.slice(1) : path;
+  if (!normalized) return [];
+  return normalized
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~'));
+}
+
+function setNestedDataValue(target: Record<string, unknown>, path: string, value: unknown): void {
+  const segments = getPathSegments(path);
+  if (segments.length === 0) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+        if (!isSafeDataKey(key)) continue;
+        target[key] = nestedValue;
+      }
+    }
+    return;
+  }
+
+  let cursor: Record<string, unknown> = target;
+  for (const segment of segments.slice(0, -1)) {
+    if (!isSafeDataKey(segment)) return;
+    const existing = cursor[segment];
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+      cursor[segment] = Object.create(null) as Record<string, unknown>;
+    }
+    cursor = cursor[segment] as Record<string, unknown>;
+  }
+
+  const leaf = segments[segments.length - 1];
+  if (!leaf || !isSafeDataKey(leaf)) return;
+  cursor[leaf] = value;
+}
+
+function parseValueMapEntry(rawEntry: unknown): ParsedValueMapEntry | null {
+  const entry = normalizeEnvelopePayload(rawEntry);
+  if (!entry || typeof entry.key !== 'string' || !entry.key) return null;
+
+  if (Array.isArray(entry.valueMap)) {
+    const nested = valueMapEntriesToData(entry.valueMap);
+    return { key: entry.key, value: nested ?? [] };
+  }
+  if (typeof entry.valueString === 'string') {
+    return { key: entry.key, value: entry.valueString };
+  }
+  if (typeof entry.valueNumber === 'number') {
+    return { key: entry.key, value: entry.valueNumber };
+  }
+  if (typeof entry.valueBoolean === 'boolean') {
+    return { key: entry.key, value: entry.valueBoolean };
+  }
+  return { key: entry.key, value: null };
+}
+
+function valueMapEntriesToData(entries: unknown[]): Record<string, unknown> | unknown[] | null {
+  const parsedEntries = entries
+    .map((entry) => parseValueMapEntry(entry))
+    .filter((entry): entry is ParsedValueMapEntry => entry !== null);
+  if (parsedEntries.length === 0) return null;
+
+  const allNumericKeys = parsedEntries.every((entry) => /^\d+$/.test(entry.key));
+  if (allNumericKeys) {
+    const orderedEntries = [...parsedEntries].sort(
+      (left, right) => Number(left.key) - Number(right.key)
+    );
+    const maxIndex = Number(orderedEntries[orderedEntries.length - 1]?.key ?? -1);
+    const values = Array.from({ length: maxIndex + 1 }, () => null) as Array<unknown>;
+    for (const entry of orderedEntries) {
+      values[Number(entry.key)] = entry.value;
+    }
+    return values;
+  }
+
+  const result = Object.create(null) as Record<string, unknown>;
+  for (const entry of parsedEntries) {
+    if (entry.key === '.') {
+      if (entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value)) {
+        for (const [key, value] of Object.entries(entry.value as Record<string, unknown>)) {
+          if (!isSafeDataKey(key)) continue;
+          result[key] = value;
+        }
+      } else {
+        result['.'] = entry.value;
+      }
+      continue;
+    }
+    setNestedDataValue(result, entry.key, entry.value);
+  }
+  return result;
+}
+
+function applyDataModelUpdate(
+  target: Record<string, unknown>,
+  path: string,
+  contents: unknown[]
+): void {
+  const normalizedValueMap = valueMapEntriesToData(contents);
+  if (normalizedValueMap) {
+    if (path === '/' || path === '') {
+      if (Array.isArray(normalizedValueMap)) {
+        return;
+      }
+      for (const [key, value] of Object.entries(normalizedValueMap)) {
+        if (!isSafeDataKey(key) || key === '.') continue;
+        target[key] = value;
+      }
+      return;
+    }
+    if (!Array.isArray(normalizedValueMap)) {
+      const directValue = normalizedValueMap['.'];
+      if (directValue !== undefined) {
+        setNestedDataValue(target, path, directValue);
+        return;
+      }
+    }
+    setNestedDataValue(target, path, normalizedValueMap);
+    return;
+  }
+
+  if (path === '/' || path === '') {
+    for (const item of contents) {
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        for (const [key, value] of Object.entries(item as Record<string, unknown>)) {
+          if (!isSafeDataKey(key)) continue;
+          target[key] = value;
+        }
+      }
+    }
+    return;
+  }
+
+  setNestedDataValue(target, path, contents);
 }
 
 function normalizeComponentEntry(rawEntry: unknown): EnvelopeRecord | null {
@@ -106,32 +343,24 @@ function normalizeComponentEntry(rawEntry: unknown): EnvelopeRecord | null {
     normalizedPayload.style = siblingStyle;
   }
 
-  // Unwrap {literal: "..."} values in style objects — CSS properties must be plain strings
+  // Unwrap string literal wrappers — CSS properties must be plain strings
   const styleObj = normalizeEnvelopePayload(normalizedPayload.style);
   if (styleObj) {
     const unwrappedStyle: EnvelopeRecord = {};
     for (const [key, value] of Object.entries(styleObj)) {
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        const inner = value as Record<string, unknown>;
-        if (typeof inner.literal === 'string') {
-          unwrappedStyle[key] = inner.literal;
-        } else {
-          unwrappedStyle[key] = value;
-        }
-      } else {
-        unwrappedStyle[key] = value;
-      }
+      unwrappedStyle[key] = unwrapLiteralStringValue(value);
     }
     normalizedPayload.style = unwrappedStyle;
   }
 
   if (componentName === 'Text') {
     const normalizedText = normalizeStringValue(
-      normalizedPayload.text ?? normalizedPayload.literal
+      normalizedPayload.text ?? normalizedPayload.literal ?? normalizedPayload.literalString
     );
     if (normalizedText) {
       normalizedPayload.text = normalizedText;
       delete normalizedPayload.literal;
+      delete normalizedPayload.literalString;
     }
   }
 
@@ -154,18 +383,39 @@ function normalizeComponentEntry(rawEntry: unknown): EnvelopeRecord | null {
     // generates a plain object {} or omits it entirely.
     const actionForCtx = normalizeEnvelopePayload(normalizedPayload.action);
     if (actionForCtx) {
-      const ctx = actionForCtx.context;
-      if (ctx !== undefined && ctx !== null && !Array.isArray(ctx)) {
-        if (typeof ctx === 'object') {
-          actionForCtx.context = Object.entries(ctx as Record<string, unknown>).map(
-            ([key, val]) => ({ key, value: { literalString: String(val ?? '') } })
-          );
-        } else {
-          delete actionForCtx.context;
-        }
-        normalizedPayload.action = actionForCtx;
+      const normalizedContext = normalizeActionContext(actionForCtx.context);
+      if (normalizedContext) {
+        actionForCtx.context = normalizedContext;
+      } else {
+        delete actionForCtx.context;
+      }
+      normalizedPayload.action = actionForCtx;
+    }
+  }
+
+  if (componentName === 'TextField') {
+    const normalizedLabel = normalizeStringValue(normalizedPayload.label);
+    if (normalizedLabel) {
+      normalizedPayload.label = normalizedLabel;
+    }
+
+    const normalizedText = normalizeStringValue(normalizedPayload.text);
+    if (normalizedText) {
+      normalizedPayload.text = normalizedText;
+    } else {
+      const legacyTextPath = normalizeDataPath(
+        normalizedPayload.onChange ?? normalizedPayload.action ?? normalizedPayload.path
+      );
+      const legacyTextValue = normalizeStringValue(normalizedPayload.value);
+      if (legacyTextPath || legacyTextValue) {
+        normalizedPayload.text = {
+          ...(legacyTextPath ? { path: legacyTextPath } : {}),
+          ...(legacyTextValue ?? {}),
+        };
       }
     }
+    delete normalizedPayload.value;
+    delete normalizedPayload.onChange;
   }
 
   if (componentName === 'Card' || componentName === 'Column' || componentName === 'Row') {
@@ -245,7 +495,7 @@ function decodeJsonString(raw: string): string | null {
 }
 
 function extractLiteralTextValues(messages: string): string[] {
-  const literalRegex = /"literal"\s*:\s*"((?:\\.|[^"\\])*)"/g;
+  const literalRegex = /"(?:literal|literalString)"\s*:\s*"((?:\\.|[^"\\])*)"/g;
   const literalTexts: string[] = [];
   let match: RegExpExecArray | null = literalRegex.exec(messages);
   while (match) {
@@ -762,7 +1012,16 @@ function getEnvelopeSurfaceId(rawEnvelope: unknown): string | null {
     (envelope.type === 'dataModelUpdate' || envelope.type === 'data_model_update'
       ? typedPayload
       : null);
-  return getSurfaceId(begin) ?? getSurfaceId(update) ?? getSurfaceId(dataUpdate);
+  const deleteUpdate =
+    normalizeEnvelopePayload(envelope.deleteSurface) ??
+    normalizeEnvelopePayload(envelope.delete_surface) ??
+    (envelope.type === 'deleteSurface' || envelope.type === 'delete_surface' ? typedPayload : null);
+  return (
+    getSurfaceId(begin) ??
+    getSurfaceId(update) ??
+    getSurfaceId(dataUpdate) ??
+    getSurfaceId(deleteUpdate)
+  );
 }
 
 function consumeEnvelope(
@@ -791,7 +1050,15 @@ function consumeEnvelope(
     (envelope.type === 'dataModelUpdate' || envelope.type === 'data_model_update'
       ? typedPayload
       : null);
-  const envelopeSurfaceId = getSurfaceId(begin) ?? getSurfaceId(update) ?? getSurfaceId(dataUpdate);
+  const deleteUpdate =
+    normalizeEnvelopePayload(envelope.deleteSurface) ??
+    normalizeEnvelopePayload(envelope.delete_surface) ??
+    (envelope.type === 'deleteSurface' || envelope.type === 'delete_surface' ? typedPayload : null);
+  const envelopeSurfaceId =
+    getSurfaceId(begin) ??
+    getSurfaceId(update) ??
+    getSurfaceId(dataUpdate) ??
+    getSurfaceId(deleteUpdate);
   if (targetSurfaceId && envelopeSurfaceId && envelopeSurfaceId !== targetSurfaceId) {
     return;
   }
@@ -821,23 +1088,18 @@ function consumeEnvelope(
     );
   }
 
+  if (deleteUpdate) {
+    result.root = '';
+    result.components = [];
+    result.data = Object.create(null) as Record<string, unknown>;
+    result.styles = {};
+    return;
+  }
+
   if (!dataUpdate) return;
   const path = typeof dataUpdate.path === 'string' ? dataUpdate.path : '/';
   const contents = Array.isArray(dataUpdate.contents) ? dataUpdate.contents : [];
-  if (path === '/' || path === '') {
-    for (const item of contents) {
-      if (item && typeof item === 'object' && !Array.isArray(item)) {
-        for (const [key, value] of Object.entries(item as Record<string, unknown>)) {
-          if (!isSafeDataKey(key)) continue;
-          result.data[key] = value;
-        }
-      }
-    }
-    return;
-  }
-  const key = path.startsWith('/') ? path.slice(1) : path;
-  if (!isSafeDataKey(key)) return;
-  result.data[key] = contents;
+  applyDataModelUpdate(result.data, path, contents);
 }
 
 function parseA2UIMessages(jsonl: string, targetSurfaceId?: string): ParsedSurfaceResult {
@@ -1011,6 +1273,13 @@ export interface A2UISurfaceRendererProps {
   messages: string;
 }
 
+interface ActionErrorState {
+  message: string;
+  requestId: string | null;
+  surfaceId: string;
+  messages: string;
+}
+
 export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(({ surfaceId, messages }) => {
   const { parsed, resolvedSurfaceId } = useMemo(
     () => parseA2UIMessages(messages, surfaceId),
@@ -1035,10 +1304,14 @@ export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(({ surfaceId, 
       s.tabs.find((t) => t.a2uiSurfaceId === surfaceId);
     return tab?.a2uiHitlRequestId;
   });
-
-  // Track a sequence counter for the fallback client-generated request ID
-  // (used when no server-assigned HITL request_id is available).
-  const seqRef = useRef(0);
+  const [actionError, setActionError] = useState<ActionErrorState | null>(null);
+  const visibleActionError =
+    actionError &&
+    actionError.requestId === (hitlRequestId ?? null) &&
+    actionError.surfaceId === effectiveSurfaceId &&
+    actionError.messages === messages
+      ? actionError.message
+      : null;
 
   const handleAction = useCallback(
     (action: {
@@ -1047,18 +1320,28 @@ export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(({ surfaceId, 
       timestamp: string;
       context: Record<string, unknown>;
     }) => {
+      const setScopedError = (message: string) => {
+        setActionError({
+          message,
+          requestId: hitlRequestId ?? null,
+          surfaceId: effectiveSurfaceId,
+          messages,
+        });
+      };
       if (!conversationId) {
+        setScopedError('This canvas action is no longer connected to an active conversation.');
         console.warn('[A2UI] No active conversation -- cannot dispatch action');
         return;
       }
-      seqRef.current += 1;
-      // Use the server-assigned HITL request_id if available (enables the
-      // HITL coordinator Future to resolve). Fall back to a client-generated
-      // sequential ID for non-interactive surfaces.
-      const requestId = hitlRequestId ?? `a2ui_${effectiveSurfaceId}_${String(seqRef.current)}`;
+      if (!hitlRequestId) {
+        setScopedError('This interactive surface is no longer awaiting input.');
+        console.warn('[A2UI] Missing HITL request_id -- refusing to dispatch action');
+        return;
+      }
+      setActionError(null);
       agentService
         .respondToA2UIAction(
-          requestId,
+          hitlRequestId,
           action.actionName ||
             ((action as Record<string, unknown>).actionId as string) ||
             'unknown',
@@ -1066,10 +1349,11 @@ export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(({ surfaceId, 
           action.context
         )
         .catch((err: unknown) => {
+          setScopedError('Failed to send the canvas action. Please try again.');
           console.error('[A2UI] Failed to dispatch action:', err);
         });
     },
-    [conversationId, effectiveSurfaceId, hitlRequestId]
+    [conversationId, effectiveSurfaceId, hitlRequestId, messages]
   );
 
   // Guard: need at least a root and components to render
@@ -1106,6 +1390,11 @@ export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(({ surfaceId, 
               onAction={handleAction}
               {...(Object.keys(parsed.styles).length > 0 ? { styles: parsed.styles } : {})}
             />
+            {visibleActionError ? (
+              <p className="mt-3 text-sm text-amber-700 dark:text-amber-300" role="alert">
+                {visibleActionError}
+              </p>
+            ) : null}
           </div>
         </A2UIErrorBoundary>
       </div>

@@ -35,6 +35,7 @@ import { useSandboxStore } from '@/stores/sandbox';
 
 import { artifactService } from '@/services/artifactService';
 
+import { normalizeExecutionSummary } from '@/utils/executionSummary';
 import { isOfficeMimeType, isOfficeExtension } from '@/utils/filePreview';
 
 import { CodeBlock as SharedCodeBlock } from '../chat/CodeBlock';
@@ -67,6 +68,7 @@ import type {
 import type {
   ActEvent,
   ArtifactCreatedEvent,
+  ArtifactReference,
   ClarificationAskedEventData,
   DecisionAskedEventData,
   EnvVarRequestedEventData,
@@ -80,6 +82,56 @@ import type {
 // ========================================
 // Utilities
 // ========================================
+
+const COUNT_FORMATTER = new Intl.NumberFormat('en-US');
+const SUMMARY_PILL_CLASSES =
+  'inline-flex items-center gap-1 rounded-full border border-black/8 bg-black/[0.02] px-2.5 py-1 text-xs text-neutral-600';
+
+const formatCount = (value: number): string => COUNT_FORMATTER.format(value);
+
+const SummaryPill: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <span className={SUMMARY_PILL_CLASSES}>
+    <span className="text-neutral-500">{label}</span>
+    <span className="font-medium text-neutral-800">{value}</span>
+  </span>
+);
+
+const ExecutionSummaryPanel: React.FC<{
+  summary: ReturnType<typeof normalizeExecutionSummary>;
+}> = ({ summary }) => {
+  if (!summary) {
+    return null;
+  }
+
+  const taskSummary = summary.tasks;
+
+  return (
+    <div className="mb-3 flex flex-wrap gap-2">
+      <SummaryPill label="Steps" value={formatCount(summary.stepCount)} />
+      {taskSummary ? (
+        <SummaryPill
+          label="Tasks"
+          value={`${formatCount(taskSummary.completed)}/${formatCount(taskSummary.total)}`}
+        />
+      ) : null}
+      {taskSummary && taskSummary.remaining > 0 ? (
+        <SummaryPill label="Remaining" value={formatCount(taskSummary.remaining)} />
+      ) : null}
+      {summary.artifactCount > 0 ? (
+        <SummaryPill label="Artifacts" value={formatCount(summary.artifactCount)} />
+      ) : null}
+      {summary.callCount > 0 ? (
+        <SummaryPill label="LLM calls" value={formatCount(summary.callCount)} />
+      ) : null}
+      {summary.totalTokens.total > 0 ? (
+        <SummaryPill label="Tokens" value={formatCount(summary.totalTokens.total)} />
+      ) : null}
+      {summary.totalCost > 0 ? (
+        <SummaryPill label="Cost" value={summary.totalCostFormatted} />
+      ) : null}
+    </div>
+  );
+};
 
 // ========================================
 // HITL Adapters - Convert TimelineEvent to SSE format for InlineHITLCard
@@ -281,6 +333,87 @@ function getFileIconForMime(mimeType: string): React.ComponentType<{ size?: numb
   return FileText;
 }
 
+function getArtifactLabel(artifact: ArtifactReference): string {
+  const rawValue = artifact.object_key ?? artifact.url;
+  try {
+    const url = new URL(rawValue, 'https://memstack.local');
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    const fileName = pathParts[pathParts.length - 1];
+    return fileName ? safeDecodeURIComponent(fileName) : rawValue;
+  } catch {
+    const pathParts = rawValue.split('/').filter(Boolean);
+    const fileName = pathParts[pathParts.length - 1];
+    return fileName ? safeDecodeURIComponent(fileName) : rawValue;
+  }
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function isSafeArtifactUrl(src: string): boolean {
+  if (!src) return false;
+  if (src.startsWith('/')) return true;
+  const lower = src.toLowerCase();
+  if (lower.startsWith('data:application/pdf')) return true;
+  if (lower.startsWith('data:')) return false;
+  try {
+    const url = new URL(src, window.location.origin);
+    return url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'blob:';
+  } catch {
+    return false;
+  }
+}
+
+const ArtifactReferenceList: React.FC<{
+  artifacts?: ArtifactReference[] | undefined;
+}> = ({ artifacts }) => {
+  if (!artifacts || artifacts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 flex flex-col gap-1.5">
+      {artifacts.map((artifact) => {
+        const mimeType = artifact.mime_type ?? 'application/octet-stream';
+        const FileIcon = getFileIconForMime(mimeType);
+        return (
+          <a
+            key={`${artifact.url}-${artifact.object_key ?? ''}`}
+            href={artifact.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            download
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200/60 bg-white/70 px-3 py-1.5 text-sm text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-200"
+          >
+            <FileIcon size={16} className="text-slate-500 dark:text-slate-400" />
+            <span className="truncate">{getArtifactLabel(artifact)}</span>
+            {typeof artifact.size_bytes === 'number' ? (
+              <span className="text-2xs whitespace-nowrap text-slate-400 dark:text-slate-500">
+                {formatBytesSize(artifact.size_bytes)}
+              </span>
+            ) : null}
+            <Download size={14} className="ml-auto flex-shrink-0 text-slate-400 dark:text-slate-500" />
+          </a>
+        );
+      })}
+    </div>
+  );
+};
+
+const getSafeArtifactReferences = (
+  artifacts: ArtifactReference[] | undefined
+): ArtifactReference[] => {
+  if (!artifacts) {
+    return [];
+  }
+  return artifacts.filter((artifact) => isSafeArtifactUrl(artifact.url));
+};
+
 // User Message Component - Modern floating style with action bar
 const UserMessage: React.FC<UserMessageProps> = memo(
   ({ content, onReply, forcedSkillName, forcedSubAgentName, fileMetadata }) => {
@@ -407,10 +540,14 @@ const ASSISTANT_COMPONENTS: Components = {
 
 // Assistant Message Component - Modern card style with action bar
 const AssistantMessage: React.FC<AssistantMessageProps> = memo(
-  ({ content, isStreaming, isPinned, onPin, onReply }) => {
+  ({ content, metadata, artifacts, isStreaming, isPinned, onPin, onReply }) => {
     const [showSaveTemplate, setShowSaveTemplate] = useState(false);
     const { remarkPlugins, rehypePlugins } = useMarkdownPlugins(content);
-    if (!content && !isStreaming) return null;
+    const executionSummary = normalizeExecutionSummary(metadata?.executionSummary);
+    const completionArtifacts = getSafeArtifactReferences(
+      artifacts ?? (metadata?.artifacts as ArtifactReference[] | undefined)
+    );
+    if (!content && !isStreaming && !executionSummary && completionArtifacts.length === 0) return null;
     return (
       <div className="group flex items-start gap-3 pb-1">
         <div className={ASSISTANT_AVATAR_CLASSES}>
@@ -419,6 +556,7 @@ const AssistantMessage: React.FC<AssistantMessageProps> = memo(
         <div className={`flex-1 ${MESSAGE_MAX_WIDTH_CLASSES}`}>
           <div className="relative">
             <div className={ASSISTANT_BUBBLE_CLASSES}>
+              <ExecutionSummaryPanel summary={executionSummary} />
               <div className={MARKDOWN_PROSE_CLASSES}>
                 {content ? (
                   <ReactMarkdown
@@ -430,6 +568,7 @@ const AssistantMessage: React.FC<AssistantMessageProps> = memo(
                   </ReactMarkdown>
                 ) : null}
               </div>
+              <ArtifactReferenceList artifacts={completionArtifacts} />
             </div>
             {/* Action bar - appears on hover at top-right */}
             {!isStreaming && content && (
@@ -750,41 +889,53 @@ const TextEnd: React.FC<TextEndProps> = memo(({ event, isPinned, onPin, onReply 
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const fullText = 'fullText' in event ? (event.fullText as string) : '';
   const { remarkPlugins, rehypePlugins } = useMarkdownPlugins(fullText);
-  if (!fullText || !fullText.trim()) return null;
+  const executionSummary = normalizeExecutionSummary(event.metadata?.executionSummary);
+  const completionArtifacts = getSafeArtifactReferences(
+    event.artifacts ?? (event.metadata?.artifacts as ArtifactReference[] | undefined)
+  );
+  if ((!fullText || !fullText.trim()) && !executionSummary && completionArtifacts.length === 0) {
+    return null;
+  }
 
   return (
     <div className="group flex items-start gap-3 pb-2">
       <div className={ASSISTANT_AVATAR_CLASSES}>
         <Bot size={18} className="text-primary" />
       </div>
-      <div className={`flex-1 ${MESSAGE_MAX_WIDTH_CLASSES}`}>
-        <div className="relative">
-          <div className={ASSISTANT_BUBBLE_CLASSES}>
-            <div className={MARKDOWN_PROSE_CLASSES}>
-              <ReactMarkdown
-                remarkPlugins={remarkPlugins}
-                rehypePlugins={rehypePlugins}
-                components={safeMarkdownComponents}
-              >
-                {fullText}
-              </ReactMarkdown>
+        <div className={`flex-1 ${MESSAGE_MAX_WIDTH_CLASSES}`}>
+          <div className="relative">
+            <div className={ASSISTANT_BUBBLE_CLASSES}>
+              <ExecutionSummaryPanel summary={executionSummary} />
+              <div className={MARKDOWN_PROSE_CLASSES}>
+                {fullText ? (
+                  <ReactMarkdown
+                    remarkPlugins={remarkPlugins}
+                    rehypePlugins={rehypePlugins}
+                    components={safeMarkdownComponents}
+                  >
+                    {fullText}
+                  </ReactMarkdown>
+                ) : null}
+              </div>
+              <ArtifactReferenceList artifacts={completionArtifacts} />
             </div>
+            {/* Action bar - appears on hover at top-right */}
+            {fullText ? (
+              <div className="absolute -top-3 right-2 z-10">
+                <MessageActionBar
+                  role="assistant"
+                  content={fullText}
+                  isPinned={isPinned}
+                  onPin={onPin}
+                  onReply={onReply}
+                  onSaveAsTemplate={() => {
+                    setShowSaveTemplate(true);
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
-          {/* Action bar - appears on hover at top-right */}
-          <div className="absolute -top-3 right-2 z-10">
-            <MessageActionBar
-              role="assistant"
-              content={fullText}
-              isPinned={isPinned}
-              onPin={onPin}
-              onReply={onReply}
-              onSaveAsTemplate={() => {
-                setShowSaveTemplate(true);
-              }}
-            />
-          </div>
-        </div>
-        {showSaveTemplate && (
+        {showSaveTemplate && fullText ? (
           <SaveTemplateModal
             content={fullText}
             visible={showSaveTemplate}
@@ -795,7 +946,7 @@ const TextEnd: React.FC<TextEndProps> = memo(({ event, isPinned, onPin, onReply 
               setShowSaveTemplate(false);
             }}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -1185,6 +1336,8 @@ const MessageBubbleRoot: React.FC<MessageBubbleRootProps> = memo(
         return (
           <AssistantMessage
             content={getContent(event)}
+            metadata={event.metadata}
+            artifacts={event.artifacts}
             isStreaming={isStreaming}
             isPinned={isPinned}
             onPin={onPin}

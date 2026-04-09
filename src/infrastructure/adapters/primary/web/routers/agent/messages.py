@@ -50,6 +50,7 @@ _DISPLAYABLE_EVENTS = {
     "decision_answered",
     "env_var_requested",
     "env_var_provided",
+    "a2ui_action_asked",
     # Agent emits both permission_asked and permission_requested
     "permission_asked",
     "permission_requested",
@@ -139,6 +140,40 @@ def _build_artifact_maps(events: list[Any]) -> tuple[dict[str, Any], dict[str, A
     return artifact_ready_map, artifact_error_map
 
 
+def _timeline_event_id(event: Any) -> str:
+    """Build the stable timeline item id for an execution event."""
+    return f"{event.event_type}-{event.event_time_us}-{event.event_counter}"
+
+
+def _build_completion_map(
+    message_events_by_id: dict[str, list[Any]],
+) -> dict[str, dict[str, Any]]:
+    """Build assistant timeline-id -> complete event payload lookup."""
+    completion_map: dict[str, dict[str, Any]] = {}
+    for message_id, message_events in message_events_by_id.items():
+        if not message_id:
+            continue
+
+        last_assistant_event = next(
+            (event for event in reversed(message_events) if event.event_type == "assistant_message"),
+            None,
+        )
+        if last_assistant_event is None:
+            continue
+
+        completion_event = next(
+            (event for event in reversed(message_events) if event.event_type == "complete"),
+            None,
+        )
+        if completion_event is None:
+            continue
+
+        data = completion_event.event_data or {}
+        if isinstance(data, dict):
+            completion_map[_timeline_event_id(last_assistant_event)] = data
+    return completion_map
+
+
 def _resolve_hitl_answered(
     request_id: str,
     field_name: str,
@@ -179,12 +214,32 @@ def _build_user_message(data: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
     return item
 
 
-def _build_assistant_message(data: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
-    return {
+def _build_assistant_message(
+    data: dict[str, Any],
+    event: Any,
+    completion_map: dict[str, dict[str, Any]],
+    **_kwargs: Any,
+) -> dict[str, Any]:
+    completion_data = completion_map.get(_timeline_event_id(event), {})
+    artifacts = data.get("artifacts") or completion_data.get("artifacts")
+    trace_url = data.get("trace_url") or completion_data.get("trace_url")
+    execution_summary = data.get("execution_summary") or completion_data.get("execution_summary")
+
+    item: dict[str, Any] = {
         "message_id": data.get("message_id"),
         "content": data.get("content", ""),
         "role": "assistant",
     }
+    if artifacts:
+        item["artifacts"] = artifacts
+    metadata: dict[str, Any] = {}
+    if trace_url:
+        metadata["traceUrl"] = trace_url
+    if execution_summary:
+        metadata["executionSummary"] = execution_summary
+    if metadata:
+        item["metadata"] = metadata
+    return item
 
 
 def _build_thought(data: dict[str, Any], **_kwargs: Any) -> dict[str, Any] | object:
@@ -194,7 +249,9 @@ def _build_thought(data: dict[str, Any], **_kwargs: Any) -> dict[str, Any] | obj
     return {"content": thought_content}
 
 
-def _build_act(data: dict[str, Any], event: Any, tool_exec_map: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+def _build_act(
+    data: dict[str, Any], event: Any, tool_exec_map: dict[str, Any], **_kwargs: Any
+) -> dict[str, Any]:
     item: dict[str, Any] = {
         "toolName": data.get("tool_name", ""),
         "toolInput": data.get("tool_input", {}),
@@ -246,7 +303,10 @@ def _build_task_complete(data: dict[str, Any], **_kwargs: Any) -> dict[str, Any]
 
 
 def _build_artifact_created(
-    data: dict[str, Any], artifact_ready_map: dict[str, Any], artifact_error_map: dict[str, Any], **_kwargs: Any
+    data: dict[str, Any],
+    artifact_ready_map: dict[str, Any],
+    artifact_error_map: dict[str, Any],
+    **_kwargs: Any,
 ) -> dict[str, Any]:
     artifact_id = data.get("artifact_id", "")
     item: dict[str, Any] = {
@@ -275,7 +335,10 @@ def _build_artifact_skip(**_kwargs: Any) -> object:
 
 
 def _build_clarification_asked(
-    data: dict[str, Any], hitl_answered_map: dict[str, Any], hitl_status_map: dict[str, Any], **_kwargs: Any
+    data: dict[str, Any],
+    hitl_answered_map: dict[str, Any],
+    hitl_status_map: dict[str, Any],
+    **_kwargs: Any,
 ) -> dict[str, Any]:
     request_id = data.get("request_id", "")
     answered, answer = _resolve_hitl_answered(
@@ -296,7 +359,10 @@ def _build_clarification_answered(data: dict[str, Any], **_kwargs: Any) -> dict[
 
 
 def _build_decision_asked(
-    data: dict[str, Any], hitl_answered_map: dict[str, Any], hitl_status_map: dict[str, Any], **_kwargs: Any
+    data: dict[str, Any],
+    hitl_answered_map: dict[str, Any],
+    hitl_status_map: dict[str, Any],
+    **_kwargs: Any,
 ) -> dict[str, Any]:
     request_id = data.get("request_id", "")
     answered, decision = _resolve_hitl_answered(
@@ -319,7 +385,10 @@ def _build_decision_answered(data: dict[str, Any], **_kwargs: Any) -> dict[str, 
 
 
 def _build_env_var_requested(
-    data: dict[str, Any], hitl_answered_map: dict[str, Any], hitl_status_map: dict[str, Any], **_kwargs: Any
+    data: dict[str, Any],
+    hitl_answered_map: dict[str, Any],
+    hitl_status_map: dict[str, Any],
+    **_kwargs: Any,
 ) -> dict[str, Any]:
     request_id = data.get("request_id", "")
     answered = False
@@ -354,8 +423,27 @@ def _build_env_var_provided(data: dict[str, Any], **_kwargs: Any) -> dict[str, A
     }
 
 
+def _build_a2ui_action_asked(
+    data: dict[str, Any], hitl_status_map: dict[str, Any], **_kwargs: Any
+) -> dict[str, Any]:
+    request_id = data.get("request_id", "")
+    status_info = hitl_status_map.get(request_id, {})
+    status = status_info.get("status")
+    return {
+        "request_id": request_id,
+        "block_id": data.get("block_id", ""),
+        "title": data.get("title"),
+        "timeout_seconds": data.get("timeout_seconds"),
+        "status": status,
+        "answered": status in ("answered", "completed"),
+    }
+
+
 def _build_permission_asked(
-    data: dict[str, Any], hitl_answered_map: dict[str, Any], hitl_status_map: dict[str, Any], **_kwargs: Any
+    data: dict[str, Any],
+    hitl_answered_map: dict[str, Any],
+    hitl_status_map: dict[str, Any],
+    **_kwargs: Any,
 ) -> dict[str, Any]:
     request_id = data.get("request_id", "")
     answered = False
@@ -415,6 +503,7 @@ _EVENT_BUILDERS: dict[str, Any] = {
     "decision_answered": _build_decision_answered,
     "env_var_requested": _build_env_var_requested,
     "env_var_provided": _build_env_var_provided,
+    "a2ui_action_asked": _build_a2ui_action_asked,
     "permission_requested": _build_permission_asked,
     "permission_asked": _build_permission_asked,
     "permission_granted": _build_permission_replied,
@@ -430,6 +519,7 @@ def _build_timeline(
     hitl_status_map: dict[str, Any],
     artifact_ready_map: dict[str, Any],
     artifact_error_map: dict[str, Any],
+    completion_map: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Build the timeline list from raw events using the dispatch dict."""
     timeline: list[dict[str, Any]] = []
@@ -448,12 +538,13 @@ def _build_timeline(
             hitl_status_map=hitl_status_map,
             artifact_ready_map=artifact_ready_map,
             artifact_error_map=artifact_error_map,
+            completion_map=completion_map,
         )
         if fields is _SKIP_EVENT_SENTINEL:
             continue
 
         item = {
-            "id": f"{event_type}-{event.event_time_us}-{event.event_counter}",
+            "id": _timeline_event_id(event),
             "type": event_type,
             "eventTimeUs": event.event_time_us,
             "eventCounter": event.event_counter,
@@ -584,8 +675,35 @@ async def get_conversation_messages(
         hitl_status_map = _build_hitl_status_map(
             await hitl_repo.get_by_conversation(conversation_id)
         )
+        visible_assistant_message_ids = {
+            event.message_id
+            for event in events
+            if event.event_type == "assistant_message" and event.message_id
+        }
+        visible_artifact_message_ids = {
+            event.message_id
+            for event in events
+            if event.event_type == "artifact_created" and event.message_id
+        }
+        message_events_by_id = await event_repo.get_events_by_message_ids(
+            conversation_id,
+            visible_assistant_message_ids | visible_artifact_message_ids
+        )
+        completion_map = _build_completion_map(
+            {
+                message_id: message_events_by_id.get(message_id, [])
+                for message_id in visible_assistant_message_ids
+            }
+        )
 
-        artifact_ready_map, artifact_error_map = _build_artifact_maps(events)
+        message_context_events = [
+            message_event
+            for message_events in message_events_by_id.values()
+            for message_event in message_events
+        ]
+        artifact_ready_map, artifact_error_map = _build_artifact_maps(
+            [*events, *message_context_events]
+        )
 
         timeline = _build_timeline(
             events,
@@ -594,6 +712,7 @@ async def get_conversation_messages(
             hitl_status_map,
             artifact_ready_map,
             artifact_error_map,
+            completion_map,
         )
 
         first_time_us_val = timeline[0]["eventTimeUs"] if timeline else None
@@ -891,7 +1010,9 @@ def _compute_timeline_data(executions: list[dict[str, Any]]) -> list[dict[str, A
     if not executions:
         return []
 
-    time_buckets: dict[str, dict[str, int]] = defaultdict(lambda: {"count": 0, "completed": 0, "failed": 0})
+    time_buckets: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"count": 0, "completed": 0, "failed": 0}
+    )
 
     for e in executions:
         if not e.get("started_at"):

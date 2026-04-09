@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -203,3 +204,183 @@ async def test_connect_chat_stream_keeps_higher_cursor_than_replay() -> None:
 
     assert [event["type"] for event in events] == ["text_delta", "complete"]
     assert events[0]["data"]["delta"] == "keep"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_replay_db_events_repairs_malformed_task_list_updated_payload() -> None:
+    service = _build_service()
+    created_at = datetime.now(UTC)
+    task_snapshot = [
+        {
+            "id": "task-1",
+            "conversation_id": "conv-1",
+            "content": "Repair replay payload",
+            "status": "pending",
+            "priority": "medium",
+            "order_index": 0,
+            "created_at": created_at.isoformat(),
+            "updated_at": created_at.isoformat(),
+        }
+    ]
+    service._agent_execution_event_repo.get_events_by_message.return_value = [
+        SimpleNamespace(
+            event_type="task_list_updated",
+            event_data={},
+            created_at=created_at,
+            event_time_us=55,
+            event_counter=2,
+        )
+    ]
+    service._load_task_snapshot = AsyncMock(return_value=task_snapshot)
+
+    events, last_event_time_us, last_event_counter, saw_complete = await service._replay_db_events(
+        "conv-1",
+        "msg-1",
+    )
+
+    assert events == [
+        {
+            "type": "task_list_updated",
+            "data": {"conversation_id": "conv-1", "tasks": task_snapshot},
+            "timestamp": created_at.isoformat(),
+            "event_time_us": 55,
+            "event_counter": 2,
+        }
+    ]
+    assert last_event_time_us == 55
+    assert last_event_counter == 2
+    assert saw_complete is False
+    service._agent_execution_event_repo.get_events_by_message.assert_awaited_once_with(
+        conversation_id="conv-1",
+        message_id="msg-1",
+    )
+    service._load_task_snapshot.assert_awaited_once_with("conv-1")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_replay_db_events_replaces_malformed_task_updated_with_snapshot() -> None:
+    service = _build_service()
+    created_at = datetime.now(UTC)
+    task_snapshot = [
+        {
+            "id": "task-1",
+            "conversation_id": "conv-1",
+            "content": "Recovered task state",
+            "status": "in_progress",
+            "priority": "medium",
+            "order_index": 0,
+            "created_at": created_at.isoformat(),
+            "updated_at": created_at.isoformat(),
+        }
+    ]
+    service._agent_execution_event_repo.get_events_by_message.return_value = [
+        SimpleNamespace(
+            event_type="task_updated",
+            event_data={"conversation_id": "conv-1"},
+            created_at=created_at,
+            event_time_us=89,
+            event_counter=4,
+        )
+    ]
+    service._load_task_snapshot = AsyncMock(return_value=task_snapshot)
+
+    events, last_event_time_us, last_event_counter, saw_complete = await service._replay_db_events(
+        "conv-1",
+        "msg-1",
+    )
+
+    assert events == [
+        {
+            "type": "task_list_updated",
+            "data": {"conversation_id": "conv-1", "tasks": task_snapshot},
+            "timestamp": created_at.isoformat(),
+            "event_time_us": 89,
+            "event_counter": 4,
+        }
+    ]
+    assert last_event_time_us == 89
+    assert last_event_counter == 4
+    assert saw_complete is False
+    service._agent_execution_event_repo.get_events_by_message.assert_awaited_once_with(
+        conversation_id="conv-1",
+        message_id="msg-1",
+    )
+    service._load_task_snapshot.assert_awaited_once_with("conv-1")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_replay_db_events_repairs_task_update_for_wrong_conversation() -> None:
+    service = _build_service()
+    created_at = datetime.now(UTC)
+    task_snapshot = [
+        {
+            "id": "task-2",
+            "conversation_id": "conv-1",
+            "content": "Correct conversation snapshot",
+            "status": "completed",
+            "priority": "medium",
+            "order_index": 1,
+            "created_at": created_at.isoformat(),
+            "updated_at": created_at.isoformat(),
+        }
+    ]
+    service._agent_execution_event_repo.get_events_by_message.return_value = [
+        SimpleNamespace(
+            event_type="task_updated",
+            event_data={
+                "conversation_id": "conv-other",
+                "task_id": "task-2",
+                "status": "completed",
+            },
+            created_at=created_at,
+            event_time_us=144,
+            event_counter=5,
+        )
+    ]
+    service._load_task_snapshot = AsyncMock(return_value=task_snapshot)
+
+    events, last_event_time_us, last_event_counter, saw_complete = await service._replay_db_events(
+        "conv-1",
+        "msg-1",
+    )
+
+    assert events == [
+        {
+            "type": "task_list_updated",
+            "data": {"conversation_id": "conv-1", "tasks": task_snapshot},
+            "timestamp": created_at.isoformat(),
+            "event_time_us": 144,
+            "event_counter": 5,
+        }
+    ]
+    assert last_event_time_us == 144
+    assert last_event_counter == 5
+    assert saw_complete is False
+    service._agent_execution_event_repo.get_events_by_message.assert_awaited_once_with(
+        conversation_id="conv-1",
+        message_id="msg-1",
+    )
+    service._load_task_snapshot.assert_awaited_once_with("conv-1")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_extract_first_user_message_scopes_event_lookup_to_conversation() -> None:
+    service = _build_service()
+    service._agent_execution_event_repo.get_events_by_message.return_value = [
+        SimpleNamespace(
+            event_type="user_message",
+            event_data={"content": "hello"},
+        )
+    ]
+
+    content = await service._extract_first_user_message("conv-1", "msg-1")
+
+    assert content == "hello"
+    service._agent_execution_event_repo.get_events_by_message.assert_awaited_once_with(
+        conversation_id="conv-1",
+        message_id="msg-1",
+    )

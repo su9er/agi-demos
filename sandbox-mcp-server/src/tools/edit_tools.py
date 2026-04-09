@@ -4,15 +4,14 @@ Provides AST-based editing, batch editing, and edit preview capabilities.
 """
 
 import ast
-import asyncio
 import difflib
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List
 
 import aiofiles
 
 from src.server.websocket_server import MCPTool
+from src.tools.file_tools import _resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +46,11 @@ async def edit_by_ast(
         new_value: New value for the operation
         _workspace_dir: Workspace directory
 
-    Returns:
-        Edit result
-    """
+        Returns:
+            Edit result
+        """
     try:
-        full_path = Path(_workspace_dir) / file_path
+        full_path = _resolve_path(file_path, _workspace_dir)
 
         if not full_path.exists():
             return {
@@ -63,7 +62,6 @@ async def edit_by_ast(
         tree = ast.parse(content, filename=str(full_path))
 
         modified = False
-        class_context = None  # Track if we're inside a class
 
         class NameTransformer(ast.NodeTransformer):
             """AST node transformer for renaming."""
@@ -73,36 +71,71 @@ async def edit_by_ast(
                 self.new_name = new_name
                 self.target_type = target_type
                 self.modified = False
+                self._class_depth = 0
+                self._function_depth = 0
 
             def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
-                # Check if this is the target class
                 if target_type == "class" and node.name == self.old_name:
                     node.name = self.new_name
                     self.modified = True
+                self._class_depth += 1
+                node = self.generic_visit(node)
+                self._class_depth -= 1
                 return node
 
-            def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
-                # Check if this is the target function
-                if target_type == "function" and node.name == self.old_name:
+            def _visit_function(
+                self,
+                node: ast.FunctionDef | ast.AsyncFunctionDef,
+            ) -> ast.FunctionDef | ast.AsyncFunctionDef:
+                is_method = self._class_depth > 0
+                is_direct_method = is_method and self._function_depth == 0
+                if (
+                    target_type == "function"
+                    and not is_method
+                    and node.name == self.old_name
+                ):
                     node.name = self.new_name
                     self.modified = True
-                return node
+                elif (
+                    target_type == "method"
+                    and is_direct_method
+                    and node.name == self.old_name
+                ):
+                    node.name = self.new_name
+                    self.modified = True
+                self._function_depth += 1
+                try:
+                    return self.generic_visit(node)
+                finally:
+                    self._function_depth -= 1
+
+            def visit_FunctionDef(
+                self, node: ast.FunctionDef
+            ) -> ast.FunctionDef | ast.AsyncFunctionDef:
+                return self._visit_function(node)
+
+            def visit_AsyncFunctionDef(
+                self, node: ast.AsyncFunctionDef
+            ) -> ast.FunctionDef | ast.AsyncFunctionDef:
+                return self._visit_function(node)
 
             def visit_Attribute(self, node: ast.Attribute) -> ast.Attribute:
-                # Check for references to the old name
-                if isinstance(node.value, ast.Name) and node.value.id == self.old_name:
-                    # Only rename if it's the direct attribute (not method call)
-                    if node.attr == self.old_name:
-                        return ast.Attribute(
-                            ast.Name(self.new_name),
-                            self.new_name
-                        )
+                node = self.generic_visit(node)
+                if (
+                    target_type == "method"
+                    and node.attr == self.old_name
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id in {"self", "cls"}
+                ):
+                    node.attr = self.new_name
+                    self.modified = True
                 return node
 
         # Apply transformation based on operation
         if operation == "rename":
             transformer = NameTransformer(target_name, new_value)
             new_tree = transformer.visit(tree)
+            ast.fix_missing_locations(new_tree)
 
             if transformer.modified:
                 modified = True
@@ -117,7 +150,7 @@ async def edit_by_ast(
         elif operation == "delete":
             # Simplified delete - would need more sophisticated AST manipulation
             return {
-                "content": [{"type": "text", "text": f"Delete operation not yet implemented"}],
+                "content": [{"type": "text", "text": "Delete operation not yet implemented"}],
                 "isError": True,
             }
 
@@ -234,7 +267,7 @@ async def batch_edit(
                 continue
 
             try:
-                full_path = Path(_workspace_dir) / file_path
+                full_path = _resolve_path(file_path, _workspace_dir)
 
                 if not full_path.exists():
                     failed += 1
@@ -391,7 +424,7 @@ async def preview_edit(
         Preview with diff
     """
     try:
-        full_path = Path(_workspace_dir) / file_path
+        full_path = _resolve_path(file_path, _workspace_dir)
 
         if not full_path.exists():
             return {
@@ -404,7 +437,7 @@ async def preview_edit(
 
         if old_string not in content:
             return {
-                "content": [{"type": "text", "text": f"Old string not found in file"}],
+                "content": [{"type": "text", "text": "Old string not found in file"}],
                 "isError": False,
                 "metadata": {
                     "changes_found": 0,

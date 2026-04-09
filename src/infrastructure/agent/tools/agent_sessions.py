@@ -75,15 +75,18 @@ async def agent_sessions_tool(
             }
             for rec in records
         ]
-        return ToolResult(output=json.dumps(result, indent=2))
+        return ToolResult(output=json.dumps(result, indent=2, ensure_ascii=False))
     except ValueError as exc:
         return ToolResult(
-            output=json.dumps({"error": str(exc)}),
+            output=json.dumps({"error": str(exc)}, ensure_ascii=False),
             is_error=True,
         )
     except Exception:
         logger.exception("agent_sessions failed")
         return ToolResult(
-            output=json.dumps({"error": "Internal error in agent_sessions"}),
+            output=json.dumps(
+                {"error": "Internal error in agent_sessions"},
+                ensure_ascii=False,
+            ),
             is_error=True,
         )

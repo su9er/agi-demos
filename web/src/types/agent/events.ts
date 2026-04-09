@@ -318,6 +318,7 @@ export interface MessageEventData {
   content: string;
   created_at?: string | undefined;
   artifacts?: ArtifactReference[] | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 /**
@@ -387,6 +388,7 @@ export interface ObserveEventData {
 export interface CompleteEventData {
   content: string;
   trace_url?: string | undefined;
+  execution_summary?: Record<string, unknown> | undefined;
   id?: string | undefined;
   message_id?: string | undefined;
   assistant_message_id?: string | undefined;

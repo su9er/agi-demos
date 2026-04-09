@@ -9,7 +9,7 @@
 import { useCanvasStore } from '../canvasStore';
 import { useLayoutModeStore } from '../layoutMode';
 
-import { mergeA2UIMessageStream } from './a2uiMessages';
+import { extractA2UISurfaceId, mergeA2UIMessageStream } from './a2uiMessages';
 
 import type { CanvasUpdatedTimelineEvent, TimelineEvent } from '../../types/agent';
 import type { CanvasContentType } from '../canvasStore';
@@ -43,6 +43,16 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
   if (action === 'created' && block) {
     const tabType = BLOCK_TYPE_MAP[block.block_type] ?? 'code';
 
+    const derivedSurfaceId = extractA2UISurfaceId(block.content);
+    const metadataSurfaceId =
+      typeof block.metadata?.surface_id === 'string' && block.metadata.surface_id.length > 0
+        ? block.metadata.surface_id
+        : undefined;
+    const metadataHitlRequestId =
+      typeof block.metadata?.hitl_request_id === 'string' &&
+      block.metadata.hitl_request_id.length > 0
+        ? block.metadata.hitl_request_id
+        : undefined;
     canvasStore.openTab({
       id: block.id,
       title: block.title,
@@ -52,8 +62,8 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
       mimeType: block.metadata?.mime_type as string | undefined,
       ...(tabType === 'a2ui-surface'
         ? {
-            a2uiSurfaceId:
-              typeof block.metadata?.surface_id === 'string' ? block.metadata.surface_id : block.id,
+            a2uiSurfaceId: metadataSurfaceId ?? derivedSurfaceId ?? block.id,
+            a2uiHitlRequestId: metadataHitlRequestId,
             a2uiMessages: block.content,
           }
         : {}),
@@ -66,15 +76,25 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
           existingTab.a2uiMessages ?? existingTab.content,
           block.content
         );
+        const derivedSurfaceId = extractA2UISurfaceId(mergedA2UI);
+        const metadataSurfaceId =
+          typeof block.metadata?.surface_id === 'string' && block.metadata.surface_id.length > 0
+            ? block.metadata.surface_id
+            : undefined;
+        const hasHitlRequestId =
+          block.metadata !== undefined &&
+          Object.prototype.hasOwnProperty.call(block.metadata, 'hitl_request_id');
+        const metadataHitlRequestId =
+          typeof block.metadata?.hitl_request_id === 'string' &&
+          block.metadata.hitl_request_id.length > 0
+            ? block.metadata.hitl_request_id
+            : undefined;
         canvasStore.updateContent(blockId, mergedA2UI);
         canvasStore.updateTab(blockId, {
           a2uiMessages: mergedA2UI,
           a2uiSurfaceId:
-            (typeof block.metadata?.surface_id === 'string'
-              ? block.metadata.surface_id
-              : undefined) ??
-            existingTab.a2uiSurfaceId ??
-            block.id,
+            metadataSurfaceId ?? derivedSurfaceId ?? existingTab.a2uiSurfaceId ?? block.id,
+          ...(hasHitlRequestId ? { a2uiHitlRequestId: metadataHitlRequestId } : {}),
         });
       } else {
         canvasStore.updateContent(blockId, block.content);
@@ -85,6 +105,16 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
     } else {
       // Tab not open yet -- open it
       const fallbackTabType = BLOCK_TYPE_MAP[block.block_type] ?? 'code';
+      const derivedSurfaceId = extractA2UISurfaceId(block.content);
+      const metadataSurfaceId =
+        typeof block.metadata?.surface_id === 'string' && block.metadata.surface_id.length > 0
+          ? block.metadata.surface_id
+          : undefined;
+      const metadataHitlRequestId =
+        typeof block.metadata?.hitl_request_id === 'string' &&
+        block.metadata.hitl_request_id.length > 0
+          ? block.metadata.hitl_request_id
+          : undefined;
       canvasStore.openTab({
         id: block.id,
         title: block.title,
@@ -94,10 +124,8 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
         mimeType: block.metadata?.mime_type as string | undefined,
         ...(fallbackTabType === 'a2ui-surface'
           ? {
-              a2uiSurfaceId:
-                typeof block.metadata?.surface_id === 'string'
-                  ? block.metadata.surface_id
-                  : block.id,
+              a2uiSurfaceId: metadataSurfaceId ?? derivedSurfaceId ?? block.id,
+              a2uiHitlRequestId: metadataHitlRequestId,
               a2uiMessages: block.content,
             }
           : {}),
@@ -119,17 +147,40 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
  * canvas mode automatically.
  */
 export function replayCanvasEventsFromTimeline(timeline: readonly TimelineEvent[]): void {
-  const canvasEvents = timeline.filter(
-    (e): e is CanvasUpdatedTimelineEvent => e.type === 'canvas_updated'
-  );
-  if (canvasEvents.length === 0) return;
+  let replayedCanvas = false;
+  const pendingRequestIds = new Map<string, string>();
+  for (const event of timeline) {
+    if (event.type === 'canvas_updated') {
+      const canvasEvent = event as CanvasUpdatedTimelineEvent;
+      replayCanvasEvent(canvasEvent);
+      const pendingRequestId = pendingRequestIds.get(canvasEvent.block_id);
+      if (pendingRequestId) {
+        useCanvasStore.getState().updateTab(canvasEvent.block_id, {
+          a2uiHitlRequestId: pendingRequestId,
+        });
+        pendingRequestIds.delete(canvasEvent.block_id);
+      }
+      replayedCanvas = true;
+      continue;
+    }
 
-  for (const event of canvasEvents) {
-    replayCanvasEvent(event);
+    if (event.type !== 'a2ui_action_asked') continue;
+    const requestId =
+      typeof (event as { request_id?: unknown }).request_id === 'string'
+        ? (event as { request_id: string }).request_id || undefined
+        : undefined;
+    const blockId =
+      typeof (event as { block_id?: unknown }).block_id === 'string'
+        ? (event as { block_id: string }).block_id || undefined
+        : undefined;
+    if (!requestId || !blockId) continue;
+    pendingRequestIds.set(blockId, requestId);
+    useCanvasStore.getState().updateTab(blockId, { a2uiHitlRequestId: requestId });
   }
 
   // If canvas tabs exist after replay, switch layout to canvas
   const canvasStore = useCanvasStore.getState();
+  if (!replayedCanvas && canvasStore.tabs.length === 0) return;
   const layoutStore = useLayoutModeStore.getState();
   if (canvasStore.tabs.length > 0 && layoutStore.mode !== 'canvas') {
     layoutStore.setMode('canvas');

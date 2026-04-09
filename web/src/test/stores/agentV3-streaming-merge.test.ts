@@ -333,5 +333,56 @@ describe('agentV3 Store - Timeline Merging During Streaming', () => {
         expect.any(Object)
       );
     });
+
+    it('should prefer the loaded history cursor over a newer execution status cursor', async () => {
+      const { result } = renderHook(() => useAgentV3Store());
+      const historyEvent: TimelineEvent = {
+        id: 'history-event-1',
+        type: 'assistant_message',
+        eventTimeUs: Date.now() * 1000 - 500,
+        eventCounter: 3,
+        timestamp: Date.now() - 1,
+        content: 'Recovered from history',
+        role: 'assistant',
+      };
+
+      act(() => {
+        useAgentV3Store.setState({
+          activeConversationId: 'conv-cursor',
+        });
+      });
+
+      const { agentService } = await import('../../services/agentService');
+      vi.mocked(agentService.getConversationMessages).mockResolvedValue({
+        conversationId: 'conv-cursor',
+        timeline: [historyEvent],
+        total: 1,
+        has_more: false,
+        first_time_us: historyEvent.eventTimeUs,
+        first_counter: historyEvent.eventCounter,
+        last_time_us: historyEvent.eventTimeUs,
+        last_counter: historyEvent.eventCounter,
+      } as any);
+      vi.mocked(agentService.getExecutionStatus).mockResolvedValue({
+        is_running: true,
+        current_message_id: 'msg-running',
+        last_event_time_us: historyEvent.eventTimeUs + 999,
+        last_event_counter: historyEvent.eventCounter + 5,
+      } as any);
+
+      await act(async () => {
+        await result.current.loadMessages('conv-cursor', 'proj-123');
+      });
+
+      expect(agentService.subscribe).toHaveBeenCalledWith(
+        'conv-cursor',
+        expect.any(Object),
+        expect.objectContaining({
+          message_id: 'msg-running',
+          from_time_us: historyEvent.eventTimeUs,
+          from_counter: historyEvent.eventCounter,
+        })
+      );
+    });
   });
 });

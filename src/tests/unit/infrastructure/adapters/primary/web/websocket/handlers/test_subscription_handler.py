@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 import pytest
 
@@ -99,7 +99,7 @@ async def test_subscribe_starts_recovery_bridge_when_running(monkeypatch) -> Non
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_subscribe_uses_message_scoped_recovery_cursor(monkeypatch) -> None:
+async def test_subscribe_keeps_client_recovery_cursor(monkeypatch) -> None:
     context = _build_context()
     handler = SubscribeHandler()
     conversation = SimpleNamespace(user_id="user-1")
@@ -166,8 +166,82 @@ async def test_subscribe_uses_message_scoped_recovery_cursor(monkeypatch) -> Non
         await asyncio.gather(*created_tasks)
 
     stream_kwargs = stream_mock.call_args.kwargs
+    assert stream_kwargs["from_time_us"] == 100
+    assert stream_kwargs["from_counter"] == 1
+    context.get_scoped_container().agent_execution_event_repository().get_events_by_message.assert_awaited_once_with(
+        "conv-1", "msg-1"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_subscribe_uses_message_scoped_recovery_cursor_when_client_cursor_missing(
+    monkeypatch,
+) -> None:
+    context = _build_context()
+    handler = SubscribeHandler()
+    conversation = SimpleNamespace(user_id="user-1")
+    context.get_scoped_container().conversation_repository().find_by_id.return_value = conversation
+    context.get_scoped_container().redis().get.return_value = b"msg-1"
+    context.get_scoped_container().agent_execution_event_repository().get_events_by_message.return_value = [
+        SimpleNamespace(
+            conversation_id="conv-1",
+            event_type="text_delta",
+            event_time_us=320,
+            event_counter=7,
+        )
+    ]
+
+    real_create_task = asyncio.create_task
+    created_tasks: list[asyncio.Task[None]] = []
+
+    def _fake_create_task(coro):
+        task = real_create_task(coro)
+        created_tasks.append(task)
+        return task
+
+    async def _fake_create_llm_client(_tenant_id: str):
+        return AsyncMock()
+
+    stream_mock = AsyncMock()
+    monkeypatch.setattr(
+        "src.infrastructure.adapters.primary.web.websocket.handlers.subscription_handler.asyncio.create_task",
+        _fake_create_task,
+    )
+    monkeypatch.setattr(
+        "src.configuration.factories.create_llm_client",
+        _fake_create_llm_client,
+    )
+    monkeypatch.setattr(
+        "src.infrastructure.adapters.primary.web.websocket.handlers.subscription_handler.stream_hitl_response_to_websocket",
+        stream_mock,
+    )
+
+    async def _try_start_bridge_task(
+        *,
+        session_id: str,
+        conversation_id: str,
+        bridge_message_id: str | None = None,
+        task_factory,
+    ) -> bool:
+        assert session_id == "session-1"
+        assert conversation_id == "conv-1"
+        assert bridge_message_id == "msg-1"
+        task_factory()
+        return True
+
+    context.connection_manager.try_start_bridge_task.side_effect = _try_start_bridge_task
+
+    await handler.handle(context, {"conversation_id": "conv-1"})
+    if created_tasks:
+        await asyncio.gather(*created_tasks)
+
+    stream_kwargs = stream_mock.call_args.kwargs
     assert stream_kwargs["from_time_us"] == 320
     assert stream_kwargs["from_counter"] == 7
+    context.get_scoped_container().agent_execution_event_repository().get_events_by_message.assert_has_awaits(
+        [call("conv-1", "msg-1"), call("conv-1", "msg-1")]
+    )
 
 
 @pytest.mark.unit
@@ -188,6 +262,9 @@ async def test_subscribe_skips_recovery_when_running_key_is_stale() -> None:
     context.connection_manager.try_start_bridge_task.assert_not_awaited()
     context.send_ack.assert_awaited_once_with("subscribe", conversation_id="conv-1")
     context.send_error.assert_not_awaited()
+    context.get_scoped_container().agent_execution_event_repository().get_events_by_message.assert_awaited_once_with(
+        "conv-1", "msg-1"
+    )
 
 
 @pytest.mark.unit

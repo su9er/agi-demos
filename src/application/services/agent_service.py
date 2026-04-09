@@ -18,7 +18,7 @@ import json
 import logging
 import time as time_module
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, override
 
@@ -480,6 +480,92 @@ class AgentService(AgentServicePort):
     # connect_chat_stream helpers
     # ------------------------------------------------------------------
 
+    async def _load_task_snapshot(self, conversation_id: str) -> list[dict[str, Any]] | None:
+        """Load the persisted task snapshot for replay repair."""
+        if self._db_session is None:
+            logger.warning(
+                "[AgentService] Missing db session while repairing task replay for %s",
+                conversation_id,
+            )
+            return None
+
+        from src.infrastructure.adapters.secondary.persistence.sql_agent_task_repository import (
+            SqlAgentTaskRepository,
+        )
+
+        repo = SqlAgentTaskRepository(self._db_session)
+        tasks = await repo.find_by_conversation(conversation_id)
+        return [task.to_dict() for task in tasks]
+
+    @staticmethod
+    def _is_valid_task_list_event_data(
+        conversation_id: str,
+        event_data: Any,
+    ) -> bool:
+        """Return True when task_list_updated payload already contains a task snapshot."""
+        return (
+            isinstance(event_data, Mapping)
+            and isinstance(event_data.get("tasks"), list)
+            and event_data.get("conversation_id") == conversation_id
+        )
+
+    @staticmethod
+    def _is_valid_task_updated_event_data(
+        conversation_id: str,
+        event_data: Any,
+    ) -> bool:
+        """Return True when task_updated payload can be safely replayed as a delta."""
+        return (
+            isinstance(event_data, Mapping)
+            and event_data.get("conversation_id") == conversation_id
+            and isinstance(event_data.get("task_id"), str)
+            and bool(event_data.get("task_id"))
+            and isinstance(event_data.get("status"), str)
+            and bool(event_data.get("status"))
+        )
+
+    async def _repair_replay_event(
+        self,
+        conversation_id: str,
+        event_type: str,
+        event_data: Any,
+    ) -> tuple[str, Any]:
+        """Repair malformed historical task replay events using the task table snapshot."""
+        repaired_event_type = event_type
+        repaired_event_data = event_data
+
+        if event_type == "task_list_updated":
+            if self._is_valid_task_list_event_data(conversation_id, event_data):
+                repaired_event_data = dict(event_data)
+            else:
+                logger.warning(
+                    "[AgentService] Rebuilding malformed task_list_updated replay for conversation %s",
+                    conversation_id,
+                )
+                repaired_tasks = await self._load_task_snapshot(conversation_id)
+                if repaired_tasks is not None:
+                    repaired_event_data = {
+                        "conversation_id": conversation_id,
+                        "tasks": repaired_tasks,
+                    }
+        elif event_type == "task_updated":
+            if self._is_valid_task_updated_event_data(conversation_id, event_data):
+                repaired_event_data = dict(event_data)
+            else:
+                logger.warning(
+                    "[AgentService] Replacing malformed task_updated replay with snapshot for %s",
+                    conversation_id,
+                )
+                repaired_tasks = await self._load_task_snapshot(conversation_id)
+                if repaired_tasks is not None:
+                    repaired_event_type = "task_list_updated"
+                    repaired_event_data = {
+                        "conversation_id": conversation_id,
+                        "tasks": repaired_tasks,
+                    }
+
+        return repaired_event_type, repaired_event_data
+
     async def _replay_db_events(
         self,
         conversation_id: str,
@@ -493,6 +579,7 @@ class AgentService(AgentServicePort):
         assert self._agent_execution_event_repo is not None
         if message_id:
             events = await self._agent_execution_event_repo.get_events_by_message(
+                conversation_id=conversation_id,
                 message_id=message_id
             )
         else:
@@ -506,10 +593,15 @@ class AgentService(AgentServicePort):
         yielded: list[dict[str, Any]] = []
 
         for event in events:
+            event_type, event_data = await self._repair_replay_event(
+                conversation_id,
+                str(event.event_type),
+                event.event_data,
+            )
             yielded.append(
                 {
-                    "type": event.event_type,
-                    "data": event.event_data,
+                    "type": event_type,
+                    "data": event_data,
                     "timestamp": event.created_at.isoformat(),
                     "event_time_us": event.event_time_us,
                     "event_counter": event.event_counter,
@@ -521,7 +613,7 @@ class AgentService(AgentServicePort):
             ):
                 last_event_time_us = event.event_time_us
                 last_event_counter = event.event_counter
-            if event.event_type in ("complete", "error"):
+            if event_type in ("complete", "error"):
                 saw_complete = True
 
         logger.info(
@@ -567,7 +659,7 @@ class AgentService(AgentServicePort):
             if not conv or conv.title not in ("New Conversation", "New Chat"):
                 return
 
-            first_user_msg = await self._extract_first_user_message(message_id)
+            first_user_msg = await self._extract_first_user_message(conversation_id, message_id)
             if not first_user_msg:
                 return
 
@@ -583,13 +675,18 @@ class AgentService(AgentServicePort):
         except Exception as title_err:
             logger.debug(f"Title generation check failed: {title_err}")
 
-    async def _extract_first_user_message(self, message_id: str | None) -> str:
+    async def _extract_first_user_message(
+        self,
+        conversation_id: str,
+        message_id: str | None,
+    ) -> str:
         """Extract the first user message content from event history."""
         if not message_id:
             return ""
         try:
             assert self._agent_execution_event_repo is not None
             msg_events = await self._agent_execution_event_repo.get_events_by_message(
+                conversation_id=conversation_id,
                 message_id=message_id
             )
             for me in msg_events:

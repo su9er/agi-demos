@@ -405,6 +405,15 @@ describe('SSE Event Adapter', () => {
         data: {
           content: 'Based on my research, here are the key points...',
           trace_url: 'https://langfuse.com/trace/123',
+          execution_summary: {
+            step_count: 4,
+            artifact_count: 2,
+            call_count: 1,
+            total_cost: 0.123456,
+            total_cost_formatted: '$0.123456',
+            total_tokens: { input: 10, output: 5, reasoning: 2, cache_read: 0, cache_write: 0, total: 17 },
+            tasks: { total: 2, completed: 2, remaining: 0, pending: 0, in_progress: 0, failed: 0, cancelled: 0, other: 0 },
+          },
           id: 'msg-complete',
           artifacts: [],
         },
@@ -418,6 +427,31 @@ describe('SSE Event Adapter', () => {
         expect(timelineEvent.content).toBe('Based on my research, here are the key points...');
         expect(timelineEvent.artifacts).toEqual([]);
         expect(timelineEvent.metadata?.traceUrl).toBe('https://langfuse.com/trace/123');
+        expect(timelineEvent.metadata?.executionSummary).toEqual({
+          stepCount: 4,
+          artifactCount: 2,
+          callCount: 1,
+          totalCost: 0.123456,
+          totalCostFormatted: '$0.123456',
+          totalTokens: {
+            input: 10,
+            output: 5,
+            reasoning: 2,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 17,
+          },
+          tasks: {
+            total: 2,
+            completed: 2,
+            remaining: 0,
+            pending: 0,
+            inProgress: 0,
+            failed: 0,
+            cancelled: 0,
+            other: 0,
+          },
+        });
       }
     });
 

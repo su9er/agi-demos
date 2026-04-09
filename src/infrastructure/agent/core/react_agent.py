@@ -56,6 +56,7 @@ from ..commands.registry import CommandRegistry
 from ..config import ExecutionConfig
 from ..context import ContextFacade, ContextWindowConfig, ContextWindowManager
 from ..events import EventConverter
+from ..events.converter import normalize_event_dict
 from ..heartbeat.config import HeartbeatConfig
 from ..heartbeat.runner import HeartbeatRunner
 from ..permission import PermissionManager
@@ -3477,7 +3478,10 @@ class ReActAgent:
             Event dict or None to skip
         """
         if isinstance(domain_event, dict):
-            return domain_event
+            return cast(
+                dict[str, Any] | None,
+                normalize_event_dict(domain_event, agent_id=agent_id),
+            )
 
         # Delegate to EventConverter
         return cast(

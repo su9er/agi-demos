@@ -159,7 +159,7 @@ def _fmt_desktop_legacy_success(
     success_message: str,
 ) -> str:
     """Format success data from legacy MCP result."""
-    parts = [success_message]
+    parts = [str(data.get("message") or success_message)]
     if data.get("url"):
         parts.append(f"URL: {data['url']}")
     if "port" in data:

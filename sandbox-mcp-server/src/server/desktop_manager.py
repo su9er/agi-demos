@@ -8,7 +8,7 @@ WebP encoding, dynamic resize, clipboard, file transfer, and audio.
 import asyncio
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -105,10 +105,7 @@ class DesktopManager:
 
     def is_running(self) -> bool:
         """Check if KasmVNC is running."""
-        if self._kasmvnc_started:
-            return self._is_port_listening(self.port)
-        # Check system-wide
-        return self._is_port_listening(self.port) or self._get_kasmvnc_pid() is not None
+        return self._is_port_listening(self.port)
 
     async def start(self) -> None:
         """
@@ -158,7 +155,7 @@ class DesktopManager:
             env["DISPLAY"] = self.display
 
             # Start KasmVNC (single process replaces Xvfb + TigerVNC + websockify)
-            process = await asyncio.create_subprocess_exec(
+            await asyncio.create_subprocess_exec(
                 "vncserver",
                 self.display,
                 "-geometry", self.resolution,
@@ -274,12 +271,13 @@ class DesktopManager:
 
     def get_status(self) -> DesktopStatus:
         """Get current desktop status."""
+        running = self.is_running()
         return DesktopStatus(
-            running=self.is_running(),
+            running=running,
             display=self.display,
             resolution=self.resolution,
             port=self.port,
-            kasmvnc_pid=self._get_kasmvnc_pid(),
+            kasmvnc_pid=self._get_kasmvnc_pid() if running else None,
             audio_enabled=True,
             dynamic_resize=True,
             encoding="webp",

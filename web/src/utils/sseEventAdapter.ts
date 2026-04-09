@@ -17,6 +17,7 @@
  */
 
 import { isEventEnvelope } from '../types/generated/eventEnvelope';
+import { normalizeExecutionSummary } from './executionSummary';
 
 import type {
   AgentEvent,
@@ -47,6 +48,7 @@ import type {
   DecisionAnsweredEventData,
   EnvVarRequestedEventData,
   EnvVarProvidedEventData,
+  A2UIActionAskedEventData,
   ArtifactCreatedEventData,
   ArtifactCategory,
   SubAgentRoutedEventData,
@@ -214,13 +216,17 @@ export function sseEventToTimeline(event: AgentEvent<unknown>): TimelineEvent | 
           role: 'user',
         };
       } else {
+        const metadata = {
+          ...(data.metadata ?? {}),
+          ...(data.artifacts ? { artifacts: data.artifacts } : {}),
+        };
         return {
           ...baseEvent,
           type: 'assistant_message',
           content: data.content,
           role: 'assistant',
           artifacts: data.artifacts,
-          metadata: data.artifacts ? { artifacts: data.artifacts } : undefined,
+          metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         };
       }
     }
@@ -335,6 +341,12 @@ export function sseEventToTimeline(event: AgentEvent<unknown>): TimelineEvent | 
 
     case 'complete': {
       const data = event.data as CompleteEventData;
+      const executionSummary = normalizeExecutionSummary(data.execution_summary);
+      const metadata = {
+        ...(data.trace_url ? { traceUrl: data.trace_url } : {}),
+        ...(data.artifacts ? { artifacts: data.artifacts } : {}),
+        ...(executionSummary ? { executionSummary } : {}),
+      };
       return {
         id: data.id || data.message_id || generateTimelineEventId('assistant'),
         type: 'assistant_message',
@@ -344,9 +356,7 @@ export function sseEventToTimeline(event: AgentEvent<unknown>): TimelineEvent | 
         content: data.content,
         role: 'assistant',
         artifacts: data.artifacts,
-        metadata: data.trace_url
-          ? { traceUrl: data.trace_url, artifacts: data.artifacts }
-          : { artifacts: data.artifacts },
+        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       };
     }
 
@@ -623,6 +633,21 @@ export function sseEventToTimeline(event: AgentEvent<unknown>): TimelineEvent | 
         requestId: data.request_id,
         toolName: data.tool_name,
         variableNames: data.saved_variables,
+      };
+    }
+
+    case 'a2ui_action_asked': {
+      const data = event.data as A2UIActionAskedEventData;
+      return {
+        id: generateTimelineEventId('a2ui_action_asked'),
+        type: 'a2ui_action_asked',
+        eventTimeUs,
+        eventCounter,
+        timestamp,
+        request_id: data.request_id,
+        block_id: data.block_id,
+        title: data.title,
+        timeout_seconds: data.timeout_seconds,
       };
     }
 
@@ -903,8 +928,24 @@ export function sseEventToTimeline(event: AgentEvent<unknown>): TimelineEvent | 
     case 'thought_delta':
     case 'mcp_app_result':
     case 'mcp_app_registered':
-    case 'canvas_updated':
       return null;
+
+    case 'canvas_updated': {
+      const data = event.data as Record<string, unknown>;
+      return {
+        id: generateTimelineEventId('canvas_updated'),
+        type: 'canvas_updated',
+        eventTimeUs,
+        eventCounter,
+        timestamp,
+        action: typeof data.action === 'string' ? data.action : '',
+        block_id: typeof data.block_id === 'string' ? data.block_id : '',
+        block:
+          typeof data.block === 'object' && data.block !== null && !Array.isArray(data.block)
+            ? (data.block as Record<string, unknown>)
+            : null,
+      } as TimelineEvent;
+    }
 
     case 'agent_spawned': {
       const data = event.data as AgentSpawnedEventData;

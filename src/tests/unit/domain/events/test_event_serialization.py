@@ -65,12 +65,17 @@ class TestEventSerialization:
 
     def test_complete_event_serialization(self):
         """CompleteEvent should serialize correctly."""
-        event = AgentCompleteEvent(result="Done", trace_url="https://trace.url")
+        event = AgentCompleteEvent(
+            result="Done",
+            trace_url="https://trace.url",
+            execution_summary={"step_count": 2},
+        )
         event_dict = event.to_event_dict()
 
         assert event_dict["type"] == "complete"
         assert event_dict["data"]["result"] == "Done"
         assert event_dict["data"]["trace_url"] == "https://trace.url"
+        assert event_dict["data"]["execution_summary"] == {"step_count": 2}
 
     def test_error_event_serialization(self):
         """ErrorEvent should serialize correctly."""

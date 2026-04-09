@@ -67,6 +67,36 @@ export interface ArtifactReference {
   source?: string | undefined;
 }
 
+export interface ExecutionTokenSummary {
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+}
+
+export interface ExecutionTaskSummary {
+  total: number;
+  completed: number;
+  remaining: number;
+  pending: number;
+  inProgress: number;
+  failed: number;
+  cancelled: number;
+  other: number;
+}
+
+export interface ExecutionSummary {
+  stepCount: number;
+  artifactCount: number;
+  callCount: number;
+  totalCost: number;
+  totalCostFormatted: string;
+  totalTokens: ExecutionTokenSummary;
+  tasks?: ExecutionTaskSummary | undefined;
+}
+
 /**
  * Message in a conversation
  */

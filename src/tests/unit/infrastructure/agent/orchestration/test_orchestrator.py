@@ -33,6 +33,13 @@ class _OrchestratorFixture:
     def __init__(self) -> None:
         self.agent_registry = AsyncMock(spec=AgentRegistryPort)
         self.session_registry = AsyncMock(spec=AgentSessionRegistry)
+        self.session_registry.get_session_for_conversation = AsyncMock(
+            side_effect=lambda conversation_id, project_id: AgentSession(
+                agent_id="parent-1",
+                conversation_id=conversation_id,
+                project_id=project_id,
+            )
+        )
         self.spawn_manager = AsyncMock(spec=SpawnManager)
         self.message_bus = AsyncMock(spec=AgentMessageBusPort)
         self.orchestrator = AgentOrchestrator(
@@ -52,9 +59,16 @@ def fx() -> _OrchestratorFixture:
 def _make_agent(**overrides: Any) -> Mock:
     """Create a mock Agent with sensible defaults."""
     agent = Mock()
+    agent.id = overrides.pop("id", "agent-1")
+    agent.name = overrides.pop("name", agent.id)
+    agent.display_name = overrides.pop("display_name", agent.name)
+    agent.tenant_id = overrides.pop("tenant_id", "tenant-1")
+    agent.project_id = overrides.pop("project_id", "proj-1")
     agent.enabled = True
     agent.discoverable = True
     agent.agent_to_agent_enabled = True
+    agent.can_spawn = True
+    agent.max_spawn_depth = overrides.pop("max_spawn_depth", 3)
     agent.role = AgentRole.ORCHESTRATOR
     for key, value in overrides.items():
         setattr(agent, key, value)
@@ -99,11 +113,12 @@ class TestSpawnAgent:
     ) -> None:
         """Happy path: agent found, enabled, discoverable -- returns SpawnResult."""
         # Arrange
-        mock_agent = _make_agent()
+        parent_agent = _make_agent(id="parent-1")
+        mock_agent = _make_agent(id="target-1")
         expected_record = _make_spawn_record()
         expected_session = _make_session()
 
-        fx.agent_registry.get_by_id = AsyncMock(return_value=mock_agent)
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, mock_agent])
         fx.spawn_manager.get_spawn_depth = AsyncMock(return_value=0)
         fx.spawn_manager.max_spawn_depth = 3
         fx.spawn_manager.register_spawn = AsyncMock(return_value=expected_record)
@@ -131,7 +146,9 @@ class TestSpawnAgent:
     ) -> None:
         """Verify get_by_id is called with the target_agent_id."""
         # Arrange
-        fx.agent_registry.get_by_id = AsyncMock(return_value=_make_agent())
+        parent_agent = _make_agent(id="parent-1")
+        target_agent = _make_agent(id="my-target")
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, target_agent])
         fx.spawn_manager.get_spawn_depth = AsyncMock(return_value=0)
         fx.spawn_manager.max_spawn_depth = 3
         fx.spawn_manager.register_spawn = AsyncMock(return_value=_make_spawn_record())
@@ -149,14 +166,19 @@ class TestSpawnAgent:
         )
 
         # Assert
-        fx.agent_registry.get_by_id.assert_called_once_with("my-target")
+        assert fx.agent_registry.get_by_id.await_args_list == [
+            call("parent-1", tenant_id=None, project_id="proj-1"),
+            call("my-target", tenant_id=None, project_id="proj-1"),
+        ]
 
     async def test_spawn_agent_calls_spawn_depth_with_parent_session(
         self, fx: _OrchestratorFixture
     ) -> None:
         """Verify get_spawn_depth is called with parent_session_id."""
         # Arrange
-        fx.agent_registry.get_by_id = AsyncMock(return_value=_make_agent())
+        parent_agent = _make_agent(id="parent-1")
+        target_agent = _make_agent(id="target-1")
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, target_agent])
         fx.spawn_manager.get_spawn_depth = AsyncMock(return_value=0)
         fx.spawn_manager.max_spawn_depth = 3
         fx.spawn_manager.register_spawn = AsyncMock(return_value=_make_spawn_record())
@@ -179,7 +201,9 @@ class TestSpawnAgent:
     async def test_spawn_agent_sends_request_message(self, fx: _OrchestratorFixture) -> None:
         """Verify message_bus.send_message is called with REQUEST type."""
         # Arrange
-        fx.agent_registry.get_by_id = AsyncMock(return_value=_make_agent())
+        parent_agent = _make_agent(id="parent-1")
+        target_agent = _make_agent(id="target-1")
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, target_agent])
         fx.spawn_manager.get_spawn_depth = AsyncMock(return_value=0)
         fx.spawn_manager.max_spawn_depth = 3
         fx.spawn_manager.register_spawn = AsyncMock(return_value=_make_spawn_record())
@@ -215,9 +239,13 @@ class TestSpawnAgent:
             fx.message_bus,
             spawn_executor=spawn_executor,
         )
-        fx.agent_registry.get_by_id = AsyncMock(
-            return_value=_make_agent(name="child-agent", display_name="Child Agent")
+        parent_agent = _make_agent(id="parent-1")
+        child_agent = _make_agent(
+            id="target-1",
+            name="child-agent",
+            display_name="Child Agent",
         )
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, child_agent])
         fx.spawn_manager.get_spawn_depth = AsyncMock(return_value=0)
         fx.spawn_manager.max_spawn_depth = 3
         fx.spawn_manager.register_spawn = AsyncMock(return_value=_make_spawn_record())
@@ -251,7 +279,8 @@ class TestSpawnAgent:
     async def test_spawn_agent_not_found_raises_value_error(self, fx: _OrchestratorFixture) -> None:
         """Agent not found raises ValueError."""
         # Arrange
-        fx.agent_registry.get_by_id = AsyncMock(return_value=None)
+        parent_agent = _make_agent(id="parent-1")
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, None])
 
         # Act / Assert
         with pytest.raises(ValueError, match="Target agent not found: missing-agent"):
@@ -267,7 +296,9 @@ class TestSpawnAgent:
     async def test_spawn_agent_disabled_raises_value_error(self, fx: _OrchestratorFixture) -> None:
         """Disabled agent raises ValueError."""
         # Arrange
-        fx.agent_registry.get_by_id = AsyncMock(return_value=_make_agent(enabled=False))
+        parent_agent = _make_agent(id="parent-1")
+        disabled_agent = _make_agent(id="disabled-1", enabled=False)
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, disabled_agent])
 
         # Act / Assert
         with pytest.raises(ValueError, match="Target agent is disabled: disabled-1"):
@@ -285,7 +316,9 @@ class TestSpawnAgent:
     ) -> None:
         """Non-discoverable agent raises ValueError."""
         # Arrange
-        fx.agent_registry.get_by_id = AsyncMock(return_value=_make_agent(discoverable=False))
+        parent_agent = _make_agent(id="parent-1")
+        hidden_agent = _make_agent(id="hidden-1", discoverable=False)
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, hidden_agent])
 
         # Act / Assert
         with pytest.raises(ValueError, match="Target agent is not discoverable: hidden-1"):
@@ -298,12 +331,112 @@ class TestSpawnAgent:
                 project_id="proj-1",
             )
 
+    async def test_spawn_agent_parent_without_spawn_capability_raises_value_error(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Parents must explicitly opt in before spawning child agents."""
+        parent_agent = _make_agent(id="parent-1", can_spawn=False)
+        fx.agent_registry.get_by_id = AsyncMock(return_value=parent_agent)
+
+        with pytest.raises(
+            ValueError,
+            match="Parent agent is not allowed to spawn child agents: parent-1",
+        ):
+            await fx.orchestrator.spawn_agent(
+                parent_agent_id="parent-1",
+                target_agent_id="target-1",
+                message="hello",
+                mode=SpawnMode.RUN,
+                parent_session_id="parent-sess",
+                project_id="proj-1",
+            )
+
+    async def test_spawn_agent_parent_session_must_belong_to_parent_agent(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Parent session ownership is validated before child work is registered."""
+        parent_agent = _make_agent(id="parent-1")
+        fx.agent_registry.get_by_id = AsyncMock(return_value=parent_agent)
+        fx.session_registry.get_session_for_conversation = AsyncMock(
+            return_value=AgentSession(
+                agent_id="other-agent",
+                conversation_id="parent-sess",
+                project_id="proj-1",
+            )
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Parent session parent-sess does not belong to parent agent parent-1",
+        ):
+            await fx.orchestrator.spawn_agent(
+                parent_agent_id="parent-1",
+                target_agent_id="target-1",
+                message="hello",
+                mode=SpawnMode.RUN,
+                parent_session_id="parent-sess",
+                project_id="proj-1",
+            )
+
+    async def test_spawn_agent_parent_max_spawn_depth_is_enforced(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Per-agent spawn depth caps are enforced alongside the global limit."""
+        parent_agent = _make_agent(id="parent-1", max_spawn_depth=0)
+        target_agent = _make_agent(id="target-1")
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, target_agent])
+        fx.spawn_manager.get_spawn_depth = AsyncMock(return_value=0)
+
+        with pytest.raises(
+            ValueError,
+            match="Parent agent parent-1 exceeded max_spawn_depth 0",
+        ):
+            await fx.orchestrator.spawn_agent(
+                parent_agent_id="parent-1",
+                target_agent_id="target-1",
+                message="hello",
+                mode=SpawnMode.RUN,
+                parent_session_id="parent-sess",
+                project_id="proj-1",
+            )
+
+    async def test_spawn_agent_system_parent_bypasses_registry_lookup(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Explicit system parents can still launch graph-managed child agents."""
+        target_agent = _make_agent(id="target-1")
+        fx.agent_registry.get_by_id = AsyncMock(return_value=target_agent)
+        fx.spawn_manager.get_spawn_depth = AsyncMock(return_value=0)
+        fx.spawn_manager.max_spawn_depth = 3
+        fx.spawn_manager.register_spawn = AsyncMock(
+            return_value=_make_spawn_record(parent_agent_id="__system__")
+        )
+        fx.session_registry.register = AsyncMock(return_value=_make_session())
+        fx.message_bus.send_message = AsyncMock(return_value="msg-id-1")
+
+        await fx.orchestrator.spawn_agent(
+            parent_agent_id="__system__",
+            target_agent_id="target-1",
+            message="hello",
+            mode=SpawnMode.RUN,
+            parent_session_id="parent-sess",
+            project_id="proj-1",
+        )
+
+        fx.agent_registry.get_by_id.assert_awaited_once_with(
+            "target-1",
+            tenant_id=None,
+            project_id="proj-1",
+        )
+
     async def test_spawn_agent_metadata_enrichment_with_existing_metadata(
         self, fx: _OrchestratorFixture
     ) -> None:
         """When metadata is provided, enriched_metadata has original keys plus agent_role and agent_depth."""
         # Arrange
-        fx.agent_registry.get_by_id = AsyncMock(return_value=_make_agent())
+        parent_agent = _make_agent(id="parent-1")
+        target_agent = _make_agent(id="target-1")
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, target_agent])
         fx.spawn_manager.get_spawn_depth = AsyncMock(return_value=0)
         fx.spawn_manager.max_spawn_depth = 3
         fx.spawn_manager.register_spawn = AsyncMock(return_value=_make_spawn_record())
@@ -336,7 +469,9 @@ class TestSpawnAgent:
     ) -> None:
         """When metadata=None, enriched_metadata still has agent_role and agent_depth."""
         # Arrange
-        fx.agent_registry.get_by_id = AsyncMock(return_value=_make_agent())
+        parent_agent = _make_agent(id="parent-1")
+        target_agent = _make_agent(id="target-1")
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[parent_agent, target_agent])
         fx.spawn_manager.get_spawn_depth = AsyncMock(return_value=0)
         fx.spawn_manager.max_spawn_depth = 3
         fx.spawn_manager.register_spawn = AsyncMock(return_value=_make_spawn_record())
@@ -375,9 +510,23 @@ class TestSendMessage:
     ) -> None:
         """Happy path with explicit session_id returns SendResult."""
         # Arrange
-        from_agent = _make_agent()
-        to_agent = _make_agent()
+        from_agent = _make_agent(id="agent-a")
+        to_agent = _make_agent(id="agent-b")
         fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, to_agent])
+        fx.session_registry.get_session_for_conversation = AsyncMock(
+            side_effect=[
+                AgentSession(
+                    agent_id="agent-b",
+                    conversation_id="sess-explicit",
+                    project_id="proj-1",
+                ),
+                AgentSession(
+                    agent_id="agent-a",
+                    conversation_id="sender-sess",
+                    project_id="proj-1",
+                ),
+            ]
+        )
         fx.message_bus.send_message = AsyncMock(return_value="msg-42")
 
         # Act
@@ -386,6 +535,8 @@ class TestSendMessage:
             to_agent_id="agent-b",
             message="hello",
             session_id="sess-explicit",
+            sender_session_id="sender-sess",
+            project_id="proj-1",
         )
 
         # Assert
@@ -400,9 +551,16 @@ class TestSendMessage:
     ) -> None:
         """When session_id=None, resolves session from project's active sessions."""
         # Arrange
-        from_agent = _make_agent()
-        to_agent = _make_agent()
+        from_agent = _make_agent(id="agent-a")
+        to_agent = _make_agent(id="agent-b")
         fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, to_agent])
+        fx.session_registry.get_session_for_conversation = AsyncMock(
+            return_value=AgentSession(
+                agent_id="agent-a",
+                conversation_id="sender-sess",
+                project_id="proj-1",
+            )
+        )
         fx.session_registry.get_sessions = AsyncMock(
             return_value=[
                 AgentSession(
@@ -412,8 +570,15 @@ class TestSendMessage:
                 ),
                 AgentSession(
                     agent_id="agent-b",
+                    conversation_id="older-sess",
+                    project_id="proj-1",
+                    registered_at="2026-01-01T00:00:00+00:00",
+                ),
+                AgentSession(
+                    agent_id="agent-b",
                     conversation_id="resolved-sess",
                     project_id="proj-1",
+                    registered_at="2026-01-02T00:00:00+00:00",
                 ),
             ]
         )
@@ -424,6 +589,7 @@ class TestSendMessage:
             from_agent_id="agent-a",
             to_agent_id="agent-b",
             message="hello",
+            sender_session_id="sender-sess",
             project_id="proj-1",
         )
 
@@ -432,34 +598,183 @@ class TestSendMessage:
         send_kwargs = fx.message_bus.send_message.call_args.kwargs
         assert send_kwargs["session_id"] == "resolved-sess"
 
-    async def test_send_message_unknown_sender_allowed_as_root_agent(
+    async def test_send_message_resolves_sender_name_with_tenant_context(
         self, fx: _OrchestratorFixture
     ) -> None:
-        """Unknown sender is treated as root/main agent and allowed to send."""
-        target_agent = _make_agent()
-        fx.agent_registry.get_by_id = AsyncMock(side_effect=[None, target_agent])
-        fx.message_bus.send_message = AsyncMock(return_value="msg-root")
+        """Legacy callers can still resolve a sender by tenant-scoped agent name."""
+        from_agent = _make_agent(id="agent-a", name="sender-name")
+        to_agent = _make_agent(id="agent-b")
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[None, to_agent])
+        fx.agent_registry.get_by_name = AsyncMock(return_value=from_agent)
+        fx.session_registry.get_session_for_conversation = AsyncMock(
+            side_effect=[
+                AgentSession(
+                    agent_id="agent-b",
+                    conversation_id="sess-explicit",
+                    project_id="proj-1",
+                ),
+                AgentSession(
+                    agent_id="agent-a",
+                    conversation_id="sender-sess",
+                    project_id="proj-1",
+                ),
+            ]
+        )
+        fx.message_bus.send_message = AsyncMock(return_value="msg-42")
 
         result = await fx.orchestrator.send_message(
-            from_agent_id="unknown-sender",
+            from_agent_id="sender-name",
             to_agent_id="agent-b",
             message="hello",
-            session_id="sess-1",
+            session_id="sess-explicit",
+            sender_session_id="sender-sess",
+            project_id="proj-1",
+            tenant_id="tenant-1",
         )
 
-        assert isinstance(result, SendResult)
-        assert result.message_id == "msg-root"
-        assert result.from_agent_id == "unknown-sender"
+        assert result.from_agent_id == "agent-a"
+        fx.agent_registry.get_by_name.assert_awaited_once_with("tenant-1", "sender-name")
 
-    async def test_send_message_unknown_sender_target_not_found_raises(
+    async def test_send_message_accepts_legacy_name_based_allowlist(
         self, fx: _OrchestratorFixture
     ) -> None:
-        """Unknown sender with non-existent target still raises ValueError."""
+        """Targets remain compatible with historical name-based allowlists during migration."""
+        from_agent = _make_agent(id="agent-a", name="sender-name")
+        to_agent = _make_agent(id="agent-b")
+        to_agent.accepts_messages_from = Mock(
+            side_effect=lambda sender_ref: sender_ref == "sender-name"
+        )
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, to_agent])
+        fx.session_registry.get_session_for_conversation = AsyncMock(
+            side_effect=[
+                AgentSession(
+                    agent_id="agent-b",
+                    conversation_id="sess-explicit",
+                    project_id="proj-1",
+                ),
+                AgentSession(
+                    agent_id="agent-a",
+                    conversation_id="sender-sess",
+                    project_id="proj-1",
+                ),
+            ]
+        )
+        fx.message_bus.send_message = AsyncMock(return_value="msg-42")
+
+        result = await fx.orchestrator.send_message(
+            from_agent_id="agent-a",
+            to_agent_id="agent-b",
+            message="hello",
+            session_id="sess-explicit",
+            sender_session_id="sender-sess",
+            project_id="proj-1",
+        )
+
+        assert result.message_id == "msg-42"
+
+    async def test_send_message_explicit_session_must_belong_to_target_agent(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Explicit session IDs are validated against the target agent binding."""
+        from_agent = _make_agent(id="agent-a")
+        to_agent = _make_agent(id="agent-b")
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, to_agent])
+        fx.session_registry.get_session_for_conversation = AsyncMock(
+            return_value=AgentSession(
+                agent_id="other-agent",
+                conversation_id="sess-explicit",
+                project_id="proj-1",
+            )
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Session sess-explicit does not belong to target agent agent-b",
+        ):
+            await fx.orchestrator.send_message(
+                from_agent_id="agent-a",
+                to_agent_id="agent-b",
+                message="hello",
+                session_id="sess-explicit",
+                project_id="proj-1",
+            )
+
+    async def test_send_message_sender_session_must_belong_to_sender_agent(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Sender sessions are bound to the resolved sender identity."""
+        from_agent = _make_agent(id="agent-a", name="sender-name")
+        to_agent = _make_agent(id="agent-b")
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, to_agent])
+        fx.session_registry.get_session_for_conversation = AsyncMock(
+            side_effect=[
+                AgentSession(
+                    agent_id="agent-b",
+                    conversation_id="sess-explicit",
+                    project_id="proj-1",
+                ),
+                AgentSession(
+                    agent_id="other-agent",
+                    conversation_id="sender-sess",
+                    project_id="proj-1",
+                ),
+            ]
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Sender session sender-sess does not belong to sender agent agent-a",
+        ):
+            await fx.orchestrator.send_message(
+                from_agent_id="agent-a",
+                to_agent_id="agent-b",
+                message="hello",
+                session_id="sess-explicit",
+                sender_session_id="sender-sess",
+                project_id="proj-1",
+            )
+
+    async def test_send_message_unknown_sender_raises_value_error(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Unknown senders are rejected instead of being treated as trusted roots."""
         fx.agent_registry.get_by_id = AsyncMock(return_value=None)
 
-        with pytest.raises(ValueError, match="Target agent not found: agent-b"):
+        with pytest.raises(ValueError, match="Sender agent not found: unknown-sender"):
             await fx.orchestrator.send_message(
                 from_agent_id="unknown-sender",
+                to_agent_id="agent-b",
+                message="hello",
+                session_id="sess-1",
+            )
+
+    async def test_send_message_sender_with_a2a_disabled_raises_value_error(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Senders must explicitly opt in to agent-to-agent messaging."""
+        from_agent = _make_agent(id="agent-a", agent_to_agent_enabled=False)
+        fx.agent_registry.get_by_id = AsyncMock(return_value=from_agent)
+
+        with pytest.raises(
+            ValueError, match="Sender agent-to-agent messaging is disabled: agent-a"
+        ):
+            await fx.orchestrator.send_message(
+                from_agent_id="agent-a",
+                to_agent_id="agent-b",
+                message="hello",
+                session_id="sess-1",
+            )
+
+    async def test_send_message_disabled_sender_raises_value_error(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Disabled senders cannot initiate agent-to-agent messages."""
+        from_agent = _make_agent(id="agent-a", enabled=False)
+        fx.agent_registry.get_by_id = AsyncMock(return_value=from_agent)
+
+        with pytest.raises(ValueError, match="Sender agent is disabled: agent-a"):
+            await fx.orchestrator.send_message(
+                from_agent_id="agent-a",
                 to_agent_id="agent-b",
                 message="hello",
                 session_id="sess-1",
@@ -470,7 +785,7 @@ class TestSendMessage:
     ) -> None:
         """Target not found raises ValueError."""
         # Arrange
-        from_agent = _make_agent()
+        from_agent = _make_agent(id="agent-a")
         fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, None])
 
         # Act / Assert
@@ -482,13 +797,13 @@ class TestSendMessage:
                 session_id="sess-1",
             )
 
-    async def test_send_message_target_a2a_disabled_raises_value_error(
+    async def test_send_message_target_allowlist_rejects_sender(
         self, fx: _OrchestratorFixture
     ) -> None:
         """Target that rejects sender via accepts_messages_from raises ValueError."""
         # Arrange
-        from_agent = _make_agent()
-        to_agent = _make_agent()
+        from_agent = _make_agent(id="agent-a")
+        to_agent = _make_agent(id="agent-b")
         to_agent.accepts_messages_from = Mock(return_value=False)
         fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, to_agent])
 
@@ -509,8 +824,8 @@ class TestSendMessage:
     ) -> None:
         """Both session_id and project_id are None raises ValueError."""
         # Arrange
-        from_agent = _make_agent()
-        to_agent = _make_agent()
+        from_agent = _make_agent(id="agent-a")
+        to_agent = _make_agent(id="agent-b")
         fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, to_agent])
 
         # Act / Assert
@@ -526,8 +841,8 @@ class TestSendMessage:
     ) -> None:
         """No matching session for the target agent raises ValueError."""
         # Arrange
-        from_agent = _make_agent()
-        to_agent = _make_agent()
+        from_agent = _make_agent(id="agent-a")
+        to_agent = _make_agent(id="agent-b")
         fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, to_agent])
         fx.session_registry.get_sessions = AsyncMock(
             return_value=[
@@ -549,6 +864,24 @@ class TestSendMessage:
                 to_agent_id="agent-b",
                 message="hello",
                 project_id="proj-1",
+            )
+
+    async def test_send_message_target_with_a2a_disabled_raises_value_error(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Targets must also opt in before accepting direct agent messages."""
+        from_agent = _make_agent(id="agent-a")
+        to_agent = _make_agent(id="agent-b", agent_to_agent_enabled=False)
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, to_agent])
+
+        with pytest.raises(
+            ValueError, match="Target agent-to-agent messaging is disabled: agent-b"
+        ):
+            await fx.orchestrator.send_message(
+                from_agent_id="agent-a",
+                to_agent_id="agent-b",
+                message="hello",
+                session_id="sess-1",
             )
 
 

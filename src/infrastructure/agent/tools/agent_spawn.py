@@ -99,16 +99,16 @@ async def agent_spawn_tool(
         agent = spawn_result.agent
         await ctx.emit(
             AgentSpawnedEvent(
-                agent_id=agent_id,
+                agent_id=record.child_agent_id,
                 agent_name=agent.display_name or agent.name,
-                parent_agent_id=parent_agent_id,
+                parent_agent_id=record.parent_agent_id,
                 child_session_id=record.child_session_id,
                 mode=mode,
                 task_summary=message[:200],
             ).to_event_dict()
         )
         result: dict[str, Any] = {
-            "agent_id": agent_id,
+            "agent_id": record.child_agent_id,
             "agent_name": agent.display_name or agent.name,
             "session_id": record.child_session_id,
             "mode": mode,

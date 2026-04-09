@@ -12,8 +12,9 @@ Reference: Extracted from react_agent.py::_convert_domain_event()
 """
 
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.domain.events.agent_events import (
     AgentActEvent,
@@ -30,6 +31,57 @@ from src.domain.events.agent_events import (
 from src.domain.events.event_dicts import SSEEventDict
 
 logger = logging.getLogger(__name__)
+
+_EVENT_ENVELOPE_META_KEYS = frozenset(
+    {
+        "type",
+        "data",
+        "timestamp",
+        "event_time_us",
+        "event_counter",
+        "correlation_id",
+        "id",
+    }
+)
+
+
+def normalize_event_dict(
+    event: Mapping[str, Any],
+    *,
+    agent_id: str | None = None,
+) -> SSEEventDict | None:
+    """Normalize legacy and modern stream events into a standard envelope."""
+    event_type = str(event.get("type", "")).strip()
+    if not event_type:
+        logger.warning("[EventConverter] Skipping event without type: %s", event)
+        return None
+
+    normalized: dict[str, Any] = dict(event)
+    payload = {
+        key: value
+        for key, value in normalized.items()
+        if key not in _EVENT_ENVELOPE_META_KEYS
+    }
+
+    raw_data = normalized.get("data")
+    data: dict[str, Any]
+    if isinstance(raw_data, Mapping):
+        data = dict(raw_data)
+        for key, value in payload.items():
+            data.setdefault(key, value)
+    elif raw_data is None:
+        data = dict(payload)
+    else:
+        data = dict(payload)
+        data["value"] = raw_data
+
+    if agent_id is not None:
+        data.setdefault("agent_id", agent_id)
+
+    normalized["type"] = event_type
+    normalized["data"] = data
+    normalized.setdefault("timestamp", datetime.now(UTC).isoformat())
+    return cast(SSEEventDict, normalized)
 
 
 class EventConverter:
@@ -83,14 +135,9 @@ class EventConverter:
 
         # Apply backward compatibility transformations
         result = self._apply_transformations(event_type, domain_event, event_dict)
-
-        # Inject agent_id into event data when present
-        if result is not None and agent_id is not None:
-            data = result.get("data")
-            if isinstance(data, dict):
-                data["agent_id"] = agent_id
-
-        return result
+        if result is None:
+            return None
+        return normalize_event_dict(result, agent_id=agent_id)
 
     def _apply_transformations(
         self,

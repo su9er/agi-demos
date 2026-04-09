@@ -7,7 +7,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.infrastructure.agent.processor import ToolDefinition
-from src.infrastructure.agent.processor.goal_evaluator import GoalEvaluator
+from src.infrastructure.agent.processor.goal_evaluator import (
+    GoalEvaluator,
+    TaskStateUnavailableError,
+)
 from src.infrastructure.agent.tools.context import ToolContext
 from src.infrastructure.agent.tools.define import ToolInfo
 from src.infrastructure.agent.tools.result import ToolResult
@@ -119,6 +122,32 @@ class TestProcessorGoalCompletion:
         assert result.source == "tasks"
 
     @pytest.mark.asyncio
+    async def test_goal_completion_fails_closed_when_task_state_is_unverifiable(self) -> None:
+        async def execute(**kwargs: Any) -> str:
+            return '{"todos":[42]}'
+
+        tool = ToolDefinition(
+            name="todoread",
+            description="Read todos",
+            parameters={"type": "object", "properties": {}},
+            execute=execute,
+        )
+        evaluator = GoalEvaluator(llm_client=AsyncMock(), tools={"todoread": tool})
+        evaluator._llm_client.generate = AsyncMock(  # type: ignore[union-attr]
+            return_value={"content": '{"goal_achieved": true, "reason": "all done"}'}
+        )
+
+        result = await evaluator.evaluate_goal_completion(
+            session_id="session-1",
+            messages=[{"role": "user", "content": "finish task"}],
+        )
+
+        assert result.achieved is False
+        assert result.should_stop is True
+        assert result.source == "tasks"
+        assert result.reason == "Unable to verify task completion state"
+
+    @pytest.mark.asyncio
     async def test_task_goal_failed_returns_stop(self, evaluator_with_tasks):
         evaluator = evaluator_with_tasks(
             [
@@ -184,6 +213,129 @@ class TestProcessorGoalCompletion:
 
         assert result.achieved is True
         assert result.source == "tasks"
+
+    @pytest.mark.asyncio
+    async def test_task_completion_gate_returns_none_without_tasks(self, evaluator_with_tasks):
+        evaluator = evaluator_with_tasks([])
+
+        result = await evaluator.evaluate_task_completion_gate(session_id="session-1")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_task_completion_gate_uses_persisted_tasks(self, evaluator_with_tasks):
+        evaluator = evaluator_with_tasks(
+            [
+                {"id": "t1", "status": "completed"},
+                {"id": "t2", "status": "pending"},
+            ]
+        )
+
+        result = await evaluator.evaluate_task_completion_gate(session_id="session-1")
+
+        assert result is not None
+        assert result.achieved is False
+        assert result.source == "tasks"
+        assert result.pending_tasks == 1
+
+    @pytest.mark.asyncio
+    async def test_task_completion_gate_fails_closed_when_task_state_unavailable(self) -> None:
+        async def execute(**kwargs: Any) -> str:
+            raise TaskStateUnavailableError("boom")
+
+        tool = ToolDefinition(
+            name="todoread",
+            description="Read todos",
+            parameters={"type": "object", "properties": {}},
+            execute=execute,
+        )
+        evaluator = GoalEvaluator(llm_client=None, tools={"todoread": tool})
+
+        result = await evaluator.evaluate_task_completion_gate(session_id="session-1")
+
+        assert result is not None
+        assert result.achieved is False
+        assert result.should_stop is True
+        assert result.source == "tasks"
+        assert result.reason == "Unable to verify task completion state"
+
+    @pytest.mark.asyncio
+    async def test_task_completion_gate_fails_closed_when_payload_omits_todos(self) -> None:
+        async def execute(**kwargs: Any) -> str:
+            return "{}"
+
+        tool = ToolDefinition(
+            name="todoread",
+            description="Read todos",
+            parameters={"type": "object", "properties": {}},
+            execute=execute,
+        )
+        evaluator = GoalEvaluator(llm_client=None, tools={"todoread": tool})
+
+        result = await evaluator.evaluate_task_completion_gate(session_id="session-1")
+
+        assert result is not None
+        assert result.achieved is False
+        assert result.should_stop is True
+        assert result.source == "tasks"
+        assert result.reason == "Unable to verify task completion state"
+
+    @pytest.mark.asyncio
+    async def test_task_completion_gate_fails_closed_on_parseable_error_payload(self) -> None:
+        async def execute(**kwargs: Any) -> ToolResult:
+            return ToolResult(
+                output='{"error":"Task storage not configured","todos":[]}',
+                is_error=True,
+            )
+
+        tool = ToolDefinition(
+            name="todoread",
+            description="Read todos",
+            parameters={"type": "object", "properties": {}},
+            execute=execute,
+        )
+        evaluator = GoalEvaluator(llm_client=None, tools={"todoread": tool})
+
+        result = await evaluator.evaluate_task_completion_gate(session_id="session-1")
+
+        assert result is not None
+        assert result.achieved is False
+        assert result.should_stop is True
+        assert result.source == "tasks"
+        assert result.reason == "Unable to verify task completion state"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            '{"todos":[{"status":"completed"}]}',
+            '{"todos":[42]}',
+            '{"todos":[{"id":"t1","status":"completed"},42]}',
+            '{"todos":[{"id":null,"status":"completed"}]}',
+            '{"todos":[{"id":"t1","status":null}]}',
+        ],
+    )
+    async def test_task_completion_gate_fails_closed_on_malformed_todo_entries(
+        self, payload: str
+    ) -> None:
+        async def execute(**kwargs: Any) -> str:
+            return payload
+
+        tool = ToolDefinition(
+            name="todoread",
+            description="Read todos",
+            parameters={"type": "object", "properties": {}},
+            execute=execute,
+        )
+        evaluator = GoalEvaluator(llm_client=None, tools={"todoread": tool})
+
+        result = await evaluator.evaluate_task_completion_gate(session_id="session-1")
+
+        assert result is not None
+        assert result.achieved is False
+        assert result.should_stop is True
+        assert result.source == "tasks"
+        assert result.reason == "Unable to verify task completion state"
 
     @pytest.mark.asyncio
     async def test_no_tasks_uses_llm_self_check_true(self, evaluator_with_tasks):

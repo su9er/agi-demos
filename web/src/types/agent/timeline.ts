@@ -77,6 +77,7 @@ export type TimelineEventType =
   | 'decision_answered'
   | 'env_var_requested'
   | 'env_var_provided'
+  | 'a2ui_action_asked'
   | 'permission_asked'
   | 'permission_replied'
   | 'permission_requested' // DB format
@@ -284,6 +285,7 @@ export interface TextStartEvent extends BaseTimelineEvent {
 export interface TextEndEvent extends BaseTimelineEvent {
   type: 'text_end';
   fullText?: string | undefined;
+  artifacts?: ArtifactReference[] | undefined;
 }
 
 // ============================================
@@ -426,6 +428,14 @@ export interface CanvasUpdatedTimelineEvent extends BaseTimelineEvent {
   } | null;
 }
 
+export interface A2UIActionAskedTimelineEvent extends BaseTimelineEvent {
+  type: 'a2ui_action_asked';
+  request_id: string;
+  block_id: string;
+  title?: string | undefined;
+  timeout_seconds?: number | undefined;
+}
+
 /**
  * Union type for all timeline events
  */
@@ -446,6 +456,7 @@ export type TimelineEvent =
   | DecisionAnsweredTimelineEvent
   | EnvVarRequestedTimelineEvent
   | EnvVarProvidedTimelineEvent
+  | A2UIActionAskedTimelineEvent
   | PermissionAskedTimelineEvent
   | PermissionRepliedTimelineEvent
   | PermissionRequestedTimelineEvent // DB format

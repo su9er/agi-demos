@@ -460,16 +460,35 @@ class AgentExecutionEventRepository(ABC):
     @abstractmethod
     async def get_events_by_message(
         self,
+        conversation_id: str,
         message_id: str,
     ) -> list[AgentExecutionEvent]:
         """
         Get all events for a specific message.
 
         Args:
+            conversation_id: The conversation ID
             message_id: The message ID
 
         Returns:
             List of events in chronological order
+        """
+
+    @abstractmethod
+    async def get_events_by_message_ids(
+        self,
+        conversation_id: str,
+        message_ids: set[str],
+    ) -> dict[str, list[AgentExecutionEvent]]:
+        """
+        Get all events for multiple message IDs.
+
+        Args:
+            conversation_id: The conversation ID
+            message_ids: The message IDs to fetch
+
+        Returns:
+            Mapping of message_id to events in chronological order
         """
 
     @abstractmethod

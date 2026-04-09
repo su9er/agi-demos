@@ -1,8 +1,8 @@
 """Tests for patch tool using TDD methodology."""
 
 import os
+
 import pytest
-from pathlib import Path
 
 from src.tools.file_tools import apply_patch
 
@@ -84,6 +84,85 @@ class TestPatchTool:
         with open(file_path, "r") as f:
             content = f.read()
         assert "modified" in content
+
+    @pytest.mark.asyncio
+    async def test_patch_rejects_mismatched_headers(self, workspace):
+        """Patch headers should match the requested file target."""
+        file_path = os.path.join(workspace, "real.txt")
+        with open(file_path, "w") as f:
+            f.write("old\n")
+
+        patch_content = """--- a/other.txt
++++ b/other.txt
+@@ -1,1 +1,1 @@
+-old
++new
+"""
+
+        result = await apply_patch(
+            file_path="real.txt",
+            patch=patch_content,
+            strip=0,
+            _workspace_dir=workspace,
+        )
+
+        assert result.get("isError") is True
+        content = result.get("content", [{}])[0].get("text", "").lower()
+        assert "target" in content or "header" in content or "match" in content
+
+    @pytest.mark.asyncio
+    async def test_patch_preserves_missing_newline_marker(self, workspace):
+        """Patch application should preserve files without a trailing newline."""
+        file_path = os.path.join(workspace, "test.txt")
+        with open(file_path, "wb") as f:
+            f.write(b"line1\nline2")
+
+        patch_content = """--- a/test.txt
++++ b/test.txt
+@@ -1,2 +1,2 @@
+ line1
+-line2
+\\ No newline at end of file
++line2 updated
+\\ No newline at end of file
+"""
+
+        result = await apply_patch(
+            file_path="test.txt",
+            patch=patch_content,
+            strip=0,
+            _workspace_dir=workspace,
+        )
+
+        assert not result.get("isError")
+        with open(file_path, "rb") as f:
+            content = f.read()
+        assert content == b"line1\nline2 updated"
+
+    @pytest.mark.asyncio
+    async def test_patch_accepts_absolute_file_path(self, workspace):
+        """Absolute file paths should still match normal diff headers."""
+        file_path = os.path.join(workspace, "test.txt")
+        with open(file_path, "w") as f:
+            f.write("old\n")
+
+        patch_content = """--- a/test.txt
++++ b/test.txt
+@@ -1,1 +1,1 @@
+-old
++new
+"""
+
+        result = await apply_patch(
+            file_path=file_path,
+            patch=patch_content,
+            strip=0,
+            _workspace_dir=workspace,
+        )
+
+        assert not result.get("isError")
+        with open(file_path, "r") as f:
+            assert f.read() == "new\n"
 
     @pytest.mark.asyncio
     async def test_patch_nonexistent_file(self, workspace):

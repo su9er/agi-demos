@@ -5,6 +5,7 @@ import uuid
 import pytest
 
 from src.domain.model.agent.agent_definition import Agent
+from src.domain.model.agent.agent_source import AgentSource
 from src.domain.model.agent.subagent import AgentModel, AgentTrigger
 
 
@@ -53,6 +54,10 @@ class TestAgent:
         with pytest.raises(ValueError, match="id cannot be empty"):
             _make_agent(id="")
 
+    def test_create_agent_reserved_id_raises(self):
+        with pytest.raises(ValueError, match="id uses a reserved agent identifier"):
+            _make_agent(id="__system__")
+
     def test_create_agent_empty_tenant_id_raises(self):
         with pytest.raises(ValueError, match="tenant_id cannot be empty"):
             _make_agent(tenant_id="")
@@ -60,6 +65,10 @@ class TestAgent:
     def test_create_agent_empty_name_raises(self):
         with pytest.raises(ValueError, match="name cannot be empty"):
             _make_agent(name="")
+
+    def test_create_agent_reserved_name_raises(self):
+        with pytest.raises(ValueError, match="name uses a reserved agent identifier"):
+            _make_agent(name="__system__")
 
     def test_create_agent_empty_display_name_raises(self):
         with pytest.raises(ValueError, match="display_name cannot be empty"):
@@ -147,6 +156,51 @@ class TestAgent:
         available = ["t1", "t2", "t3"]
         assert agent.get_filtered_tools(available) == ["t1", "t3"]
 
+    def test_agent_to_agent_allowlist_is_normalized(self):
+        agent = _make_agent(
+            agent_to_agent_enabled=True,
+            agent_to_agent_allowlist=[" sender-1 ", "", "sender-1", "sender-2 "],
+        )
+        assert agent.agent_to_agent_allowlist == ["sender-1", "sender-2"]
+
+    def test_accepts_messages_from_enabled_with_empty_allowlist_rejects_all(self):
+        agent = _make_agent(agent_to_agent_enabled=True, agent_to_agent_allowlist=[])
+        assert agent.accepts_messages_from("sender-1") is False
+
+    def test_accepts_messages_from_enabled_with_none_allowlist_rejects_non_builtin_agent(self):
+        agent = _make_agent(agent_to_agent_enabled=True, agent_to_agent_allowlist=None)
+        assert agent.accepts_messages_from("sender-1") is False
+
+    def test_accepts_messages_from_enabled_with_none_allowlist_allows_builtin_agent(self):
+        agent = _make_agent(
+            agent_to_agent_enabled=True,
+            agent_to_agent_allowlist=None,
+            source=AgentSource.BUILTIN,
+        )
+        assert agent.accepts_messages_from("sender-1") is True
+
+    def test_accepts_messages_from_disabled_rejects_even_if_sender_allowlisted(self):
+        agent = _make_agent(
+            agent_to_agent_enabled=False,
+            agent_to_agent_allowlist=["sender-1"],
+        )
+        assert agent.accepts_messages_from("sender-1") is False
+
+    def test_has_legacy_open_agent_to_agent_policy(self):
+        agent = _make_agent(agent_to_agent_enabled=True, agent_to_agent_allowlist=None)
+        assert agent.has_legacy_open_agent_to_agent_policy() is True
+
+    def test_create_factory_preserves_explicit_empty_agent_to_agent_allowlist(self):
+        agent = Agent.create(
+            tenant_id="t1",
+            name="factory-agent",
+            display_name="Factory Agent",
+            system_prompt="Test prompt.",
+            agent_to_agent_enabled=True,
+            agent_to_agent_allowlist=[],
+        )
+        assert agent.agent_to_agent_allowlist == []
+
     def test_record_execution_first_success(self):
         agent = _make_agent()
         updated = agent.record_execution(100.0, success=True)
@@ -187,6 +241,14 @@ class TestAgent:
         assert restored.model == agent.model
         assert restored.temperature == agent.temperature
         assert restored.max_tokens == agent.max_tokens
+
+    def test_to_dict_round_trip_preserves_explicit_empty_agent_to_agent_allowlist(self):
+        agent = _make_agent(
+            agent_to_agent_enabled=True,
+            agent_to_agent_allowlist=[],
+        )
+        restored = Agent.from_dict(agent.to_dict())
+        assert restored.agent_to_agent_allowlist == []
 
     def test_from_dict_minimal(self):
         data = {

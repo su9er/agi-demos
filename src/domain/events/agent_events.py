@@ -145,6 +145,7 @@ class AgentCompleteEvent(AgentDomainEvent):
     result: Any | None = None
     trace_url: str | None = None
     content: str | None = None
+    execution_summary: dict[str, Any] | None = None
     skill_used: str | None = None
     subagent_used: str | None = None
     subagent_result: Any | None = None

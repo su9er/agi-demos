@@ -314,6 +314,62 @@ class TestAgentSendTool:
         assert data["session_id"] == "sess-1"
 
     @pytest.mark.asyncio
+    async def test_happy_path_prefers_selected_agent_id_from_runtime_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Runtime selected_agent_id is forwarded to the orchestrator and event payload."""
+        import src.infrastructure.agent.tools.agent_send as mod
+
+        send_result = SendResult(
+            message_id="msg-001",
+            from_agent_id="agent-123",
+            to_agent_id="target-agent",
+            session_id="sess-1",
+        )
+        orchestrator = Mock()
+        orchestrator.send_message = AsyncMock(return_value=send_result)
+        monkeypatch.setattr(mod, "_orchestrator", orchestrator)
+
+        ctx = _make_ctx(
+            agent_name="fallback-name",
+            runtime_context={
+                "selected_agent_id": "agent-123",
+                "selected_agent_name": "selected-name",
+            },
+        )
+        result = await agent_send_tool.execute(ctx, agent_id="target-agent", message="hello")
+
+        assert result.is_error is False
+        orchestrator.send_message.assert_awaited_once_with(
+            from_agent_id="agent-123",
+            to_agent_id="target-agent",
+            message="hello",
+            session_id=None,
+            sender_session_id="session-1",
+            project_id="proj-1",
+            tenant_id="tenant-1",
+        )
+        assert ctx._pending_events[0]["data"]["from_agent_id"] == "agent-123"
+        assert ctx._pending_events[0]["data"]["from_agent_name"] == "selected-name"
+
+    @pytest.mark.asyncio
+    async def test_value_error_does_not_emit_message_sent_event(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Denied sends should not emit a success event."""
+        import src.infrastructure.agent.tools.agent_send as mod
+
+        orchestrator = Mock()
+        orchestrator.send_message = AsyncMock(side_effect=ValueError("not allowed"))
+        monkeypatch.setattr(mod, "_orchestrator", orchestrator)
+
+        ctx = _make_ctx(runtime_context={"selected_agent_id": "agent-123"})
+        result = await agent_send_tool.execute(ctx, agent_id="target-agent", message="hello")
+
+        assert result.is_error is True
+        assert ctx._pending_events == []
+
+    @pytest.mark.asyncio
     async def test_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """ValueError from orchestrator is surfaced."""
         import src.infrastructure.agent.tools.agent_send as mod
@@ -543,6 +599,32 @@ class TestAgentSessionsTool:
         assert data[0]["status"] == "running"
         assert data[0]["mode"] == "run"
         assert data[0]["task_summary"] == "do something"
+
+    @pytest.mark.asyncio
+    async def test_happy_path_preserves_unicode_output(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unicode task summaries should stay readable in raw JSON output."""
+        import src.infrastructure.agent.tools.agent_sessions as mod
+
+        record = SpawnRecord(
+            parent_agent_id="test-agent",
+            child_agent_id="child-1",
+            child_session_id="child-sess-1",
+            project_id="proj-1",
+            mode=SpawnMode.RUN,
+            task_summary="分析 🔥",
+            status="running",
+        )
+        orchestrator = Mock()
+        orchestrator.get_agent_sessions = AsyncMock(return_value=[record])
+        monkeypatch.setattr(mod, "_orchestrator", orchestrator)
+
+        result = await agent_sessions_tool.execute(_make_ctx())
+
+        assert result.is_error is False
+        assert "分析 🔥" in result.output
+        assert "\\u5206" not in result.output
 
     @pytest.mark.asyncio
     async def test_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:

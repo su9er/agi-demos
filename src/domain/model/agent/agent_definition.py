@@ -22,6 +22,8 @@ from src.domain.model.agent.subagent import AgentModel, AgentTrigger
 from src.domain.model.agent.tool_policy import ToolPolicy
 from src.domain.model.agent.workspace_config import WorkspaceConfig
 
+_RESERVED_AGENT_REFS = frozenset({"__system__"})
+
 
 @dataclass
 class Agent:
@@ -129,16 +131,39 @@ class Agent:
 
     def __post_init__(self) -> None:
         """Validate the agent."""
+        self.validate()
+
+    def validate(self) -> None:
+        """Validate the current agent state after create or update."""
+        self._validate_identity_fields()
+        self._validate_runtime_limits()
+        self.agent_to_agent_allowlist = self.normalize_agent_to_agent_allowlist(
+            self.agent_to_agent_allowlist
+        )
+
+    def _validate_identity_fields(self) -> None:
+        """Validate required identity and naming fields."""
         if not self.id:
             raise ValueError("id cannot be empty")
+        if self.id in _RESERVED_AGENT_REFS:
+            raise ValueError("id uses a reserved agent identifier")
         if not self.tenant_id:
             raise ValueError("tenant_id cannot be empty")
         if not self.name:
             raise ValueError("name cannot be empty")
+        if self.name in _RESERVED_AGENT_REFS:
+            raise ValueError("name uses a reserved agent identifier")
         if not self.display_name:
             raise ValueError("display_name cannot be empty")
         if not self.system_prompt:
             raise ValueError("system_prompt cannot be empty")
+
+    def _validate_runtime_limits(self) -> None:
+        """Validate numeric runtime limits and metrics."""
+        if not isinstance(self.model, AgentModel):
+            raise ValueError("model must be a valid AgentModel")
+        if not isinstance(self.workspace_config, WorkspaceConfig):
+            raise ValueError("workspace_config must be a WorkspaceConfig")
         if self.max_tokens < 1:
             raise ValueError("max_tokens must be positive")
         if not 0 <= self.temperature <= 2:
@@ -151,6 +176,30 @@ class Agent:
             raise ValueError("max_retries must be non-negative")
         if self.max_spawn_depth < 0:
             raise ValueError("max_spawn_depth must be non-negative")
+
+    @staticmethod
+    def normalize_agent_to_agent_allowlist(allowlist: list[str] | None) -> list[str] | None:
+        """Normalize an agent-to-agent allowlist while preserving legacy None semantics."""
+        if allowlist is None:
+            return None
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_value in allowlist:
+            normalized_value = raw_value.strip()
+            if not normalized_value or normalized_value in seen:
+                continue
+            seen.add(normalized_value)
+            normalized.append(normalized_value)
+        return normalized
+
+    def has_legacy_open_agent_to_agent_policy(self) -> bool:
+        """Return whether the agent still relies on the legacy implicit-open A2A policy."""
+        return (
+            self.source != AgentSource.BUILTIN
+            and self.agent_to_agent_enabled
+            and self.agent_to_agent_allowlist is None
+        )
 
     def is_enabled(self) -> bool:
         """Check if agent is enabled."""
@@ -185,13 +234,15 @@ class Agent:
 
         Resolution order:
         1. If agent_to_agent_enabled is False -> reject all.
-        2. If allowlist is None -> allow all (backward compatible).
-        3. Otherwise check membership.
+        2. Built-in agents may use allowlist=None as an explicit trusted-open policy.
+        3. Non-built-in agents with allowlist=None reject until the policy is made explicit.
+        4. If allowlist is empty -> reject all.
+        5. Otherwise check membership.
         """
         if not self.agent_to_agent_enabled:
             return False
         if self.agent_to_agent_allowlist is None:
-            return True
+            return self.source == AgentSource.BUILTIN
         return sender_agent_id in self.agent_to_agent_allowlist
 
     def to_identity(self) -> AgentIdentity:
