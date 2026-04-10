@@ -7,11 +7,15 @@ from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
+from src.domain.model.agent.agent_definition import Agent
 from src.domain.model.agent.agent_role import AgentRole
+from src.domain.model.agent.agent_source import AgentSource
 from src.domain.model.agent.spawn_mode import SpawnMode
 from src.domain.model.agent.spawn_record import SpawnRecord
+from src.domain.model.agent.subagent import AgentTrigger
 from src.domain.ports.agent.agent_registry import AgentRegistryPort
 from src.domain.ports.services.agent_message_bus_port import (
+    AgentMessage,
     AgentMessageBusPort,
     AgentMessageType,
 )
@@ -90,6 +94,23 @@ def _make_spawn_record(**overrides: Any) -> SpawnRecord:
     }
     defaults.update(overrides)
     return SpawnRecord(**defaults)
+
+
+def _make_real_agent(**overrides: Any) -> Agent:
+    """Create a real Agent domain object for policy-level tests."""
+    defaults: dict[str, Any] = {
+        "id": "agent-1",
+        "tenant_id": "tenant-1",
+        "project_id": "proj-1",
+        "name": "agent-1",
+        "display_name": "Agent 1",
+        "system_prompt": "You are a test agent.",
+        "trigger": AgentTrigger(description="test trigger"),
+        "agent_to_agent_enabled": True,
+        "source": AgentSource.DATABASE,
+    }
+    defaults.update(overrides)
+    return Agent(**defaults)
 
 
 def _make_session(**overrides: Any) -> AgentSession:
@@ -826,7 +847,11 @@ class TestSendMessage:
                 # 1. Resolve target session: session_id="sess-to-b" belongs to agent-b
                 AgentSession(agent_id="agent-b", conversation_id="sess-to-b", project_id="proj-1"),
                 # 2. Resolve sender session: sender_session_id="sess-from-sender" belongs to builtin:sisyphus
-                AgentSession(agent_id="builtin:sisyphus", conversation_id="sess-from-sender", project_id="proj-1"),
+                AgentSession(
+                    agent_id="builtin:sisyphus",
+                    conversation_id="sess-from-sender",
+                    project_id="proj-1",
+                ),
             ],
         )
 
@@ -841,6 +866,54 @@ class TestSendMessage:
 
         assert result.from_agent_id == "builtin:sisyphus"
         assert result.to_agent_id == "agent-b"
+
+    async def test_send_message_target_wildcard_allowlist_allows_any_sender(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Wildcard allowlists permit any enabled sender."""
+        from_agent = _make_real_agent(
+            id="builtin:sisyphus",
+            name="builtin:sisyphus",
+            display_name="Sisyphus",
+        )
+        to_agent = _make_real_agent(
+            id="agent-b",
+            name="agent-b",
+            display_name="Agent B",
+            agent_to_agent_allowlist=["*"],
+        )
+        fx.agent_registry.get_by_id = AsyncMock(side_effect=[from_agent, to_agent])
+        fx.session_registry.get_session_for_conversation = AsyncMock(
+            side_effect=[
+                AgentSession(agent_id="agent-b", conversation_id="sess-to-b", project_id="proj-1"),
+                AgentSession(
+                    agent_id="builtin:sisyphus",
+                    conversation_id="sess-from-sender",
+                    project_id="proj-1",
+                ),
+            ],
+        )
+        fx.message_bus.send_message = AsyncMock(return_value="msg-1")
+
+        result = await fx.orchestrator.send_message(
+            from_agent_id="builtin:sisyphus",
+            to_agent_id="agent-b",
+            message="hello",
+            session_id="sess-to-b",
+            sender_session_id="sess-from-sender",
+            project_id="proj-1",
+        )
+
+        assert isinstance(result, SendResult)
+        assert result.from_agent_id == "builtin:sisyphus"
+        assert result.to_agent_id == "agent-b"
+        fx.message_bus.send_message.assert_awaited_once_with(
+            from_agent_id="builtin:sisyphus",
+            to_agent_id="agent-b",
+            session_id="sess-to-b",
+            content="hello",
+            message_type=AgentMessageType.REQUEST,
+        )
 
     async def test_send_message_target_allowlist_rejects_sender(
         self, fx: _OrchestratorFixture
@@ -937,7 +1010,7 @@ class TestStopAgent:
     async def test_stop_agent_cascade_true_calls_cascade_stop(
         self, fx: _OrchestratorFixture
     ) -> None:
-        """With cascade=True, calls spawn_manager.cascade_stop and cleans up each session."""
+        """With cascade=True, calls spawn_manager.cascade_stop and preserves session history."""
         # Arrange
         fx.spawn_manager.cascade_stop = AsyncMock(return_value=["sess-1", "sess-2"])
         fx.message_bus.cleanup_session = AsyncMock()
@@ -963,7 +1036,7 @@ class TestStopAgent:
     async def test_stop_agent_cascade_true_cleanup_called_for_each(
         self, fx: _OrchestratorFixture
     ) -> None:
-        """After cascade returns 3 IDs, cleanup_session is called 3 times."""
+        """Stopping child sessions should not delete their message history streams."""
         # Arrange
         fx.spawn_manager.cascade_stop = AsyncMock(return_value=["s1", "s2", "s3"])
         fx.message_bus.cleanup_session = AsyncMock()
@@ -976,15 +1049,12 @@ class TestStopAgent:
         )
 
         # Assert
-        assert fx.message_bus.cleanup_session.call_count == 3
-        fx.message_bus.cleanup_session.assert_has_calls(
-            [call("s1"), call("s2"), call("s3")], any_order=False
-        )
+        fx.message_bus.cleanup_session.assert_not_called()
 
     async def test_stop_agent_cascade_false_calls_update_status_and_unregister(
         self, fx: _OrchestratorFixture
     ) -> None:
-        """With cascade=False, calls update_status and unregister, returns [session_id]."""
+        """With cascade=False, stops the session without deleting its history."""
         # Arrange
         fx.spawn_manager.update_status = AsyncMock()
         fx.session_registry.unregister = AsyncMock()
@@ -1010,7 +1080,7 @@ class TestStopAgent:
             conversation_id="sess-1",
             project_id="proj-1",
         )
-        fx.message_bus.cleanup_session.assert_called_once_with("sess-1")
+        fx.message_bus.cleanup_session.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1145,8 +1215,8 @@ class TestGetAgentHistory:
         result = await fx.orchestrator.get_agent_history(session_id="sess-1")
 
         # Assert
-        assert result is expected
-        fx.message_bus.get_message_history.assert_called_once_with(session_id="sess-1", limit=50)
+        assert result == expected
+        fx.message_bus.get_message_history.assert_called_once_with(session_id="sess-1", limit=150)
 
     async def test_get_agent_history_custom_limit(self, fx: _OrchestratorFixture) -> None:
         """Custom limit is forwarded to get_message_history."""
@@ -1158,5 +1228,133 @@ class TestGetAgentHistory:
         result = await fx.orchestrator.get_agent_history(session_id="sess-1", limit=10)
 
         # Assert
-        assert result is expected
-        fx.message_bus.get_message_history.assert_called_once_with(session_id="sess-1", limit=10)
+        assert result == expected
+        fx.message_bus.get_message_history.assert_called_once_with(session_id="sess-1", limit=30)
+
+    async def test_get_agent_history_collapses_terminal_retries(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Terminal child result retries should keep only the latest terminal entry."""
+        terminal_metadata = {"terminal_message_id": "term-1"}
+        history = [
+            AgentMessage(
+                message_id="msg-1",
+                from_agent_id="agent-a",
+                to_agent_id="",
+                session_id="sess-1",
+                content="normal message",
+                message_type=AgentMessageType.NOTIFICATION,
+            ),
+            AgentMessage(
+                message_id="msg-2",
+                from_agent_id="agent-a",
+                to_agent_id="",
+                session_id="sess-1",
+                content="stale terminal",
+                message_type=AgentMessageType.RESPONSE,
+                metadata={**terminal_metadata, "success": False},
+            ),
+            AgentMessage(
+                message_id="msg-3",
+                from_agent_id="agent-a",
+                to_agent_id="",
+                session_id="sess-1",
+                content="fresh terminal",
+                message_type=AgentMessageType.RESPONSE,
+                metadata={**terminal_metadata, "success": True},
+            ),
+        ]
+        fx.message_bus.get_message_history = AsyncMock(return_value=history)
+
+        result = await fx.orchestrator.get_agent_history(session_id="sess-1")
+
+        assert [message.content for message in result] == ["normal message", "fresh terminal"]
+
+    async def test_get_agent_history_preserves_latest_terminal_order(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Collapsed terminal retries should preserve the chronology of retained messages."""
+        history = [
+            AgentMessage(
+                message_id="msg-1",
+                from_agent_id="agent-a",
+                to_agent_id="",
+                session_id="sess-1",
+                content="stale terminal 1",
+                message_type=AgentMessageType.RESPONSE,
+                metadata={"terminal_message_id": "term-1"},
+            ),
+            AgentMessage(
+                message_id="msg-2",
+                from_agent_id="agent-a",
+                to_agent_id="",
+                session_id="sess-1",
+                content="middle message",
+                message_type=AgentMessageType.NOTIFICATION,
+            ),
+            AgentMessage(
+                message_id="msg-3",
+                from_agent_id="agent-a",
+                to_agent_id="",
+                session_id="sess-1",
+                content="fresh terminal 1",
+                message_type=AgentMessageType.RESPONSE,
+                metadata={"terminal_message_id": "term-1"},
+            ),
+            AgentMessage(
+                message_id="msg-4",
+                from_agent_id="agent-a",
+                to_agent_id="",
+                session_id="sess-1",
+                content="fresh terminal 2",
+                message_type=AgentMessageType.RESPONSE,
+                metadata={"terminal_message_id": "term-2"},
+            ),
+        ]
+        fx.message_bus.get_message_history = AsyncMock(return_value=history)
+
+        result = await fx.orchestrator.get_agent_history(session_id="sess-1")
+
+        assert [message.content for message in result] == [
+            "middle message",
+            "fresh terminal 1",
+            "fresh terminal 2",
+        ]
+
+    async def test_get_agent_history_overfetch_avoids_duplicate_underfill(
+        self, fx: _OrchestratorFixture
+    ) -> None:
+        """Overfetching should keep older non-terminal messages when retries consume the tail."""
+        history = [
+            AgentMessage(
+                message_id="msg-1",
+                from_agent_id="agent-a",
+                to_agent_id="",
+                session_id="sess-1",
+                content="older message",
+                message_type=AgentMessageType.NOTIFICATION,
+            ),
+            AgentMessage(
+                message_id="msg-2",
+                from_agent_id="agent-a",
+                to_agent_id="",
+                session_id="sess-1",
+                content="stale terminal",
+                message_type=AgentMessageType.RESPONSE,
+                metadata={"terminal_message_id": "term-1"},
+            ),
+            AgentMessage(
+                message_id="msg-3",
+                from_agent_id="agent-a",
+                to_agent_id="",
+                session_id="sess-1",
+                content="fresh terminal",
+                message_type=AgentMessageType.RESPONSE,
+                metadata={"terminal_message_id": "term-1"},
+            ),
+        ]
+        fx.message_bus.get_message_history = AsyncMock(return_value=history)
+
+        result = await fx.orchestrator.get_agent_history(session_id="sess-1", limit=2)
+
+        assert [message.content for message in result] == ["older message", "fresh terminal"]

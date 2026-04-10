@@ -342,3 +342,107 @@ class TestActorExecutionRecovery:
         assert result.is_error is True
         _stub_mark_hitl_completed.assert_not_awaited()
         execution.delete_hitl_snapshot.assert_not_awaited()
+
+    async def test_continue_chat_finalizes_child_session_after_resume(
+        self, monkeypatch, _stub_mark_hitl_completed: AsyncMock
+    ):
+        state = HITLAgentState(
+            conversation_id="child-conv",
+            message_id="msg-1",
+            tenant_id="tenant-1",
+            project_id="project-1",
+            hitl_request_id="req-1",
+            hitl_type="clarification",
+            hitl_request_data={"question": "q"},
+            messages=[{"role": "user", "content": "hi"}],
+            user_message="hi",
+            user_id="user-1",
+            correlation_id="corr-1",
+            agent_id="child-agent",
+            parent_session_id="parent-conv",
+            timeout_seconds=120.0,
+        )
+
+        agent = _FakeAgent()
+
+        monkeypatch.setattr(execution, "_get_redis_client", AsyncMock(return_value=object()))
+        monkeypatch.setattr(execution, "_publish_event_to_stream", AsyncMock())
+        monkeypatch.setattr(execution, "_persist_events", AsyncMock())
+        monkeypatch.setattr(execution, "set_agent_running", AsyncMock())
+        monkeypatch.setattr(execution, "refresh_agent_running_ttl", AsyncMock())
+        monkeypatch.setattr(execution, "clear_agent_running", AsyncMock())
+        monkeypatch.setattr(execution, "delete_hitl_snapshot", AsyncMock())
+        monkeypatch.setattr(execution, "load_hitl_snapshot", AsyncMock(return_value=state))
+        monkeypatch.setattr(execution, "HITLStateStore", _FakeStateStore)
+        monkeypatch.setattr(execution, "_finalize_child_session_result", AsyncMock())
+        monkeypatch.setattr(execution, "_publish_announce_via_service", AsyncMock())
+
+        result = await execution.continue_project_chat(
+            agent,
+            "req-1",
+            {"answer": "ok"},
+            tenant_id="tenant-1",
+            project_id="project-1",
+            conversation_id="child-conv",
+            message_id="msg-1",
+        )
+
+        assert result.is_error is False
+        execution._finalize_child_session_result.assert_awaited_once_with(
+            agent_id="child-agent",
+            child_session_id="child-conv",
+            request_message_id="msg-1",
+            parent_session_id="parent-conv",
+            result_content="ok",
+            success=True,
+            event_count=1,
+            execution_time_ms=result.execution_time_ms,
+            error_message=None,
+        )
+
+    async def test_continue_chat_finalizes_child_session_on_resume_error(
+        self, monkeypatch, _stub_mark_hitl_completed: AsyncMock
+    ):
+        state = HITLAgentState(
+            conversation_id="child-conv",
+            message_id="msg-1",
+            tenant_id="tenant-1",
+            project_id="project-1",
+            hitl_request_id="req-1",
+            hitl_type="clarification",
+            hitl_request_data={"question": "q"},
+            messages=[{"role": "user", "content": "hi"}],
+            user_message="hi",
+            user_id="user-1",
+            correlation_id="corr-1",
+            agent_id="child-agent",
+            parent_session_id="parent-conv",
+            timeout_seconds=120.0,
+        )
+
+        agent = _ErrorAgent()
+
+        monkeypatch.setattr(execution, "_get_redis_client", AsyncMock(return_value=object()))
+        monkeypatch.setattr(execution, "_publish_event_to_stream", AsyncMock())
+        monkeypatch.setattr(execution, "_persist_events", AsyncMock())
+        monkeypatch.setattr(execution, "set_agent_running", AsyncMock())
+        monkeypatch.setattr(execution, "refresh_agent_running_ttl", AsyncMock())
+        monkeypatch.setattr(execution, "clear_agent_running", AsyncMock())
+        monkeypatch.setattr(execution, "delete_hitl_snapshot", AsyncMock())
+        monkeypatch.setattr(execution, "load_hitl_snapshot", AsyncMock(return_value=state))
+        monkeypatch.setattr(execution, "HITLStateStore", _FakeStateStore)
+        monkeypatch.setattr(execution, "_handle_chat_error", AsyncMock())
+
+        await execution.continue_project_chat(
+            agent,
+            "req-1",
+            {"answer": "ok"},
+            tenant_id="tenant-1",
+            project_id="project-1",
+            conversation_id="child-conv",
+            message_id="msg-1",
+        )
+
+        execution._handle_chat_error.assert_awaited_once()
+        assert execution._handle_chat_error.await_args.kwargs["agent_id"] == "child-agent"
+        assert execution._handle_chat_error.await_args.kwargs["parent_session_id"] == "parent-conv"

@@ -179,6 +179,11 @@ class TestAgent:
         )
         assert agent.accepts_messages_from("sender-1") is True
 
+    def test_accepts_messages_from_enabled_with_wildcard_allowlist_allows_any_sender(self):
+        agent = _make_agent(agent_to_agent_enabled=True, agent_to_agent_allowlist=["*"])
+        assert agent.accepts_messages_from("sender-1") is True
+        assert agent.accepts_messages_from(" builtin:sisyphus ") is True
+
     def test_accepts_messages_from_disabled_rejects_even_if_sender_allowlisted(self):
         agent = _make_agent(
             agent_to_agent_enabled=False,

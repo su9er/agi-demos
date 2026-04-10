@@ -196,9 +196,7 @@ class AgentOrchestrator:
             if allowlist:
                 allowlist_hint = f" Allowed senders: {', '.join(allowlist)}."
             else:
-                allowlist_hint = (
-                    " Configure agent_to_agent_allowlist to permit additional senders."
-                )
+                allowlist_hint = " Configure agent_to_agent_allowlist to permit additional senders."
             raise ValueError(
                 f"Target agent {to_agent.id} does not accept messages from sender: "
                 f"{sender_agent_id}.{allowlist_hint}"
@@ -669,9 +667,6 @@ class AgentOrchestrator:
             )
             stopped.append(session_id)
 
-        for sid in stopped:
-            await self._message_bus.cleanup_session(sid)
-
         logger.info(
             "Stopped agent=%s session=%s cascade=%s stopped_count=%d",
             agent_id,
@@ -722,10 +717,23 @@ class AgentOrchestrator:
         limit: int = 50,
     ) -> list[AgentMessage]:
         """Get message history for an agent session."""
-        return await self._message_bus.get_message_history(
+        history_limit = max(limit * 3, limit)
+        messages = await self._message_bus.get_message_history(
             session_id=session_id,
-            limit=limit,
+            limit=history_limit,
         )
+        seen_terminal_ids: set[str] = set()
+        deduped_reverse: list[AgentMessage] = []
+
+        for message in reversed(messages):
+            terminal_id = (message.metadata or {}).get("terminal_message_id")
+            if terminal_id:
+                if terminal_id in seen_terminal_ids:
+                    continue
+                seen_terminal_ids.add(terminal_id)
+            deduped_reverse.append(message)
+
+        return list(reversed(deduped_reverse))[-limit:]
 
     # ------------------------------------------------------------------
     # Agent Definition CRUD (used by agent_definition_manage tool)

@@ -18,7 +18,11 @@ import redis.asyncio as aioredis
 
 from src.configuration.config import get_settings
 from src.domain.model.agent.execution.event_time import EventTimeGenerator
+from src.domain.ports.services.agent_message_bus_port import AgentMessageType
 from src.infrastructure.adapters.primary.web.metrics import agent_metrics
+from src.infrastructure.adapters.secondary.messaging.redis_agent_message_bus import (
+    RedisAgentMessageBusAdapter,
+)
 from src.infrastructure.adapters.secondary.persistence.database import async_session_factory
 from src.infrastructure.adapters.secondary.persistence.models import AgentExecutionEvent
 from src.infrastructure.adapters.secondary.persistence.sql_agent_execution_event_repository import (
@@ -362,26 +366,17 @@ async def _handle_chat_error(
             logger.warning(f"[ActorExecution] Failed to publish error event: {pub_error}")
 
     if agent_id and parent_session_id:
-        await _update_spawn_status(
+        await _finalize_child_session_result(
+            agent_id=agent_id,
             child_session_id=conversation_id,
-            status="failed",
+            request_message_id=message_id,
             parent_session_id=parent_session_id,
+            result_content="",
+            success=False,
+            event_count=len(events),
+            execution_time_ms=execution_time_ms,
+            error_message=str(error),
         )
-
-    if agent_id and parent_session_id:
-        _task = asyncio.create_task(
-            _publish_announce_via_service(
-                agent_id=agent_id,
-                parent_session_id=parent_session_id,
-                child_session_id=conversation_id,
-                result_content=str(error),
-                success=False,
-                event_count=len(events),
-                execution_time_ms=execution_time_ms,
-            )
-        )
-        _background_tasks.add(_task)
-        _task.add_done_callback(_background_tasks.discard)
 
     return ProjectChatResult(
         conversation_id=conversation_id,
@@ -466,6 +461,40 @@ def _build_hitl_context(
             },
         ]
     return conversation_context
+
+
+def _validate_hitl_resume_request(
+    *,
+    state: HITLAgentState,
+    response_data: dict[str, Any],
+    tenant_id: str | None,
+    project_id: str | None,
+    conversation_id: str | None,
+    message_id: str | None,
+) -> str | None:
+    """Validate a resumed HITL response against the persisted request binding."""
+    from src.domain.model.agent.hitl_types import HITLType
+    from src.infrastructure.agent.hitl.coordinator import validate_hitl_response
+
+    try:
+        hitl_type = HITLType(state.hitl_type)
+    except ValueError:
+        return f"Unsupported HITL type: {state.hitl_type}"
+
+    is_valid, validation_error = validate_hitl_response(
+        hitl_type=hitl_type,
+        request_data=state.hitl_request_data,
+        response_data=response_data,
+        conversation_id=state.conversation_id,
+        tenant_id=state.tenant_id,
+        project_id=state.project_id,
+        message_id=state.message_id,
+        received_tenant_id=tenant_id,
+        received_project_id=project_id,
+        received_conversation_id=conversation_id,
+        received_message_id=message_id,
+    )
+    return None if is_valid else validation_error
 
 
 # ---------------------------------------------------------------------------
@@ -625,24 +654,17 @@ async def execute_project_chat(
         _task.add_done_callback(_background_tasks.discard)
 
         if request.agent_id and request.parent_session_id:
-            await _update_spawn_status(
+            await _finalize_child_session_result(
+                agent_id=request.agent_id,
                 child_session_id=request.conversation_id,
-                status="failed" if ss.is_error else "completed",
+                request_message_id=request.message_id,
                 parent_session_id=request.parent_session_id,
+                result_content=ss.final_content,
+                success=not ss.is_error,
+                event_count=len(ss.events),
+                execution_time_ms=execution_time_ms,
+                error_message=ss.error_message,
             )
-            _task2 = asyncio.create_task(
-                _publish_announce_via_service(
-                    agent_id=request.agent_id,
-                    parent_session_id=request.parent_session_id,
-                    child_session_id=request.conversation_id,
-                    result_content=ss.final_content,
-                    success=not ss.is_error,
-                    event_count=len(ss.events),
-                    execution_time_ms=(time_module.time() - start_time) * 1000,
-                )
-            )
-            _background_tasks.add(_task2)
-            _task2.add_done_callback(_background_tasks.discard)
 
         return ProjectChatResult(
             conversation_id=request.conversation_id,
@@ -709,6 +731,8 @@ async def handle_hitl_pending(
         user_message=request.user_message,
         user_id=request.user_id,
         correlation_id=request.correlation_id,
+        agent_id=request.agent_id,
+        parent_session_id=request.parent_session_id,
         step_count=getattr(agent, "_step_count", 0),
         timeout_seconds=hitl_exception.timeout_seconds,
         pending_tool_call_id=hitl_exception.tool_call_id,
@@ -774,38 +798,17 @@ async def continue_project_chat(
         f"last_event_counter={state.last_event_counter}"
     )
 
-    from src.domain.model.agent.hitl_types import HITLType
-    from src.infrastructure.agent.hitl.coordinator import (
-        mark_hitl_request_completed,
-        validate_hitl_response,
-    )
+    from src.infrastructure.agent.hitl.coordinator import mark_hitl_request_completed
 
-    try:
-        hitl_type = HITLType(state.hitl_type)
-    except ValueError:
-        execution_time_ms = (time_module.time() - start_time) * 1000
-        return ProjectChatResult(
-            conversation_id=state.conversation_id,
-            message_id=state.message_id,
-            is_error=True,
-            error_message=f"Unsupported HITL type: {state.hitl_type}",
-            execution_time_ms=execution_time_ms,
-        )
-
-    is_valid, validation_error = validate_hitl_response(
-        hitl_type=hitl_type,
-        request_data=state.hitl_request_data,
+    validation_error = _validate_hitl_resume_request(
+        state=state,
         response_data=response_data,
-        conversation_id=state.conversation_id,
-        tenant_id=state.tenant_id,
-        project_id=state.project_id,
-        message_id=state.message_id,
-        received_tenant_id=tenant_id,
-        received_project_id=project_id,
-        received_conversation_id=conversation_id,
-        received_message_id=message_id,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        conversation_id=conversation_id,
+        message_id=message_id,
     )
-    if not is_valid:
+    if validation_error:
         logger.warning(
             "[ActorExecution] Rejected HITL response for request_id=%s: %s",
             request_id,
@@ -881,7 +884,7 @@ async def continue_project_chat(
                 conversation_id=state.conversation_id,
                 summary_data=ss.summary_save_data,
                 last_event_time_us=time_gen.last_time_us,
-        )
+            )
 
         if not ss.is_error:
             completed = await mark_hitl_request_completed(request_id, lease_owner=lease_owner)
@@ -897,6 +900,19 @@ async def continue_project_chat(
                 )
 
         execution_time_ms = (time_module.time() - start_time) * 1000
+
+        if state.agent_id and state.parent_session_id:
+            await _finalize_child_session_result(
+                agent_id=state.agent_id,
+                child_session_id=state.conversation_id,
+                request_message_id=state.message_id,
+                parent_session_id=state.parent_session_id,
+                result_content=ss.final_content,
+                success=not ss.is_error,
+                event_count=len(ss.events),
+                execution_time_ms=execution_time_ms,
+                error_message=ss.error_message,
+            )
 
         return ProjectChatResult(
             conversation_id=state.conversation_id,
@@ -920,6 +936,8 @@ async def continue_project_chat(
             state.correlation_id,
             start_time,
             publish_error=False,
+            agent_id=state.agent_id,
+            parent_session_id=state.parent_session_id,
         )
     finally:
         await clear_agent_running(state.conversation_id)
@@ -1255,6 +1273,287 @@ async def _get_announce_service() -> AnnounceService:
     """Get or create module-level AnnounceService singleton."""
     redis_client = await _get_redis_client()
     return AnnounceService(redis_client=redis_client)
+
+
+async def _finalize_child_session_result(
+    *,
+    agent_id: str,
+    child_session_id: str,
+    request_message_id: str,
+    parent_session_id: str,
+    result_content: str,
+    success: bool,
+    event_count: int,
+    execution_time_ms: float,
+    error_message: str | None,
+) -> None:
+    """Mirror a child session terminal result into parent-visible status and history."""
+    terminal_message_id = _child_terminal_message_id(
+        child_session_id=child_session_id,
+        request_message_id=request_message_id,
+    )
+    terminal_signature = _child_terminal_signature(
+        content=result_content,
+        success=success,
+        error_message=error_message,
+    )
+    finalization_state_key = f"agent:child:terminal:state:{terminal_message_id}"
+    finalization_lock_key = f"{finalization_state_key}:lock"
+    redis_client: aioredis.Redis | None = None
+    lock_token: str | None = None
+    lock_acquired = False
+
+    try:
+        try:
+            redis_client = await _get_redis_client()
+            lock_token = str(uuid.uuid4())
+            lock_acquired = bool(
+                await redis_client.set(finalization_lock_key, lock_token, ex=30, nx=True)
+            )
+            if not lock_acquired:
+                return
+
+            existing_signature = await redis_client.get(finalization_state_key)
+            if isinstance(existing_signature, bytes):
+                existing_signature = existing_signature.decode("utf-8")
+            if existing_signature == terminal_signature:
+                return
+        except Exception:
+            logger.warning(
+                "Failed to acquire child finalization guard for session=%s message=%s",
+                child_session_id,
+                request_message_id,
+                exc_info=True,
+            )
+            redis_client = None
+            lock_token = None
+            lock_acquired = False
+
+        await _update_spawn_status(
+            child_session_id=child_session_id,
+            status="completed" if success else "failed",
+            parent_session_id=parent_session_id,
+        )
+        await _record_child_result_history(
+            agent_id=agent_id,
+            child_session_id=child_session_id,
+            request_message_id=request_message_id,
+            parent_session_id=parent_session_id,
+            result_content=result_content,
+            success=success,
+            event_count=event_count,
+            execution_time_ms=execution_time_ms,
+            error_message=error_message,
+        )
+
+        announce_content = result_content.strip() or (error_message or "").strip()
+        _task = asyncio.create_task(
+            _publish_announce_via_service(
+                agent_id=agent_id,
+                parent_session_id=parent_session_id,
+                child_session_id=child_session_id,
+                result_content=announce_content,
+                success=success,
+                event_count=event_count,
+                execution_time_ms=execution_time_ms,
+            )
+        )
+        _background_tasks.add(_task)
+        _task.add_done_callback(_background_tasks.discard)
+
+        if redis_client is not None:
+            try:
+                await redis_client.set(finalization_state_key, terminal_signature, ex=86400)
+            except Exception:
+                logger.warning(
+                    "Failed to persist child finalization signature for session=%s message=%s",
+                    child_session_id,
+                    request_message_id,
+                    exc_info=True,
+                )
+    finally:
+        if redis_client is not None and lock_token is not None and lock_acquired:
+            try:
+                current_lock = await redis_client.get(finalization_lock_key)
+                if isinstance(current_lock, bytes):
+                    current_lock = current_lock.decode("utf-8")
+                if current_lock == lock_token:
+                    await redis_client.delete(finalization_lock_key)
+            except Exception:
+                logger.warning(
+                    "Failed to release child finalization lock for session=%s message=%s",
+                    child_session_id,
+                    request_message_id,
+                    exc_info=True,
+                )
+
+
+async def _record_child_result_history(
+    *,
+    agent_id: str,
+    child_session_id: str,
+    request_message_id: str,
+    parent_session_id: str,
+    result_content: str,
+    success: bool,
+    event_count: int,
+    execution_time_ms: float,
+    error_message: str | None,
+) -> None:
+    """Persist a child agent's terminal result into its own queryable history."""
+    terminal_message_id = _child_terminal_message_id(
+        child_session_id=child_session_id,
+        request_message_id=request_message_id,
+    )
+    content = result_content.strip()
+    if not content:
+        content = (error_message or "").strip()
+    if not content:
+        content = "Child session finished without textual output."
+    metadata = {
+        "source": "child_result_history",
+        "parent_session_id": parent_session_id,
+        "success": success,
+        "event_count": event_count,
+        "execution_time_ms": round(execution_time_ms, 2),
+        "error_message": error_message,
+        "source_message_id": request_message_id,
+        "terminal_message_id": terminal_message_id,
+    }
+
+    try:
+        redis_client = await _get_redis_client()
+        message_bus = RedisAgentMessageBusAdapter(redis_client)
+        history = await message_bus.get_message_history(session_id=child_session_id, limit=50)
+        existing_terminal_message = next(
+            (
+                message
+                for message in reversed(history)
+                if message.metadata
+                and message.metadata.get("terminal_message_id") == terminal_message_id
+            ),
+            None,
+        )
+        terminal_message_matches = (
+            existing_terminal_message is not None
+            and existing_terminal_message.content == content
+            and bool(existing_terminal_message.metadata.get("success")) is success
+            and existing_terminal_message.metadata.get("error_message") == error_message
+        )
+        if not terminal_message_matches:
+            await message_bus.send_message(
+                from_agent_id=agent_id,
+                to_agent_id="",
+                session_id=child_session_id,
+                content=content,
+                message_type=AgentMessageType.RESPONSE,
+                metadata=metadata,
+            )
+    except Exception:
+        logger.warning(
+            "Failed to persist child result history for agent=%s session=%s",
+            agent_id,
+            child_session_id,
+            exc_info=True,
+        )
+
+    await _persist_child_result_message(
+        child_session_id=child_session_id,
+        terminal_message_id=terminal_message_id,
+        content=content,
+        success=success,
+        metadata=metadata,
+    )
+
+
+def _child_terminal_message_id(*, child_session_id: str, request_message_id: str) -> str:
+    """Build a deterministic ID for a child session's terminal history record."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{child_session_id}:{request_message_id}:terminal"))
+
+
+def _child_terminal_signature(
+    *,
+    content: str,
+    success: bool,
+    error_message: str | None,
+) -> str:
+    """Serialize the terminal payload shape used for idempotent child finalization."""
+    return json.dumps(
+        {
+            "content": content,
+            "success": success,
+            "error_message": error_message,
+        },
+        sort_keys=True,
+    )
+
+
+async def _persist_child_result_message(
+    *,
+    child_session_id: str,
+    terminal_message_id: str,
+    content: str,
+    success: bool,
+    metadata: dict[str, Any],
+) -> None:
+    """Persist a child terminal result to the DB-backed conversation history."""
+    try:
+        from sqlalchemy import func, select
+
+        from src.domain.model.agent.conversation.message import (
+            Message,
+            MessageRole,
+            MessageType,
+        )
+        from src.infrastructure.adapters.secondary.persistence.models import Message as DBMessage
+        from src.infrastructure.adapters.secondary.persistence.sql_conversation_repository import (
+            SqlConversationRepository,
+        )
+        from src.infrastructure.adapters.secondary.persistence.sql_message_repository import (
+            SqlMessageRepository,
+        )
+
+        async with async_session_factory() as session:
+            conversation_repo = SqlConversationRepository(session)
+            message_repo = SqlMessageRepository(session)
+            conversation = await conversation_repo.find_by_id(child_session_id)
+            if conversation is None:
+                return
+
+            existing_message_result = await session.execute(
+                select(DBMessage.id).where(DBMessage.id == terminal_message_id)
+            )
+            message_exists = existing_message_result.scalar_one_or_none() is not None
+            await message_repo.save(
+                Message(
+                    id=terminal_message_id,
+                    conversation_id=child_session_id,
+                    role=MessageRole.ASSISTANT,
+                    content=content,
+                    message_type=MessageType.TEXT if success else MessageType.ERROR,
+                    metadata=metadata,
+                )
+            )
+            if not success and not message_exists:
+                projected_assistant_result = await session.execute(
+                    select(func.count())
+                    .select_from(AgentExecutionEvent)
+                    .where(
+                        AgentExecutionEvent.conversation_id == child_session_id,
+                        AgentExecutionEvent.event_type == "assistant_message",
+                    )
+                )
+                projected_assistant_count = int(projected_assistant_result.scalar() or 0)
+                if projected_assistant_count == 0:
+                    conversation.increment_message_count()
+                    await conversation_repo.save(conversation)
+            await session.commit()
+    except Exception:
+        logger.warning(
+            "Failed to persist child DB message history for session=%s",
+            child_session_id,
+            exc_info=True,
+        )
 
 
 async def _publish_announce_via_service(

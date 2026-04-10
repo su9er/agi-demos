@@ -23,6 +23,8 @@ from src.domain.model.agent.tool_policy import ToolPolicy
 from src.domain.model.agent.workspace_config import WorkspaceConfig
 
 _RESERVED_AGENT_REFS = frozenset({"__system__"})
+
+
 @dataclass
 class Agent:
     """A top-level agent with persona, routing, and workspace isolation.
@@ -241,6 +243,8 @@ class Agent:
             return False
         if self.agent_to_agent_allowlist is None:
             return self.source == AgentSource.BUILTIN
+        if "*" in self.agent_to_agent_allowlist:
+            return True
         return sender_agent_id.strip() in self.agent_to_agent_allowlist
 
     def to_identity(self) -> AgentIdentity:
