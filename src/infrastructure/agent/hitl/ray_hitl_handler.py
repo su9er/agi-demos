@@ -158,7 +158,9 @@ class RayHITLHandler:
         for field_name, current_value in identity_checks.items():
             preinjected_value = preinjected.get(field_name)
             normalized_current_value = "" if current_value is None else str(current_value)
-            normalized_preinjected_value = "" if preinjected_value is None else str(preinjected_value)
+            normalized_preinjected_value = (
+                "" if preinjected_value is None else str(preinjected_value)
+            )
             if normalized_preinjected_value != normalized_current_value:
                 logger.warning(
                     "[RayHITL] Pre-injected response %s mismatch: expected=%s, got=%s",
@@ -282,10 +284,12 @@ class RayHITLHandler:
                 allow_multiple=request.decision_data.decision_type == DecisionType.MULTI_CHOICE,
             )
         elif request.hitl_type == HITLType.ENV_VAR and request.env_var_data:
-            values = response_data.get("values")
+            values = response_data.get("values", response_data)
             allowed_names = {field.name for field in request.env_var_data.fields}
             required_names = {
-                field.name for field in request.env_var_data.fields if getattr(field, "required", False)
+                field.name
+                for field in request.env_var_data.fields
+                if getattr(field, "required", False)
             }
             if isinstance(values, dict):
                 normalized_values = {
@@ -293,8 +297,13 @@ class RayHITLHandler:
                     for name, value in values.items()
                     if isinstance(name, str) and isinstance(value, str) and value.strip()
                 }
-                is_valid = set(values).issubset(allowed_names) and required_names.issubset(
-                    normalized_values.keys()
+                is_valid = (
+                    all(
+                        isinstance(name, str) and isinstance(value, str)
+                        for name, value in values.items()
+                    )
+                    and set(values).issubset(allowed_names)
+                    and required_names.issubset(normalized_values.keys())
                 )
             else:
                 is_valid = False
@@ -308,6 +317,16 @@ class RayHITLHandler:
                     is_valid = granted is (action in {"allow", "allow_always"})
             else:
                 is_valid = isinstance(granted, bool)
+        elif request.hitl_type == HITLType.A2UI_ACTION and request.a2ui_data:
+            action_name = response_data.get("action_name")
+            source_component_id = response_data.get("source_component_id", "")
+            action_context = response_data.get("context", {})
+            is_valid = (
+                isinstance(action_name, str)
+                and bool(action_name.strip())
+                and isinstance(source_component_id, str)
+                and isinstance(action_context, dict)
+            )
         else:
             is_valid = True
         return is_valid
@@ -357,11 +376,14 @@ class RayHITLHandler:
         if request_id:
             request_data["_request_id"] = request_id
 
-        return cast(str | list[str], await self._execute_hitl_request(
-            HITLType.CLARIFICATION,
-            request_data,
-            timeout_seconds or self.default_timeout,
-        ))
+        return cast(
+            str | list[str],
+            await self._execute_hitl_request(
+                HITLType.CLARIFICATION,
+                request_data,
+                timeout_seconds or self.default_timeout,
+            ),
+        )
 
     async def request_decision(
         self,
@@ -401,11 +423,14 @@ class RayHITLHandler:
         if request_id:
             request_data["_request_id"] = request_id
 
-        return cast(str | list[str], await self._execute_hitl_request(
-            HITLType.DECISION,
-            request_data,
-            timeout_seconds or self.default_timeout,
-        ))
+        return cast(
+            str | list[str],
+            await self._execute_hitl_request(
+                HITLType.DECISION,
+                request_data,
+                timeout_seconds or self.default_timeout,
+            ),
+        )
 
     async def request_env_vars(
         self,
@@ -415,8 +440,9 @@ class RayHITLHandler:
         context: dict[str, Any] | None = None,
         timeout_seconds: float | None = None,
         allow_save: bool = True,
+        save_project_id: str | None = None,
         request_id: str | None = None,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         request_data = {
             "tool_name": tool_name,
             "fields": fields,
@@ -427,11 +453,15 @@ class RayHITLHandler:
         if request_id:
             request_data["_request_id"] = request_id
 
-        return cast(dict[str, str], await self._execute_hitl_request(
-            HITLType.ENV_VAR,
-            request_data,
-            timeout_seconds or self.default_timeout,
-        ))
+        return cast(
+            dict[str, Any],
+            await self._execute_hitl_request(
+                HITLType.ENV_VAR,
+                request_data,
+                timeout_seconds or self.default_timeout,
+                save_project_id=save_project_id,
+            ),
+        )
 
     async def request_permission(
         self,
@@ -464,17 +494,21 @@ class RayHITLHandler:
         )
         request_data["_request_id"] = effective_request_id
 
-        return cast(bool, await self._execute_hitl_request(
-            HITLType.PERMISSION,
-            request_data,
-            timeout_seconds or 60.0,
-        ))
+        return cast(
+            bool,
+            await self._execute_hitl_request(
+                HITLType.PERMISSION,
+                request_data,
+                timeout_seconds or 60.0,
+            ),
+        )
 
     async def _execute_hitl_request(
         self,
         hitl_type: HITLType,
         request_data: dict[str, Any],
         timeout_seconds: float,
+        **strategy_kwargs: Any,
     ) -> Any:
         strategy = self._get_strategy(hitl_type)
         request = strategy.create_request(
@@ -484,6 +518,7 @@ class RayHITLHandler:
             tenant_id=self.tenant_id,
             project_id=self.project_id,
             message_id=self.message_id,
+            **strategy_kwargs,
         )
 
         if self._preinjected_response:
@@ -494,12 +529,16 @@ class RayHITLHandler:
                 request_data=request_data,
             ):
                 preinjected_data = self._load_preinjected_response_data(preinjected)
-                if preinjected_data is None or not self._is_valid_preinjected_response(
-                    hitl_type,
-                    preinjected_data,
-                ) or not self._matches_request_semantics(
-                    request,
-                    preinjected_data,
+                if (
+                    preinjected_data is None
+                    or not self._is_valid_preinjected_response(
+                        hitl_type,
+                        preinjected_data,
+                    )
+                    or not self._matches_request_semantics(
+                        request,
+                        preinjected_data,
+                    )
                 ):
                     self._clear_preinjected_response()
                     logger.warning(
@@ -514,8 +553,13 @@ class RayHITLHandler:
                         f"request_id={preinjected.get('request_id')}"
                     )
                     if preinjected_data.get("cancelled") or preinjected_data.get("timeout"):
+                        if hitl_type == HITLType.ENV_VAR:
+                            return preinjected_data
                         return strategy.get_default_response(request)
-                    return strategy.extract_response_value(preinjected_data)
+                    extracted_response = strategy.extract_response_value(preinjected_data)
+                    if hitl_type == HITLType.ENV_VAR:
+                        return {"values": extracted_response}
+                    return extracted_response
 
         self._pending_requests[request.request_id] = request
 

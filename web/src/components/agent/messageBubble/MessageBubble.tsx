@@ -1432,7 +1432,7 @@ const MessageBubbleRoot: React.FC<MessageBubbleRootProps> = memo(
           expiresAt?: string | undefined;
           createdAt?: string | undefined;
           answered?: boolean | undefined;
-          decision?: string | undefined;
+          decision?: string | string[] | undefined;
         };
         return (
           <InlineHITLCard
@@ -1440,7 +1440,7 @@ const MessageBubbleRoot: React.FC<MessageBubbleRootProps> = memo(
             requestId={e.requestId || decisionData?.request_id || ''}
             decisionData={decisionData}
             isAnswered={e.answered === true}
-            answeredValue={e.decision}
+            answeredValue={Array.isArray(e.decision) ? e.decision.join(', ') : e.decision}
             expiresAt={e.expiresAt}
             createdAt={e.createdAt || String(event.timestamp)}
           />
@@ -1450,7 +1450,7 @@ const MessageBubbleRoot: React.FC<MessageBubbleRootProps> = memo(
       case 'decision_answered': {
         const e = event as TimelineEvent & {
           requestId?: string | undefined;
-          decision?: string | undefined;
+          decision?: string | string[] | undefined;
           createdAt?: string | undefined;
         };
         return (
@@ -1458,7 +1458,7 @@ const MessageBubbleRoot: React.FC<MessageBubbleRootProps> = memo(
             hitlType="decision"
             requestId={e.requestId || ''}
             isAnswered={true}
-            answeredValue={e.decision}
+            answeredValue={Array.isArray(e.decision) ? e.decision.join(', ') : e.decision}
             createdAt={e.createdAt || String(event.timestamp)}
           />
         );

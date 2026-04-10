@@ -24,6 +24,7 @@ from src.infrastructure.agent.canvas.a2ui_builder import (
     surface_update,
     text_component,
     text_field_component,
+    validate_a2ui_messages,
 )
 from src.infrastructure.agent.canvas.events import build_canvas_event_dict
 from src.infrastructure.agent.canvas.manager import CanvasManager
@@ -55,4 +56,5 @@ __all__ = [
     "surface_update",
     "text_component",
     "text_field_component",
+    "validate_a2ui_messages",
 ]

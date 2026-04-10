@@ -11,6 +11,9 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
+
+from src.domain.model.agent.hitl_request import HITLRequest
 from src.infrastructure.adapters.primary.web.websocket.handlers.base_handler import (
     WebSocketMessageHandler,
 )
@@ -28,6 +31,7 @@ async def _publish_hitl_response_to_redis(
     tenant_id: str,
     project_id: str,
     conversation_id: str,
+    message_id: str | None,
     request_id: str,
     hitl_type: str,
     response_data: dict[str, Any],
@@ -37,6 +41,7 @@ async def _publish_hitl_response_to_redis(
     """Publish HITL response to Redis Stream for Ray Actor delivery."""
     try:
         from src.configuration.config import get_settings
+        from src.infrastructure.agent.hitl.utils import serialize_hitl_stream_response
         from src.infrastructure.agent.state.agent_worker_state import (
             get_redis_client,
         )
@@ -49,17 +54,18 @@ async def _publish_hitl_response_to_redis(
         redis = await get_redis_client()
 
         stream_key = f"hitl:response:{tenant_id}:{project_id}"
-        message_data = {
+        message_data: dict[str, Any] = {
             "request_id": request_id,
             "hitl_type": hitl_type,
-            "response_data": response_data,
             "user_id": user_id,
             "conversation_id": conversation_id,
+            "message_id": message_id,
             "tenant_id": tenant_id,
             "project_id": project_id,
             "agent_mode": agent_mode,
             "timestamp": datetime.now(UTC).isoformat(),
         }
+        message_data.update(serialize_hitl_stream_response(hitl_type, response_data))
 
         await redis.xadd(stream_key, {"data": json.dumps(message_data)}, maxlen=1000)
 
@@ -69,6 +75,256 @@ async def _publish_hitl_response_to_redis(
     except Exception as e:
         logger.warning(f"[WS HITL] Failed to publish to Redis: {e}")
         return False
+
+
+async def _load_hitl_request(request_id: str) -> HITLRequest | None:
+    """Load the latest HITL request using a fresh ORM-backed session."""
+    from src.infrastructure.adapters.secondary.persistence.database import (
+        async_session_factory,
+    )
+    from src.infrastructure.adapters.secondary.persistence.sql_hitl_request_repository import (
+        SqlHITLRequestRepository,
+    )
+
+    try:
+        async with async_session_factory() as fresh_session:
+            repo = SqlHITLRequestRepository(fresh_session)
+            hitl_request = await repo.get_by_id(request_id)
+    except Exception as e:
+        logger.error(f"[WS HITL] Failed to load HITL request: {e}", exc_info=True)
+        return None
+
+    if hitl_request is None:
+        logger.warning(f"[WS HITL] HITL request {request_id} not found")
+        return None
+
+    logger.debug(f"[WS HITL] Found HITL request {request_id} using repository query")
+    return hitl_request
+
+
+async def _user_has_hitl_access(
+    *,
+    user_id: str,
+    tenant_id: str,
+    project_id: str | None,
+    conversation_id: str,
+) -> bool:
+    """Return True when the user owns the target conversation in the same tenant."""
+    from src.infrastructure.adapters.secondary.persistence.database import (
+        async_session_factory,
+    )
+    from src.infrastructure.adapters.secondary.persistence.models import Conversation
+
+    async with async_session_factory() as auth_session:
+        conversation_query = select(Conversation.id).where(
+            Conversation.id == conversation_id,
+            Conversation.tenant_id == tenant_id,
+            Conversation.user_id == user_id,
+        )
+        conversation_result = await auth_session.execute(conversation_query)
+        return conversation_result.scalar_one_or_none() is not None
+
+
+async def _user_has_project_access(*, user_id: str, project_id: str) -> bool:
+    """Return True when the user belongs to the target project."""
+    from src.infrastructure.adapters.secondary.persistence.database import (
+        async_session_factory,
+    )
+    from src.infrastructure.adapters.secondary.persistence.models import UserProject
+
+    async with async_session_factory() as auth_session:
+        membership_query = select(UserProject.id).where(
+            UserProject.user_id == user_id,
+            UserProject.project_id == project_id,
+        )
+        membership_result = await auth_session.execute(membership_query)
+        return membership_result.scalar_one_or_none() is not None
+
+
+def _validate_hitl_response_shape(*, hitl_type: str, response_data: dict[str, Any]) -> str | None:
+    """Return an error when the ingress payload shape is invalid."""
+    has_cancelled = response_data.get("cancelled") is True
+    has_timeout = response_data.get("timeout") is True
+
+    if hitl_type != "env_var" and (has_cancelled or has_timeout):
+        return "cancelled/timeout responses are only supported for env_var HITL"
+
+    if hitl_type != "env_var":
+        return None
+
+    has_values = "values" in response_data
+    variant_count = sum((has_values, has_cancelled, has_timeout))
+    if variant_count != 1:
+        return "env_var responses must include exactly one of values/cancelled/timeout"
+
+    if has_values and not isinstance(response_data.get("values"), dict):
+        return "env_var values must be an object"
+
+    return None
+
+
+async def _persist_hitl_response(
+    request_id: str,
+    response_str: str,
+    response_metadata: dict[str, Any] | None,
+) -> None:
+    """Persist a validated HITL response with a single-winner claim."""
+    from src.infrastructure.adapters.secondary.persistence.database import (
+        async_session_factory,
+    )
+    from src.infrastructure.adapters.secondary.persistence.sql_hitl_request_repository import (
+        SqlHITLRequestRepository,
+    )
+
+    async with async_session_factory() as update_session:
+        repo = SqlHITLRequestRepository(update_session)
+        updated_request = await repo.update_response(
+            request_id,
+            response_str,
+            response_metadata=response_metadata,
+        )
+        if updated_request is None:
+            raise RuntimeError(f"HITL request {request_id} could not be updated")
+        await update_session.commit()
+
+
+async def _mark_hitl_timeout(request_id: str) -> bool:
+    """Persist TIMEOUT for an expired request before rejecting late responses."""
+    from src.infrastructure.adapters.secondary.persistence.database import (
+        async_session_factory,
+    )
+    from src.infrastructure.adapters.secondary.persistence.sql_hitl_request_repository import (
+        SqlHITLRequestRepository,
+    )
+
+    async with async_session_factory() as update_session:
+        repo = SqlHITLRequestRepository(update_session)
+        timed_out_request = await repo.mark_timeout(request_id)
+        if timed_out_request is None:
+            return False
+        await update_session.commit()
+        return True
+
+
+async def _load_authorized_pending_hitl_request(
+    *,
+    context: MessageContext,
+    request_id: str,
+) -> HITLRequest | None:
+    """Load a pending HITL request after tenant/project/conversation authorization."""
+    from src.domain.model.agent.hitl_request import HITLRequestStatus
+
+    hitl_request = await _load_hitl_request(request_id)
+    if not hitl_request:
+        logger.error(f"[WS HITL] HITL request {request_id} not found in database")
+        await context.send_error(f"HITL request {request_id} not found")
+        return None
+
+    conversation_id = hitl_request.conversation_id
+    if hitl_request.tenant_id != context.tenant_id:
+        await context.send_error("Access denied", conversation_id=conversation_id)
+        return None
+
+    if hitl_request.user_id:
+        if hitl_request.user_id != context.user_id:
+            await context.send_error("Access denied", conversation_id=conversation_id)
+            return None
+        has_access = bool(hitl_request.project_id) and await _user_has_project_access(
+            user_id=context.user_id,
+            project_id=hitl_request.project_id,
+        )
+    else:
+        has_access = await _user_has_hitl_access(
+            user_id=context.user_id,
+            tenant_id=context.tenant_id,
+            project_id=hitl_request.project_id,
+            conversation_id=conversation_id,
+        )
+    if not has_access:
+        await context.send_error("Access denied", conversation_id=conversation_id)
+        return None
+
+    expires_at = hitl_request.expires_at
+    if expires_at is not None and expires_at <= datetime.now(UTC):
+        await _mark_hitl_timeout(request_id)
+        await context.send_error(
+            f"HITL request {request_id} has expired (status: timeout)",
+            conversation_id=conversation_id,
+        )
+        return None
+
+    if hitl_request.status != HITLRequestStatus.PENDING:
+        await context.send_error(
+            f"HITL request {request_id} is no longer pending (status: {hitl_request.status.value})",
+            conversation_id=conversation_id,
+        )
+        return None
+
+    return hitl_request
+
+
+async def _validate_and_summarize_hitl_response(
+    *,
+    context: MessageContext,
+    hitl_request: HITLRequest,
+    hitl_type: str,
+    response_data: dict[str, Any],
+) -> tuple[str, str, dict[str, Any] | None] | None:
+    """Validate HITL response semantics and return redacted persistence values."""
+    from src.domain.model.agent.hitl_types import HITLType
+    from src.infrastructure.agent.hitl.coordinator import validate_hitl_response
+    from src.infrastructure.agent.hitl.utils import (
+        build_hitl_request_data_from_record,
+        resolve_trusted_hitl_type,
+        summarize_hitl_response,
+    )
+
+    conversation_id = hitl_request.conversation_id
+    stored_hitl_type = resolve_trusted_hitl_type(hitl_request)
+    if stored_hitl_type is None:
+        await context.send_error(
+            "HITL request has an invalid stored type",
+            conversation_id=conversation_id,
+        )
+        return None
+
+    if hitl_type != stored_hitl_type:
+        await context.send_error(
+            "HITL type does not match request",
+            conversation_id=conversation_id,
+        )
+        return None
+
+    shape_error = _validate_hitl_response_shape(
+        hitl_type=stored_hitl_type,
+        response_data=response_data,
+    )
+    if shape_error is not None:
+        await context.send_error(shape_error, conversation_id=conversation_id)
+        return None
+
+    is_valid, validation_error = validate_hitl_response(
+        hitl_type=HITLType(stored_hitl_type),
+        request_data=build_hitl_request_data_from_record(hitl_request),
+        response_data=response_data,
+        conversation_id=conversation_id,
+        tenant_id=hitl_request.tenant_id,
+        project_id=hitl_request.project_id,
+        message_id=hitl_request.message_id,
+        received_tenant_id=context.tenant_id,
+        received_project_id=hitl_request.project_id,
+        received_conversation_id=conversation_id,
+        received_message_id=hitl_request.message_id,
+    )
+    if not is_valid:
+        await context.send_error(
+            validation_error or "Invalid HITL response",
+            conversation_id=conversation_id,
+        )
+        return None
+
+    response_str, response_metadata = summarize_hitl_response(stored_hitl_type, response_data)
+    return stored_hitl_type, response_str, response_metadata
 
 
 async def _handle_hitl_response(
@@ -83,139 +339,89 @@ async def _handle_hitl_response(
 
     Uses Redis Streams to communicate with the running Ray Actor.
     """
-    from sqlalchemy import text
-
-    from src.domain.model.agent.hitl_request import HITLRequestStatus
-    from src.infrastructure.adapters.secondary.persistence.database import (
-        async_session_factory,
+    hitl_request = await _load_authorized_pending_hitl_request(
+        context=context,
+        request_id=request_id,
     )
-
-    hitl_request = None
-
-    # ALWAYS use a fresh session for HITL queries to avoid transaction isolation issues
-    # WebSocket connections hold long-lived sessions that may not see other transactions
-    try:
-        async with async_session_factory() as fresh_session:
-            # First, execute a raw SQL to ensure we get fresh data
-            result = await fresh_session.execute(
-                text(
-                    "SELECT id, request_type, status, tenant_id, project_id, "
-                    "conversation_id, question, request_metadata "
-                    "FROM hitl_requests WHERE id = :id"
-                ),
-                {"id": request_id},
-            )
-            row = result.fetchone()
-
-            if row:
-                # Convert row to domain object manually
-                from datetime import datetime
-
-                from src.domain.model.agent.hitl_request import (
-                    HITLRequest,
-                    HITLRequestStatus,
-                    HITLRequestType,
-                )
-
-                hitl_request = HITLRequest(
-                    id=row.id,
-                    request_type=HITLRequestType(row.request_type.lower()),
-                    conversation_id=row.conversation_id,
-                    message_id=None,
-                    tenant_id=row.tenant_id,
-                    project_id=row.project_id,
-                    question=row.question or "HITL request",
-                    options=[],
-                    context={},
-                    metadata=row.request_metadata or {},
-                    created_at=datetime.now(UTC),
-                    status=HITLRequestStatus(row.status.lower())
-                    if row.status
-                    else HITLRequestStatus.PENDING,
-                )
-                logger.debug(f"[WS HITL] Found HITL request {request_id} using raw SQL query")
-            else:
-                logger.warning(f"[WS HITL] HITL request {request_id} not found via raw SQL")
-    except Exception as e:
-        logger.error(f"[WS HITL] Failed to query with raw SQL: {e}", exc_info=True)
-
-    if not hitl_request:
-        logger.error(f"[WS HITL] HITL request {request_id} not found in database")
-        await context.send_error(f"HITL request {request_id} not found")
+    if hitl_request is None:
         return
 
     conversation_id = hitl_request.conversation_id
+    validated_response = await _validate_and_summarize_hitl_response(
+        context=context,
+        hitl_request=hitl_request,
+        hitl_type=hitl_type,
+        response_data=response_data,
+    )
+    if validated_response is None:
+        return
+    stored_hitl_type, response_str, response_metadata = validated_response
 
-    # Check if already answered
-    if hitl_request.status != HITLRequestStatus.PENDING:
+    try:
+        await _persist_hitl_response(
+            request_id=request_id,
+            response_str=response_str,
+            response_metadata=response_metadata,
+        )
+    except Exception as e:
+        logger.error(f"[WS HITL] Failed to update HITL request: {e}", exc_info=True)
         await context.send_error(
-            f"HITL request {request_id} is no longer pending (status: {hitl_request.status.value})",
+            f"Failed to update HITL request: {e!s}",
             conversation_id=conversation_id,
         )
         return
 
-    # Publish to Redis Stream
+    # Publish to Redis Stream after the single-winner claim has been committed.
     agent_mode = (hitl_request.metadata or {}).get("agent_mode", "default")
     redis_sent = await _publish_hitl_response_to_redis(
         tenant_id=hitl_request.tenant_id,
         project_id=hitl_request.project_id,
         conversation_id=conversation_id,
+        message_id=hitl_request.message_id,
         request_id=request_id,
-        hitl_type=hitl_type,
+        hitl_type=stored_hitl_type,
         response_data=response_data,
         user_id=context.user_id,
         agent_mode=agent_mode,
     )
 
-    if redis_sent:
-        # Update database record using a fresh session (the query session is already closed)
-        try:
-            response_str = (
-                response_data.get("answer")
-                or response_data.get("decision")
-                or str(response_data.get("values", {}))
-                or response_data.get("action")
-            )
-
-            async with async_session_factory() as update_session:
-                await update_session.execute(
-                    text(
-                        "UPDATE hitl_requests SET status = 'completed', response = :response WHERE id = :id"
-                    ),
-                    {"id": request_id, "response": response_str},
-                )
-                await update_session.commit()
-
-            logger.info(
-                f"[WS HITL] User {context.user_id} responded to {hitl_type} {request_id} "
-                "via Redis Stream"
-            )
-
-            await context.send_json(
-                {
-                    "type": ack_type,
-                    "request_id": request_id,
-                    "success": True,
-                    "conversation_id": conversation_id,
-                }
-            )
-
-            # Start streaming agent events after HITL response
-            await _start_hitl_stream_bridge(
-                context=context,
-                request_id=request_id,
-            )
-        except Exception as e:
-            logger.error(f"[WS HITL] Failed to update HITL request: {e}", exc_info=True)
-            await context.send_error(
-                f"Failed to update HITL request: {e!s}",
-                conversation_id=conversation_id,
-            )
-    else:
-        await context.send_error(
-            f"Failed to send HITL response for {request_id}.",
-            conversation_id=conversation_id,
+    if not redis_sent:
+        logger.warning(
+            "[WS HITL] Response publish failed after claim: request_id=%s type=%s "
+            "keeping_answered_state=true",
+            request_id,
+            stored_hitl_type,
         )
+        await context.send_json(
+            {
+                "type": ack_type,
+                "request_id": request_id,
+                "success": True,
+                "delivery_pending": True,
+                "conversation_id": conversation_id,
+            }
+        )
+        return
+
+    logger.info(
+        f"[WS HITL] User {context.user_id} responded to {stored_hitl_type} {request_id} "
+        "via Redis Stream"
+    )
+
+    await context.send_json(
+        {
+            "type": ack_type,
+            "request_id": request_id,
+            "success": True,
+            "conversation_id": conversation_id,
+        }
+    )
+
+    # Start streaming agent events after HITL response
+    await _start_hitl_stream_bridge(
+        context=context,
+        request_id=request_id,
+    )
 
 
 class ClarificationRespondHandler(WebSocketMessageHandler):
@@ -287,17 +493,38 @@ class EnvVarRespondHandler(WebSocketMessageHandler):
         """Handle environment variable response."""
         request_id = message.get("request_id")
         values = message.get("values")
+        cancelled = message.get("cancelled") is True
+        timeout = message.get("timeout") is True
 
-        if not request_id or not isinstance(values, dict):
-            await context.send_error("Missing required fields: request_id, values (object)")
+        choices = [
+            option
+            for option, enabled in (
+                ("values", isinstance(values, dict)),
+                ("cancelled", cancelled),
+                ("timeout", timeout),
+            )
+            if enabled
+        ]
+        if not request_id or len(choices) != 1:
+            await context.send_error(
+                "Missing required fields: request_id and exactly one of values/cancelled/timeout"
+            )
             return
+
+        response_data: dict[str, Any]
+        if isinstance(values, dict):
+            response_data = {"values": values}
+        elif cancelled:
+            response_data = {"cancelled": True}
+        else:
+            response_data = {"timeout": True}
 
         try:
             await _handle_hitl_response(
                 context=context,
                 request_id=request_id,
                 hitl_type="env_var",
-                response_data={"values": values},
+                response_data=response_data,
                 ack_type="env_var_response_ack",
             )
         except Exception as e:
@@ -334,6 +561,7 @@ class PermissionRespondHandler(WebSocketMessageHandler):
             logger.error(f"[WS HITL] Error handling permission response: {e}", exc_info=True)
             await context.send_error(f"Failed to process permission response: {e!s}")
 
+
 class A2UIActionRespondHandler(WebSocketMessageHandler):
     """Handle A2UI action response via WebSocket using Redis Streams."""
 
@@ -367,6 +595,7 @@ class A2UIActionRespondHandler(WebSocketMessageHandler):
         except Exception as e:
             logger.error(f"[WS HITL] Error handling A2UI action response: {e}", exc_info=True)
             await context.send_error(f"Failed to process A2UI action response: {e!s}")
+
 
 # =============================================================================
 # Stream Bridge Helper

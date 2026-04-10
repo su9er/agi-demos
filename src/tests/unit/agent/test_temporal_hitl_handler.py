@@ -7,6 +7,7 @@ Tests the HITL strategy classes in src/infrastructure/agent/hitl/hitl_strategies
 import pytest
 
 from src.domain.model.agent.hitl_types import (
+    EnvVarInputType,
     HITLType,
     RiskLevel,
 )
@@ -182,6 +183,32 @@ class TestEnvVarStrategy:
         assert request.env_var_data.tool_name == "github_search"
         assert len(request.env_var_data.fields) == 1
 
+    def test_create_request_forces_password_input_for_secret_fields(self):
+        """Secret env-var fields must always render as password inputs."""
+        strategy = EnvVarStrategy()
+        request = strategy.create_request(
+            conversation_id="conv-secret-input",
+            request_data={
+                "tool_name": "github_search",
+                "fields": [
+                    {
+                        "name": "GITHUB_TOKEN",
+                        "label": "GitHub Token",
+                        "secret": True,
+                        "input_type": "text",
+                        "default_value": "abc123",
+                        "placeholder": "paste token",
+                    }
+                ],
+            },
+        )
+
+        assert request.env_var_data is not None
+        field = request.env_var_data.fields[0]
+        assert field.input_type == EnvVarInputType.PASSWORD
+        assert field.default_value is None
+        assert field.placeholder is None
+
     def test_extract_response_value(self):
         """Test extracting env var response values."""
         strategy = EnvVarStrategy()
@@ -192,21 +219,21 @@ class TestEnvVarStrategy:
         value = strategy.extract_response_value(response_data)
         assert value == {"API_KEY": "secret123"}
 
-    def test_create_request_sanitizes_text_and_context(self):
-        """Env-var requests should sanitize user-visible and contextual fields."""
+    def test_create_request_escapes_display_values(self):
+        """Env-var requests should keep HTML-safe display values in persisted HITL payloads."""
         strategy = EnvVarStrategy()
         request = strategy.create_request(
             conversation_id="conv-env-sanitize",
             request_data={
-                "tool_name": 'github<script>alert(1)</script>',
-                "message": 'Need <b>token</b>',
-                "context": {"note": '<img src=x onerror=alert(1)>', "count": 1},
+                "tool_name": "github<script>alert(1)</script>",
+                "message": "Need <b>token</b>",
+                "context": {"reason": "<img src=x onerror=alert(1)>", "count": 1},
                 "fields": [
                     {
-                        "name": 'API_<script>',
-                        "label": '<b>API Key</b>',
-                        "description": 'Paste <token>',
-                        "placeholder": '<placeholder>',
+                        "name": "API_KEY",
+                        "label": "<b>API Key</b>",
+                        "description": "Paste <token>",
+                        "placeholder": "<placeholder>",
                     }
                 ],
             },
@@ -215,11 +242,185 @@ class TestEnvVarStrategy:
         assert request.env_var_data is not None
         assert request.env_var_data.tool_name == "github&lt;script&gt;alert(1)&lt;/script&gt;"
         assert request.env_var_data.message == "Need &lt;b&gt;token&lt;/b&gt;"
-        assert request.env_var_data.context["note"] == "&lt;img src=x onerror=alert(1)&gt;"
-        assert request.env_var_data.fields[0].name == "API_&lt;script&gt;"
+        assert request.env_var_data.context["reason"] == "&lt;img src=x onerror=alert(1)&gt;"
+        assert request.env_var_data.fields[0].name == "API_KEY"
         assert request.env_var_data.fields[0].label == "&lt;b&gt;API Key&lt;/b&gt;"
         assert request.env_var_data.fields[0].description == "Paste &lt;token&gt;"
         assert request.env_var_data.fields[0].placeholder == "&lt;placeholder&gt;"
+
+    def test_create_request_escapes_ampersands_and_query_defaults(self):
+        """Env-var payloads should preserve safe text by escaping user-visible values."""
+        strategy = EnvVarStrategy()
+        request = strategy.create_request(
+            conversation_id="conv-env-plain-text",
+            request_data={
+                "tool_name": "github_search",
+                "message": "Need Search & Region",
+                "context": {"reason": "https://api.example.com?x=1&y=2"},
+                "fields": [
+                    {
+                        "name": "SEARCH_REGION",
+                        "label": "Search & Region",
+                        "default_value": "A&B",
+                        "placeholder": "https://api.example.com?x=1&y=2",
+                    }
+                ],
+            },
+        )
+
+        assert request.env_var_data is not None
+        assert request.env_var_data.message == "Need Search &amp; Region"
+        assert request.env_var_data.context["reason"] == "https://api.example.com?x=1&amp;y=2"
+        assert request.env_var_data.fields[0].label == "Search &amp; Region"
+        assert request.env_var_data.fields[0].default_value == "A&amp;B"
+        assert request.env_var_data.fields[0].placeholder == "https://api.example.com?x=1&amp;y=2"
+
+    def test_create_request_strips_control_chars_after_nested_entity_decode(self):
+        """Nested entity decoding must not reintroduce stripped control characters."""
+        strategy = EnvVarStrategy()
+        request = strategy.create_request(
+            conversation_id="conv-env-control-chars",
+            request_data={
+                "tool_name": "github_search",
+                "fields": [
+                    {
+                        "name": "API_KEY",
+                        "label": "API Key",
+                        "default_value": "hello&amp;#12;world",
+                    }
+                ],
+            },
+        )
+
+        assert request.env_var_data is not None
+        assert request.env_var_data.fields[0].default_value == "helloworld"
+
+    def test_create_request_redacts_double_encoded_secret_metadata(self):
+        """Direct strategy callers must not be able to smuggle secrets via double encoding."""
+        strategy = EnvVarStrategy()
+        request = strategy.create_request(
+            conversation_id="conv-env-redact",
+            request_data={
+                "tool_name": "web_search",
+                "message": "Need credentials",
+                "context": {
+                    "reason": "Bearer&amp;#32;sk&amp;#45;1234567890abcdefghijklmnop",
+                    "tool_name": "web_search",
+                },
+                "fields": [
+                    {
+                        "name": "API_KEY",
+                        "label": "sk&amp;#45;1234567890abcdefghijklmnop",
+                        "description": "Bearer&amp;#32;sk&amp;#45;1234567890abcdefghijklmnop",
+                        "default_value": "sk&amp;#45;1234567890abcdefghijklmnop",
+                        "placeholder": "Paste&amp;#32;sk&amp;#45;1234567890abcdefghijklmnop",
+                    }
+                ],
+            },
+        )
+
+        assert request.env_var_data is not None
+        assert request.env_var_data.fields[0].label == "API_KEY"
+        assert request.env_var_data.fields[0].description is None
+        assert request.env_var_data.fields[0].default_value is None
+        assert request.env_var_data.fields[0].placeholder is None
+        assert "reason" not in request.env_var_data.context
+
+    def test_create_request_rejects_secret_like_field_names(self):
+        """Direct callers must not be able to pass secret-like env-var identifiers."""
+        strategy = EnvVarStrategy()
+
+        with pytest.raises(ValueError, match="Invalid environment variable name"):
+            strategy.create_request(
+                conversation_id="conv-env-invalid-name",
+                request_data={
+                    "tool_name": "web_search",
+                    "fields": [
+                        {
+                            "name": "sk&#45;1234567890abcdefghijklmnop",
+                            "label": "Search API key",
+                        }
+                    ],
+                },
+            )
+
+    def test_create_request_overwrites_reserved_context_metadata(self):
+        """Reserved env-var metadata must reflect the actual request, not caller input."""
+        strategy = EnvVarStrategy()
+        request = strategy.create_request(
+            conversation_id="conv-env-context",
+            request_data={
+                "tool_name": "web_search",
+                "fields": [
+                    {
+                        "name": "API_KEY",
+                        "label": "API Key",
+                    }
+                ],
+                "context": {
+                    "tool_name": "fake_tool",
+                    "requested_variables": ["WRONG"],
+                    "save_scope": "tenant",
+                    "project_id": "fake-project",
+                },
+            },
+            project_id="workspace-project",
+            save_project_id="project-real",
+        )
+
+        assert request.env_var_data is not None
+        assert request.env_var_data.context["tool_name"] == "web_search"
+        assert request.env_var_data.context["requested_variables"] == ["API Key"]
+        assert request.env_var_data.context["save_scope"] == "project"
+        assert request.env_var_data.context["project_id"] == "project-real"
+
+    def test_create_request_clears_spoofed_project_context_without_project_scope(self):
+        """Tenant-scoped env-var requests must drop spoofed project metadata."""
+        strategy = EnvVarStrategy()
+        request = strategy.create_request(
+            conversation_id="conv-env-tenant-context",
+            request_data={
+                "tool_name": "web_search",
+                "fields": [
+                    {
+                        "name": "API_KEY",
+                        "label": "API Key",
+                    }
+                ],
+                "context": {
+                    "tool_name": "fake_tool",
+                    "requested_variables": ["WRONG"],
+                    "save_scope": "project",
+                    "project_id": "fake-project",
+                },
+            },
+            project_id="workspace-project",
+        )
+
+        assert request.env_var_data is not None
+        assert request.env_var_data.context["tool_name"] == "web_search"
+        assert request.env_var_data.context["requested_variables"] == ["API Key"]
+        assert request.env_var_data.context["save_scope"] == "tenant"
+        assert "project_id" not in request.env_var_data.context
+
+    def test_create_request_escapes_requested_variable_metadata(self):
+        """Reserved requested_variables metadata should remain HTML-safe."""
+        strategy = EnvVarStrategy()
+        request = strategy.create_request(
+            conversation_id="conv-env-requested-variables",
+            request_data={
+                "tool_name": "web_search",
+                "fields": [
+                    {
+                        "name": "SEARCH_REGION",
+                        "label": "Search & Region",
+                    }
+                ],
+            },
+        )
+
+        assert request.env_var_data is not None
+        assert request.env_var_data.context["requested_variables"] == ["Search &amp; Region"]
 
 
 @pytest.mark.unit

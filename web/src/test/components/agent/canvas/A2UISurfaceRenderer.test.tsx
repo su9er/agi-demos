@@ -94,6 +94,73 @@ describe('A2UISurfaceRenderer', () => {
     });
   });
 
+  it('renders legacy type-based component payloads from interactive canvas events', () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"root"}}',
+      JSON.stringify({
+        surfaceUpdate: {
+          surfaceId: 's1',
+          components: [
+            {
+              id: 'root',
+              type: 'Column',
+              children: ['title', 'input', 'submit', 'submit-label'],
+              gap: 16,
+              alignItems: 'stretch',
+            },
+            {
+              id: 'title',
+              type: 'Text',
+              text: { literal: 'Legacy A2UI payload' },
+              fontSize: 24,
+            },
+            {
+              id: 'input',
+              type: 'TextField',
+              label: { literal: 'Name' },
+              text: { path: '/form/name' },
+            },
+            {
+              id: 'submit',
+              type: 'Button',
+              child: 'submit-label',
+              action: { name: 'submit_form' },
+            },
+            {
+              id: 'submit-label',
+              type: 'Text',
+              text: { literal: 'Submit' },
+            },
+          ],
+        },
+      }),
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          root?: string;
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    expect(props?.root).toBe('root');
+    const rootComponent = props?.components?.find((entry) => entry.id === 'root')?.component?.Column as
+      | { children?: { explicitList?: string[] } }
+      | undefined;
+    const textFieldComponent = props?.components?.find((entry) => entry.id === 'input')?.component
+      ?.TextField as { text?: { path?: string } } | undefined;
+    expect(rootComponent?.children?.explicitList).toEqual([
+      'title',
+      'input',
+      'submit',
+      'submit-label',
+    ]);
+    expect(textFieldComponent?.text?.path).toBe('/form/name');
+    expect(Object.keys(props?.components?.[0] ?? {})).toEqual(['id', 'component']);
+  });
+
   it('renders snake_case and typed envelope variants', () => {
     const messages = [
       '{"begin_rendering":{"surface_id":"s1","root":"root-1"}}',
@@ -108,6 +175,115 @@ describe('A2UISurfaceRenderer', () => {
       root: 'root-1',
       components,
       data: { status: 'ok' },
+    });
+  });
+
+  it('renders flat single-object payloads with top-level components and dataModel', async () => {
+    const messages = JSON.stringify({
+      beginRendering: { surfaceId: 'server-surface', root: 'root' },
+      surfaceUpdate: { surfaceId: 'server-surface' },
+      dataModel: { form: { selected: 'request_env_var' } },
+      components: [
+        {
+          id: 'root',
+          component: {
+            Column: {
+              children: ['title', 'button', 'button-text'],
+            },
+          },
+        },
+        {
+          id: 'title',
+          component: {
+            Text: {
+              text: { literal: '选择测试项' },
+            },
+          },
+        },
+        {
+          id: 'button',
+          component: {
+            Button: {
+              child: 'button-text',
+              action: {
+                name: 'select_tool',
+                context: {
+                  tool: 'request_env_var',
+                },
+              },
+            },
+          },
+        },
+        {
+          id: 'button-text',
+          component: {
+            Text: {
+              text: { literal: 'request_env_var' },
+            },
+          },
+        },
+      ],
+    });
+
+    useAgentV3Store.setState({ activeConversationId: 'conv-1' });
+    useCanvasStore.setState({
+      tabs: [
+        {
+          id: 'a2ui-tab-1',
+          title: 'A2UI',
+          type: 'a2ui-surface',
+          content: '',
+          dirty: false,
+          createdAt: Date.now(),
+          history: [],
+          historyIndex: -1,
+          a2uiSurfaceId: 'server-surface',
+          a2uiHitlRequestId: 'hitl-req-1',
+        },
+      ],
+      activeTabId: 'a2ui-tab-1',
+    });
+
+    render(<A2UISurfaceRenderer surfaceId="server-surface" messages={messages} />);
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          root?: string;
+          data?: Record<string, unknown>;
+          onAction?: (action: {
+            actionName: string;
+            sourceComponentId: string;
+            timestamp: string;
+            context: Record<string, unknown>;
+          }) => void;
+        }
+      | undefined;
+    expect(props?.root).toBe('root');
+    expect(props?.data).toMatchObject({
+      form: {
+        selected: 'request_env_var',
+      },
+    });
+
+    await act(async () => {
+      props?.onAction?.({
+        actionName: 'select_tool',
+        sourceComponentId: 'button',
+        timestamp: new Date().toISOString(),
+        context: { tool: 'request_env_var' },
+      });
+    });
+
+    await waitFor(() => {
+      expect(respondToA2UIActionSpy).toHaveBeenCalledWith(
+        'hitl-req-1',
+        'select_tool',
+        'button',
+        {
+          tool: 'request_env_var',
+        }
+      );
     });
   });
 

@@ -11,7 +11,7 @@
  * - Permission: Tool permission requests
  */
 
-import React, { memo, useState, useCallback, useEffect } from 'react';
+import React, { memo, useState, useCallback, useEffect, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -33,6 +33,13 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 
 import { useThemeColors } from '@/hooks/useThemeColor';
+
+import { decodeEnvVarRequestedEventData } from '@/utils/hitlEnvVarDisplay';
+import {
+  getOptionDescriptionText,
+  getOptionLabelText,
+  getOptionRiskList,
+} from '@/utils/hitlOptionDisplay';
 
 import { LazyButton, LazyProgress, LazyTag } from '@/components/ui/lazyAntd';
 
@@ -341,6 +348,8 @@ const ClarificationContent: React.FC<{
             {data.options.map((option, idx) => {
               const optionKey = option.id || `option-${idx}`;
               const isSelected = isAnswered ? answeredValue === option.id : selected === option.id;
+              const optionLabel = getOptionLabelText(option.label) ?? option.id;
+              const optionDescription = getOptionDescriptionText(option.description);
               return (
                 <button
                   type="button"
@@ -380,7 +389,7 @@ const ClarificationContent: React.FC<{
                           : 'text-slate-600 dark:text-slate-400'
                       }`}
                     >
-                      {option.label}
+                      {optionLabel}
                     </span>
                     {option.recommended && !isAnswered && (
                       <LazyTag color="green" className="text-xs">
@@ -393,7 +402,7 @@ const ClarificationContent: React.FC<{
                       </LazyTag>
                     )}
                   </div>
-                  {option.description && (
+                  {optionDescription ? (
                     <p
                       className={`text-xs ml-6 mt-1 leading-relaxed ${
                         isSelected
@@ -401,9 +410,9 @@ const ClarificationContent: React.FC<{
                           : 'text-slate-400 dark:text-slate-500'
                       }`}
                     >
-                      {option.description}
+                      {optionDescription}
                     </p>
-                  )}
+                  ) : null}
                 </button>
               );
             })}
@@ -552,9 +561,11 @@ const DecisionContent: React.FC<{
               const isSelectedMulti = selectedMultiple.includes(option.id);
               const isOptionSelected = isMultiSelect ? isSelectedMulti : isSelectedSingle;
               const isExpanded = expanded === option.id;
+              const optionLabel = getOptionLabelText(option.label) ?? option.id;
+              const optionRisks = getOptionRiskList(option.risks);
+              const optionDescription = getOptionDescriptionText(option.description);
               const hasDetails =
-                !isAnswered &&
-                (option.estimated_time || option.estimated_cost || option.risks?.length);
+                !isAnswered && (option.estimated_time || option.estimated_cost || optionRisks.length);
 
               return (
                 <button
@@ -611,7 +622,7 @@ const DecisionContent: React.FC<{
                               : 'text-slate-600 dark:text-slate-400'
                           }`}
                         >
-                          {option.label}
+                          {optionLabel}
                         </span>
                         {option.recommended && !isAnswered && (
                           <LazyTag color="green" className="text-xs">
@@ -623,17 +634,14 @@ const DecisionContent: React.FC<{
                             {t('agent.hitl.tag.selected', 'Selected')}
                           </LazyTag>
                         )}
-                        {!isOptionSelected &&
-                          option.risks &&
-                          option.risks.length > 0 &&
-                          !isAnswered && (
+                        {!isOptionSelected && optionRisks.length > 0 && !isAnswered && (
                             <LazyTag color="orange" className="text-xs">
                               <AlertTriangle className="w-3 h-3 mr-1" />
                               {t('agent.hitl.tag.has_risks', 'Has risks')}
                             </LazyTag>
                           )}
                       </div>
-                      {option.description && (
+                      {optionDescription ? (
                         <p
                           className={`text-xs mt-1.5 leading-relaxed ${
                             isOptionSelected
@@ -641,9 +649,9 @@ const DecisionContent: React.FC<{
                               : 'text-slate-400 dark:text-slate-500'
                           }`}
                         >
-                          {option.description}
+                          {optionDescription}
                         </p>
-                      )}
+                      ) : null}
 
                       {/* Metadata row - only show when not answered */}
                       {!isAnswered && (option.estimated_time || option.estimated_cost) && (
@@ -683,14 +691,14 @@ const DecisionContent: React.FC<{
                         </button>
                       )}
 
-                      {isExpanded && option.risks && option.risks.length > 0 && (
+                      {isExpanded && optionRisks.length > 0 && (
                         <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-900/30 rounded-lg border border-amber-200 dark:border-amber-800/50">
                           <p className="font-medium text-amber-700 dark:text-amber-400 mb-2 text-xs flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3" />
                             {t('agent.hitl.section.risk_warning_title', 'Risk notice')}
                           </p>
                           <ul className="list-disc list-inside text-amber-600 dark:text-amber-300 space-y-1 text-xs">
-                            {option.risks.map((risk, rIdx) => (
+                            {optionRisks.map((risk, rIdx) => (
                               <li key={rIdx}>{risk}</li>
                             ))}
                           </ul>
@@ -779,6 +787,7 @@ const EnvVarContent: React.FC<{
   const { t } = useTranslation();
   const [form] = Form.useForm();
   const [saveForLater, setSaveForLater] = useState(true);
+  const decodedData = useMemo(() => decodeEnvVarRequestedEventData(data), [data]);
 
   const handleSubmit = useCallback(async () => {
     try {
@@ -791,21 +800,23 @@ const EnvVarContent: React.FC<{
 
   return (
     <div className="space-y-4">
-      {data.message && (
-        <p className="text-[15px] leading-7 text-slate-700 dark:text-slate-300">{data.message}</p>
+      {decodedData.message && (
+        <p className="text-[15px] leading-7 text-slate-700 dark:text-slate-300">
+          {decodedData.message}
+        </p>
       )}
 
       <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-lg">
         <Wrench className="w-3.5 h-3.5" />
         <span>
-          {t('agent.hitl.label.tool', 'Tool: {{toolName}}', { toolName: data.tool_name })}
+          {t('agent.hitl.label.tool', 'Tool: {{toolName}}', { toolName: decodedData.tool_name })}
         </span>
       </div>
 
       {!isAnswered ? (
         <Form form={form} layout="vertical" size="middle">
-          {data.fields && data.fields.length > 0 ? (
-            data.fields.map((field) => (
+          {decodedData.fields && decodedData.fields.length > 0 ? (
+            decodedData.fields.map((field) => (
               <Form.Item
                 key={field.name}
                 name={field.name}
@@ -886,7 +897,7 @@ const EnvVarContent: React.FC<{
             </LazyTag>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 ml-6">
-            {data.fields?.map((f) => f.label).join(', ') ||
+            {decodedData.fields?.map((f) => f.label).join(', ') ||
               t('agent.hitl.placeholder.env_vars_fallback', 'Environment variables')}
           </p>
         </div>
@@ -1144,11 +1155,10 @@ export const InlineHITLCard: React.FC<InlineHITLCardProps> = memo(
             }
             case 'decision': {
               const data = responseData as DecisionResponseData;
-              const decision = Array.isArray(data.decision)
+              displayValue = Array.isArray(data.decision)
                 ? data.decision.join(', ')
                 : data.decision;
-              displayValue = decision;
-              await respondToDecision(requestId, decision);
+              await respondToDecision(requestId, data.decision);
               break;
             }
             case 'env_var': {

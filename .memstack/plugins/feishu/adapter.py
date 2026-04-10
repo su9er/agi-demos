@@ -75,6 +75,7 @@ class FeishuAdapter:
         self._ws_client: Any | None = None
         self._ws_thread: threading.Thread | None = None
         self._ws_loop: asyncio.AbstractEventLoop | None = None
+        self._app_loop: asyncio.AbstractEventLoop | None = None
         self._ws_ready = threading.Event()
         self._ws_start_error: Exception | None = None
         self._ws_stop_requested = False
@@ -127,6 +128,7 @@ class FeishuAdapter:
             return
 
         try:
+            self._app_loop = asyncio.get_running_loop()
             mode = self._config.connection_mode
             if mode == "webhook":
                 await self._connect_webhook()
@@ -430,62 +432,164 @@ class FeishuAdapter:
             context = event_data.context
             message_id = context.open_message_id if context else ""
             _chat_id = context.open_chat_id if context else ""
-
-            logger.info(
-                f"[Feishu] Card action: request_id={hitl_request_id}, "
-                f"hitl_type={hitl_type}, user={user_id}, "
-                f"message_id={message_id}, response={response_data}"
+            response_keys = sorted(str(key) for key in response_data.keys())
+            raw_values = response_data.get("values")
+            value_keys = (
+                sorted(str(key) for key in raw_values.keys())
+                if isinstance(raw_values, dict)
+                else []
             )
 
-            # Schedule async HITL response on the event loop
-            import asyncio
+            logger.info(
+                "[Feishu] Card action: request_id=%s hitl_type=%s user=%s "
+                "message_id=%s response_keys=%s value_keys=%s",
+                hitl_request_id,
+                hitl_type,
+                user_id,
+                message_id,
+                response_keys,
+                value_keys,
+            )
 
             from src.application.services.channels.hitl_responder import (
                 HITLChannelResponder,
+                HITLChannelResponseOutcome,
             )
 
             responder = HITLChannelResponder()
-            try:
-                loop = asyncio.get_running_loop()
-                _hitl_task = loop.create_task(
-                    responder.respond(
-                        request_id=hitl_request_id,
-                        hitl_type=hitl_type,
-                        response_data=response_data,
-                        tenant_id=tenant_id,
-                        project_id=project_id,
-                        responder_id=user_id,
-                    )
-                )
-                _ws_bg_tasks.add(_hitl_task)
-                _hitl_task.add_done_callback(_ws_bg_tasks.discard)
-            except RuntimeError:
-                logger.warning("[Feishu] No running event loop for card action")
-
-            # Build updated card showing "response submitted" state
-            selected_label = self._extract_selected_label(response_data)
-            responded_card = self._build_responded_card(
+            published: HITLChannelResponseOutcome | bool | None = None
+            response_coro = responder.respond(
+                request_id=hitl_request_id,
                 hitl_type=hitl_type,
-                selected_label=selected_label,
+                response_data=response_data,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                responder_id=user_id,
             )
+            try:
+                current_loop = asyncio.get_running_loop()
+                if (
+                    self._app_loop
+                    and self._app_loop.is_running()
+                    and self._app_loop is not current_loop
+                ):
+                    response_future = asyncio.run_coroutine_threadsafe(
+                        response_coro,
+                        self._app_loop,
+                    )
+                    try:
+                        published = response_future.result(timeout=2.5)
+                    except TimeoutError:
+                        logger.info(
+                            "[Feishu] Card action still processing for %s; returning neutral state",
+                            hitl_request_id,
+                        )
+                else:
+                    background_task = current_loop.create_task(response_coro)
+                    _ws_bg_tasks.add(background_task)
+                    background_task.add_done_callback(_ws_bg_tasks.discard)
+                    background_task.add_done_callback(
+                        self._log_background_hitl_response_result
+                    )
+            except RuntimeError:
+                if self._app_loop and self._app_loop.is_running():
+                    response_future = asyncio.run_coroutine_threadsafe(
+                        response_coro,
+                        self._app_loop,
+                    )
+                    try:
+                        published = response_future.result(timeout=2.5)
+                    except TimeoutError:
+                        logger.info(
+                            "[Feishu] Card action still processing for %s; returning neutral state",
+                            hitl_request_id,
+                        )
+                else:
+                    published = asyncio.run(response_coro)
 
-            # Return toast + updated card per Feishu callback docs
-            resp = {
-                "toast": {
-                    "type": "success",
-                    "content": "Response submitted",
-                    "i18n": {
-                        "zh_cn": "Response submitted",
-                        "en_us": "Response submitted",
-                    },
-                },
-            }
-            if responded_card:
-                resp["card"] = {
-                    "type": "raw",
-                    "data": responded_card,
+            if published is True:
+                published = HITLChannelResponseOutcome.QUEUED
+
+            if published is None:
+                return P2CardActionTriggerResponse(
+                    {
+                        "toast": {
+                            "type": "info",
+                            "content": "Processing response",
+                            "i18n": {
+                                "zh_cn": "Processing response",
+                                "en_us": "Processing response",
+                            },
+                        }
+                    }
+                )
+
+            if published in (
+                HITLChannelResponseOutcome.QUEUED,
+                HITLChannelResponseOutcome.DELIVERY_PENDING,
+            ):
+                selected_label = self._extract_selected_label(response_data)
+                pending_card = self._build_processing_card(
+                    hitl_type=hitl_type,
+                    selected_label=selected_label,
+                )
+                response_payload: dict[str, Any] = {
+                    "toast": {
+                        "type": "info",
+                        "content": (
+                            "Response saved, delivery pending"
+                            if published is HITLChannelResponseOutcome.DELIVERY_PENDING
+                            else "Processing response"
+                        ),
+                        "i18n": {
+                            "zh_cn": (
+                                "Response saved, delivery pending"
+                                if published is HITLChannelResponseOutcome.DELIVERY_PENDING
+                                else "Processing response"
+                            ),
+                            "en_us": (
+                                "Response saved, delivery pending"
+                                if published is HITLChannelResponseOutcome.DELIVERY_PENDING
+                                else "Processing response"
+                            ),
+                        },
+                    }
                 }
-            return P2CardActionTriggerResponse(resp)
+                if pending_card:
+                    response_payload["card"] = {
+                        "type": "raw",
+                        "data": pending_card,
+                    }
+                return P2CardActionTriggerResponse(
+                    response_payload
+                )
+
+            if published is HITLChannelResponseOutcome.REJECTED or published is False:
+                return P2CardActionTriggerResponse(
+                    {
+                        "toast": {
+                            "type": "error",
+                            "content": "Response rejected",
+                            "i18n": {
+                                "zh_cn": "Response rejected",
+                                "en_us": "Response rejected",
+                            },
+                        },
+                    }
+                )
+
+            return P2CardActionTriggerResponse(
+                {
+                    "toast": {
+                        "type": "error",
+                        "content": "Response rejected",
+                        "i18n": {
+                            "zh_cn": "Response rejected",
+                            "en_us": "Response rejected",
+                        },
+                    },
+                }
+            )
 
         except Exception as e:
             logger.error(f"[Feishu] Card action handling failed: {e}", exc_info=True)
@@ -498,6 +602,18 @@ class FeishuAdapter:
                 }
             }
         )
+
+    @staticmethod
+    def _log_background_hitl_response_result(
+        task: asyncio.Task[object],
+    ) -> None:
+        """Consume background responder task results so callback failures are logged."""
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            logger.info("[Feishu] Background card action task cancelled")
+        except Exception:
+            logger.exception("[Feishu] Background card action failed")
 
     def _extract_selected_label(self, response_data: dict[str, Any]) -> str:
         """Extract a human-readable label from the HITL response data."""
@@ -524,6 +640,15 @@ class FeishuAdapter:
         """Build a confirmation card after user responds to HITL request."""
         _hitl_mod = _load_sibling("hitl_cards.py")
         return _hitl_mod.HITLCardBuilder().build_responded_card(hitl_type, selected_label)
+
+    def _build_processing_card(
+        self,
+        hitl_type: str,
+        selected_label: str = "",
+    ) -> dict[str, Any] | None:
+        """Build a non-interactive card while a response is still processing."""
+        _hitl_mod = _load_sibling("hitl_cards.py")
+        return _hitl_mod.HITLCardBuilder().build_processing_card(hitl_type, selected_label)
 
     async def _connect_webhook(self) -> None:
         """Connect via Webhook (HTTP server mode).

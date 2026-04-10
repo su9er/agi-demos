@@ -46,6 +46,7 @@ class ProjectAgentActor:
         self._config: ProjectAgentActorConfig | None = None
         self._agent: ProjectReActAgent | None = None
         self._created_at = datetime.now(UTC)
+        self._lease_owner_suffix = str(uuid.uuid4())
         self._bootstrapped = False
         self._bootstrap_lock = asyncio.Lock()
         self._init_lock = asyncio.Lock()
@@ -129,7 +130,11 @@ class ProjectAgentActor:
         return {"status": "started", "message_id": request.message_id}
 
     async def continue_chat(
-        self, request_id: str, response_data: dict[str, Any], conversation_id: str | None = None
+        self,
+        request_id: str,
+        response_data: dict[str, Any],
+        conversation_id: str | None = None,
+        message_id: str | None = None,
     ) -> dict[str, Any]:
         """Continue a paused chat after HITL response."""
         if not self._agent:
@@ -137,15 +142,17 @@ class ProjectAgentActor:
                 raise RuntimeError("Actor config not set")
             await self.initialize(self._config)
 
-        task = asyncio.create_task(self._run_continue(request_id, response_data))
+        task = asyncio.create_task(
+            self._run_continue(request_id, response_data, conversation_id, message_id)
+        )
         self._tasks[request_id] = task
         if conversation_id:
             self._task_conversations[request_id] = conversation_id
 
-        # Add cleanup callback
-        task.add_done_callback(lambda t: self._cleanup_task(request_id))
-
-        return {"status": "continued", "request_id": request_id}
+        try:
+            return await task
+        finally:
+            self._cleanup_task(request_id)
 
     def _cleanup_task(self, task_id: str) -> None:
         """Remove task from tracking maps when done."""
@@ -179,7 +186,9 @@ class ProjectAgentActor:
                 task.cancel()
                 cancelled = True
                 logger.info(
-                    f"[ProjectAgentActor] Cancelled task {task_id} for conversation {conversation_id}"
+                    "[ProjectAgentActor] Cancelled task %s for conversation %s",
+                    task_id,
+                    conversation_id,
                 )
 
         return cancelled
@@ -255,33 +264,200 @@ class ProjectAgentActor:
                 result.error_message,
             )
 
-    async def _run_continue(self, request_id: str, response_data: dict[str, Any]) -> None:
+    async def _run_continue(
+        self,
+        request_id: str,
+        response_data: dict[str, Any],
+        conversation_id: str | None,
+        message_id: str | None,
+    ) -> dict[str, Any]:
         if not self._agent:
-            return
+            return {"status": "unavailable", "request_id": request_id, "ack": False}
 
-        from src.infrastructure.agent.hitl.coordinator import resolve_by_request_id
+        from src.infrastructure.agent.hitl.coordinator import (
+            ResolveResult,
+            resolve_by_request_id,
+            wait_for_request_completion,
+        )
 
-        resolved = resolve_by_request_id(request_id, response_data)
-        if resolved:
+        resolve_result = resolve_by_request_id(
+            request_id,
+            response_data,
+            tenant_id=self._config.tenant_id if self._config else None,
+            project_id=self._config.project_id if self._config else None,
+            conversation_id=conversation_id,
+            message_id=message_id,
+        )
+        if resolve_result is ResolveResult.RESOLVED:
+            await wait_for_request_completion(request_id)
             logger.info(
                 "[ProjectAgentActor] Resolved HITL future: request_id=%s",
                 request_id,
             )
-            return
+            return {
+                "status": "resolved",
+                "request_id": request_id,
+                "ack": True,
+                "durably_completed": True,
+            }
+        if resolve_result is ResolveResult.REJECTED:
+            reopened = await self._reopen_answered_request(request_id)
+            logger.warning(
+                "[ProjectAgentActor] Rejected HITL response: request_id=%s reopened=%s",
+                request_id,
+                reopened,
+            )
+            return {
+                "status": "rejected",
+                "request_id": request_id,
+                "ack": reopened,
+                "durably_completed": False,
+            }
 
-        # Fallback: crash recovery via continue_project_chat
-        result = await continue_project_chat(self._agent, request_id, response_data)
+        return await self._resume_continue_request(
+            request_id=request_id,
+            response_data=response_data,
+            conversation_id=conversation_id,
+            message_id=message_id,
+        )
+
+    async def _resume_continue_request(
+        self,
+        *,
+        request_id: str,
+        response_data: dict[str, Any],
+        conversation_id: str | None,
+        message_id: str | None,
+    ) -> dict[str, Any]:
+        """Fallback resume path when no in-memory coordinator owns the request."""
+        from src.infrastructure.adapters.secondary.persistence.database import async_session_factory
+        from src.infrastructure.adapters.secondary.persistence.sql_hitl_request_repository import (
+            SqlHITLRequestRepository,
+        )
+        from src.infrastructure.agent.hitl.coordinator import complete_hitl_request
+        from src.infrastructure.agent.hitl.utils import (
+            is_permanent_hitl_resume_error,
+            processing_lease_heartbeat,
+        )
+
+        async with async_session_factory() as session:
+            repo = SqlHITLRequestRepository(session)
+            claimed_request = await repo.claim_for_processing(
+                request_id,
+                lease_owner=self._lease_owner(),
+            )
+            if claimed_request is None:
+                logger.info(
+                    "[ProjectAgentActor] Request already claimed for processing: %s",
+                    request_id,
+                )
+                return {
+                    "status": "processing",
+                    "request_id": request_id,
+                    "ack": False,
+                    "durably_completed": False,
+                }
+            await session.commit()
+
+        try:
+            async with processing_lease_heartbeat(
+                request_id,
+                lease_owner=self._lease_owner(),
+            ):
+                result = await continue_project_chat(
+                    self._agent,
+                    request_id,
+                    response_data,
+                    lease_owner=self._lease_owner(),
+                    tenant_id=self._config.tenant_id if self._config else None,
+                    project_id=self._config.project_id if self._config else None,
+                    conversation_id=conversation_id,
+                    message_id=message_id,
+                )
+        except Exception:
+            await self._revert_continue_claim(request_id)
+            raise
+
         if result.hitl_pending:
             logger.info(
                 "[ProjectAgentActor] HITL pending (continue): request_id=%s",
                 result.hitl_request_id,
             )
-        if result.is_error:
-            logger.warning(
-                "[ProjectAgentActor] Continue failed: request_id=%s error=%s",
+        if not result.is_error:
+            return {
+                "status": "continued",
+                "request_id": request_id,
+                "ack": True,
+                "durably_completed": True,
+            }
+
+        logger.warning(
+            "[ProjectAgentActor] Continue failed: request_id=%s error=%s",
+            request_id,
+            result.error_message,
+        )
+        if is_permanent_hitl_resume_error(result.error_message):
+            await complete_hitl_request(request_id, lease_owner=self._lease_owner())
+            return {
+                "status": "rejected",
+                "request_id": request_id,
+                "ack": True,
+                "durably_completed": False,
+                "error": result.error_message,
+            }
+
+        await self._revert_continue_claim(request_id)
+        return {
+            "status": "error",
+            "request_id": request_id,
+            "ack": False,
+            "durably_completed": False,
+            "error": result.error_message,
+        }
+
+    async def _revert_continue_claim(self, request_id: str) -> None:
+        """Return a failed fallback resume claim to ANSWERED for later retry."""
+        from src.infrastructure.adapters.secondary.persistence.database import async_session_factory
+        from src.infrastructure.adapters.secondary.persistence.sql_hitl_request_repository import (
+            SqlHITLRequestRepository,
+        )
+
+        async with async_session_factory() as session:
+            repo = SqlHITLRequestRepository(session)
+            reverted_request = await repo.revert_to_answered(
                 request_id,
-                result.error_message,
+                lease_owner=self._lease_owner(),
             )
+            if reverted_request is not None:
+                await session.commit()
+
+    async def _reopen_answered_request(self, request_id: str) -> bool:
+        """Clear an invalid answered payload so the request can be retried."""
+        from src.infrastructure.adapters.secondary.persistence.database import async_session_factory
+        from src.infrastructure.adapters.secondary.persistence.sql_hitl_request_repository import (
+            SqlHITLRequestRepository,
+        )
+
+        async with async_session_factory() as session:
+            repo = SqlHITLRequestRepository(session)
+            reopened_request = await repo.reopen_pending(request_id)
+            if reopened_request is None:
+                return False
+            await session.commit()
+            return True
+
+    def _lease_owner(self) -> str:
+        """Return a stable lease owner identifier for this actor instance."""
+        if self._config is None:
+            return "project-actor"
+        return (
+            self.actor_id(
+                self._config.tenant_id,
+                self._config.project_id,
+                self._config.agent_mode,
+            )
+            + f":{self._lease_owner_suffix}"
+        )
 
     async def _bootstrap_runtime(self) -> None:
         if self._bootstrapped:
@@ -327,13 +503,13 @@ class ProjectAgentActor:
                     from src.application.services.agent.runtime_bootstrapper import (
                         AgentRuntimeBootstrapper,
                     )
-                    from src.infrastructure.adapters.secondary.messaging.redis_agent_message_bus import (
+                    from src.infrastructure.adapters.secondary.messaging.redis_agent_message_bus import (  # noqa: E501
                         RedisAgentMessageBusAdapter,
                     )
                     from src.infrastructure.adapters.secondary.persistence.database import (
                         async_session_factory,
                     )
-                    from src.infrastructure.adapters.secondary.persistence.sql_agent_registry import (
+                    from src.infrastructure.adapters.secondary.persistence.sql_agent_registry import (  # noqa: E501
                         SqlAgentRegistryRepository,
                     )
                     from src.infrastructure.agent.orchestration.orchestrator import (

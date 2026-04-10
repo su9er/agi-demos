@@ -313,13 +313,14 @@ class AgentClarificationAskedEvent(AgentDomainEvent):
     clarification_type: str
     options: list[dict[str, Any]]
     allow_custom: bool = True
+    default_value: str | None = None
     context: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentClarificationAnsweredEvent(AgentDomainEvent):
     event_type: AgentEventType = AgentEventType.CLARIFICATION_ANSWERED
     request_id: str
-    answer: str
+    answer: str | list[str]
 
 
 class AgentDecisionAskedEvent(AgentDomainEvent):
@@ -338,7 +339,7 @@ class AgentDecisionAskedEvent(AgentDomainEvent):
 class AgentDecisionAnsweredEvent(AgentDomainEvent):
     event_type: AgentEventType = AgentEventType.DECISION_ANSWERED
     request_id: str
-    decision: str
+    decision: str | list[str]
 
 
 # === Environment Variable Events ===

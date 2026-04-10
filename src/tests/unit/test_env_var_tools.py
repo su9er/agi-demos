@@ -8,6 +8,8 @@ See src/tests/unit/agent/test_temporal_hitl_handler.py for HITL-related tests.
 """
 
 import json
+import logging
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -35,6 +37,8 @@ def tool_ctx():
         call_id="call-1",
         agent_name="test-agent",
         conversation_id="conv-1",
+        tenant_id="tenant-123",
+        project_id="project-456",
     )
 
 
@@ -84,11 +88,14 @@ class TestGetEnvVarTool:
         self, tool_ctx, mock_repository, mock_encryption_service
     ):
         """Test that calling without tenant_id returns an error ToolResult."""
-        # Configure WITHOUT tenant_id
         configure_env_var_tools(
             repository=mock_repository,
             encryption_service=mock_encryption_service,
+            tenant_id="tenant-global",
+            project_id="project-global",
         )
+        tool_ctx.tenant_id = ""
+        tool_ctx.project_id = ""
 
         result = await get_env_var_tool.execute(tool_ctx, tool_name="test", variable_name="VAR")
 
@@ -131,6 +138,44 @@ class TestGetEnvVarTool:
         assert result_data["value"] == "decrypted-value"
         assert result_data["is_secret"] is True
         mock_encryption_service.decrypt.assert_called_once_with("encrypted-value")
+
+    async def test_execute_found_does_not_log_decrypted_value(
+        self,
+        tool_ctx,
+        mock_repository,
+        mock_encryption_service,
+        caplog,
+    ):
+        """Retrieved env-var logs must never include decrypted values."""
+        configure_env_var_tools(
+            repository=mock_repository,
+            encryption_service=mock_encryption_service,
+            tenant_id="tenant-123",
+            project_id="project-456",
+        )
+
+        env_var = ToolEnvironmentVariable(
+            id="ev-124",
+            tenant_id="tenant-123",
+            tool_name="web_search",
+            variable_name="PUBLIC_ENDPOINT",
+            encrypted_value="encrypted-endpoint",
+            is_secret=False,
+            scope=EnvVarScope.TENANT,
+        )
+        mock_repository.get.return_value = env_var
+        mock_encryption_service.decrypt.return_value = "https://visible.example.com/token"
+
+        with caplog.at_level(logging.INFO):
+            result = await get_env_var_tool.execute(
+                tool_ctx,
+                tool_name="web_search",
+                variable_name="PUBLIC_ENDPOINT",
+            )
+
+        assert isinstance(result, ToolResult)
+        assert "https://visible.example.com/token" not in caplog.text
+        assert "Retrieved env var web_search/PUBLIC_ENDPOINT" in caplog.text
 
     async def test_execute_not_found(self, tool_ctx, mock_repository, mock_encryption_service):
         """Test getting a non-existent env var."""
@@ -347,7 +392,11 @@ class TestCheckEnvVarsTool:
         configure_env_var_tools(
             repository=mock_repository,
             encryption_service=mock_encryption_service,
+            tenant_id="tenant-global",
+            project_id="project-global",
         )
+        tool_ctx.tenant_id = ""
+        tool_ctx.project_id = ""
 
         result = await check_env_vars_tool.execute(
             tool_ctx, tool_name="web_search", required_vars=["API_KEY"]
@@ -484,6 +533,37 @@ class TestRequestEnvVarTool:
         assert request_kwargs["context"]["save_scope"] == "tenant"
         assert "API_KEY" not in request_kwargs["context"]
 
+    async def test_missing_tenant_returns_error_without_global_scope_fallback(
+        self,
+        tool_ctx,
+        mock_repository,
+        mock_encryption_service,
+        mock_hitl_handler,
+    ):
+        """Env-var requests must not inherit tenant/project scope from global config."""
+        mock_hitl_handler.request_env_vars.return_value = {"API_KEY": "secret"}
+        configure_env_var_tools(
+            repository=mock_repository,
+            encryption_service=mock_encryption_service,
+            hitl_handler=mock_hitl_handler,
+            tenant_id="tenant-global",
+            project_id="project-global",
+        )
+        tool_ctx.tenant_id = ""
+        tool_ctx.project_id = ""
+
+        result = await request_env_var_tool.execute(
+            tool_ctx,
+            tool_name="web_search",
+            fields=[{"variable_name": "API_KEY"}],
+        )
+
+        assert isinstance(result, ToolResult)
+        assert result.is_error is True
+        result_data = json.loads(result.output)
+        assert result_data["status"] == "error"
+        mock_hitl_handler.request_env_vars.assert_not_awaited()
+
     async def test_cancelled_response_mentions_requested_variables(
         self,
         tool_ctx,
@@ -492,7 +572,7 @@ class TestRequestEnvVarTool:
         mock_hitl_handler,
     ):
         """Cancelled requests should mention which variables are still needed."""
-        mock_hitl_handler.request_env_vars.return_value = {}
+        mock_hitl_handler.request_env_vars.return_value = {"cancelled": True}
         configure_env_var_tools(
             repository=mock_repository,
             encryption_service=mock_encryption_service,
@@ -510,6 +590,33 @@ class TestRequestEnvVarTool:
         result_data = json.loads(result.output)
         assert result_data["status"] == "cancelled"
         assert "API_KEY" in result_data["message"]
+
+    async def test_empty_values_response_is_allowed_when_all_fields_optional(
+        self,
+        tool_ctx,
+        mock_repository,
+        mock_encryption_service,
+        mock_hitl_handler,
+    ):
+        """An explicit empty values payload is valid when no env-var field is required."""
+        mock_hitl_handler.request_env_vars.return_value = {"values": {}}
+        configure_env_var_tools(
+            repository=mock_repository,
+            encryption_service=mock_encryption_service,
+            hitl_handler=mock_hitl_handler,
+            tenant_id="tenant-123",
+        )
+
+        result = await request_env_var_tool.execute(
+            tool_ctx,
+            tool_name="web_search",
+            fields=[{"variable_name": "OPTIONAL_TOKEN", "is_required": False}],
+        )
+
+        assert isinstance(result, ToolResult)
+        result_data = json.loads(result.output)
+        assert result_data["status"] == "success"
+        assert result_data["saved_variables"] == []
 
     async def test_duplicate_variable_names_are_rejected(
         self,
@@ -580,6 +687,7 @@ class TestRequestEnvVarTool:
             hitl_handler=mock_hitl_handler,
             tenant_id="tenant-123",
         )
+        tool_ctx.project_id = ""
 
         result = await request_env_var_tool.execute(
             tool_ctx,
@@ -627,6 +735,41 @@ class TestRequestEnvVarTool:
         assert request_kwargs["context"]["reason"] == "Authenticate with provider"
         assert request_kwargs["context"]["workflow"] == ["open settings", "paste API key"]
         assert "api_key" not in request_kwargs["context"]
+
+    async def test_request_context_overwrites_reserved_metadata_keys(
+        self,
+        tool_ctx,
+        mock_repository,
+        mock_encryption_service,
+        mock_hitl_handler,
+    ):
+        """Caller-provided context must not spoof reserved HITL metadata."""
+        mock_hitl_handler.request_env_vars.return_value = {"API_KEY": "secret"}
+        configure_env_var_tools(
+            repository=mock_repository,
+            encryption_service=mock_encryption_service,
+            hitl_handler=mock_hitl_handler,
+            tenant_id="tenant-123",
+        )
+        tool_ctx.project_id = "project-ctx"
+
+        await request_env_var_tool.execute(
+            tool_ctx,
+            tool_name="web_search",
+            fields=[{"variable_name": "API_KEY", "display_name": "API & Key"}],
+            context={
+                "tool_name": "fake_tool",
+                "requested_variables": ["WRONG"],
+                "save_scope": "project",
+                "project_id": "fake-project",
+            },
+        )
+
+        request_kwargs = mock_hitl_handler.request_env_vars.await_args.kwargs
+        assert request_kwargs["context"]["tool_name"] == "web_search"
+        assert request_kwargs["context"]["requested_variables"] == ["API &amp; Key"]
+        assert request_kwargs["context"]["save_scope"] == "tenant"
+        assert "project_id" not in request_kwargs["context"]
 
     async def test_request_id_changes_with_effective_message(
         self,
@@ -695,6 +838,38 @@ class TestRequestEnvVarTool:
         request_kwargs = mock_hitl_handler.request_env_vars.await_args.kwargs
         assert "sk-1234567890abcdefghijklmnop" not in request_kwargs["message"]
         assert "API_KEY" in request_kwargs["message"]
+        assert "reason" not in request_kwargs["context"]
+        assert "workflow" not in request_kwargs["context"]
+
+    async def test_request_context_redacts_modern_secret_formats(
+        self,
+        tool_ctx,
+        mock_repository,
+        mock_encryption_service,
+        mock_hitl_handler,
+    ):
+        """Newer provider token formats must also be stripped from HITL metadata."""
+        mock_hitl_handler.request_env_vars.return_value = {"API_KEY": "secret"}
+        configure_env_var_tools(
+            repository=mock_repository,
+            encryption_service=mock_encryption_service,
+            hitl_handler=mock_hitl_handler,
+            tenant_id="tenant-123",
+        )
+
+        await request_env_var_tool.execute(
+            tool_ctx,
+            tool_name="web_search",
+            fields=[{"variable_name": "API_KEY"}],
+            context={
+                "message": "Use sk-proj-abcdefghijklmnopqrstuvwxyz123456",
+                "reason": "GitHub token ghs_abcdefghijklmnopqrstuvwxyz123456 is required",
+                "workflow": ["open settings", "xoxc-12345-67890-abcdefghijk"],
+            },
+        )
+
+        request_kwargs = mock_hitl_handler.request_env_vars.await_args.kwargs
+        assert "sk-proj-" not in request_kwargs["message"]
         assert "reason" not in request_kwargs["context"]
         assert "workflow" not in request_kwargs["context"]
 
@@ -813,6 +988,128 @@ class TestRequestEnvVarTool:
         assert forwarded_field["default_value"] is None
         saved_env_var = mock_repository.upsert.await_args.args[0]
         assert saved_env_var.description is None
+
+    async def test_request_fields_preserve_safe_ui_metadata(
+        self,
+        tool_ctx,
+        mock_repository,
+        mock_encryption_service,
+        mock_hitl_handler,
+    ):
+        """Safe HITL field metadata should remain available to the user-facing form."""
+        mock_hitl_handler.request_env_vars.return_value = {"SEARCH_REGION": "eu-west-1"}
+        configure_env_var_tools(
+            repository=mock_repository,
+            encryption_service=mock_encryption_service,
+            hitl_handler=mock_hitl_handler,
+            tenant_id="tenant-123",
+        )
+
+        result = await request_env_var_tool.execute(
+            tool_ctx,
+            tool_name="web_search",
+            fields=[
+                {
+                    "variable_name": "SEARCH_REGION",
+                    "display_name": "Search & Region",
+                    "description": "Region used by the search provider",
+                    "placeholder": "https://api.example.com?x=1&y=2",
+                    "default_value": "A&B",
+                    "is_secret": False,
+                    "input_type": "text",
+                }
+            ],
+        )
+
+        assert isinstance(result, ToolResult)
+        result_data = json.loads(result.output)
+        assert result_data["status"] == "success"
+        request_kwargs = mock_hitl_handler.request_env_vars.await_args.kwargs
+        assert "Search & Region" in request_kwargs["message"]
+        forwarded_field = request_kwargs["fields"][0]
+        assert forwarded_field["label"] == "Search &amp; Region"
+        assert forwarded_field["description"] == "Region used by the search provider"
+        assert forwarded_field["placeholder"] == "https://api.example.com?x=1&amp;y=2"
+        assert forwarded_field["default_value"] == "A&amp;B"
+
+    async def test_request_fields_drop_defaults_for_secret_inputs(
+        self,
+        tool_ctx,
+        mock_repository,
+        mock_encryption_service,
+        mock_hitl_handler,
+    ):
+        """Secret HITL fields must never prefill or suggest values back to the user."""
+        mock_hitl_handler.request_env_vars.return_value = {"API_KEY": "secret"}
+        configure_env_var_tools(
+            repository=mock_repository,
+            encryption_service=mock_encryption_service,
+            hitl_handler=mock_hitl_handler,
+            tenant_id="tenant-123",
+        )
+
+        result = await request_env_var_tool.execute(
+            tool_ctx,
+            tool_name="web_search",
+            fields=[
+                {
+                    "variable_name": "API_KEY",
+                    "display_name": "Search API key",
+                    "placeholder": "paste key here",
+                    "default_value": "hunter2",
+                    "is_secret": True,
+                }
+            ],
+        )
+
+        assert isinstance(result, ToolResult)
+        result_data = json.loads(result.output)
+        assert result_data["status"] == "success"
+        request_kwargs = mock_hitl_handler.request_env_vars.await_args.kwargs
+        forwarded_field = request_kwargs["fields"][0]
+        assert forwarded_field["label"] == "Search API key"
+        assert forwarded_field["placeholder"] is None
+        assert forwarded_field["default_value"] is None
+
+    async def test_request_fields_redact_entity_encoded_secret_metadata(
+        self,
+        tool_ctx,
+        mock_repository,
+        mock_encryption_service,
+        mock_hitl_handler,
+    ):
+        """Double-encoded secrets must be dropped before they reach HITL payloads."""
+        mock_hitl_handler.request_env_vars.return_value = {"API_KEY": "secret"}
+        configure_env_var_tools(
+            repository=mock_repository,
+            encryption_service=mock_encryption_service,
+            hitl_handler=mock_hitl_handler,
+            tenant_id="tenant-123",
+        )
+
+        result = await request_env_var_tool.execute(
+            tool_ctx,
+            tool_name="web_search",
+            fields=[
+                {
+                    "variable_name": "API_KEY",
+                    "display_name": "sk&amp;#45;1234567890abcdefghijklmnop",
+                    "description": "Bearer&amp;#32;sk&amp;#45;1234567890abcdefghijklmnop",
+                    "placeholder": "Paste&amp;#32;sk&amp;#45;1234567890abcdefghijklmnop&amp;#32;here",
+                    "default_value": "sk&amp;#45;1234567890abcdefghijklmnop",
+                }
+            ],
+        )
+
+        assert isinstance(result, ToolResult)
+        result_data = json.loads(result.output)
+        assert result_data["status"] == "success"
+        request_kwargs = mock_hitl_handler.request_env_vars.await_args.kwargs
+        forwarded_field = request_kwargs["fields"][0]
+        assert forwarded_field["label"] == "API_KEY"
+        assert forwarded_field["description"] is None
+        assert forwarded_field["placeholder"] is None
+        assert forwarded_field["default_value"] is None
 
     async def test_request_persists_safe_field_description(
         self,
@@ -1173,13 +1470,13 @@ class TestRequestEnvVarTool:
             conversation_id="conv-ctx-2",
             message_id="msg-ctx-2",
         )
-        values = await first_scoped.request_env_vars(
+        response = await first_scoped.request_env_vars(
             tool_name="web_search",
             fields=[{"name": "API_KEY", "label": "API_KEY"}],
             request_id="env_req_1",
         )
 
-        assert values == {"API_KEY": "secret"}
+        assert response == {"values": {"API_KEY": "secret"}}
         assert handler._preinjected_response is None
         assert first_scoped._preinjected_response is None
         assert second_scoped._preinjected_response is None
@@ -1207,12 +1504,14 @@ class TestRequestEnvVarTool:
             context: dict[str, str] | None = None,
             timeout_seconds: float | None = None,
             allow_save: bool = True,
+            save_project_id: str | None = None,
             request_id: str | None = None,
         ) -> dict[str, str]:
             captured_scope["conversation_id"] = self.conversation_id
             captured_scope["tenant_id"] = self.tenant_id
             captured_scope["project_id"] = self.project_id
             captured_scope["message_id"] = self.message_id or ""
+            captured_scope["save_project_id"] = save_project_id or ""
             return {"API_KEY": "secret"}
 
         monkeypatch.setattr(RayHITLHandler, "request_env_vars", fake_request_env_vars)
@@ -1247,9 +1546,72 @@ class TestRequestEnvVarTool:
             "tenant_id": "tenant-ctx",
             "project_id": "project-ctx",
             "message_id": "msg-1",
+            "save_project_id": "",
         }
         saved_env_var = mock_repository.upsert.await_args.args[0]
         assert saved_env_var.project_id is None
+
+    async def test_request_handler_scope_does_not_inherit_global_project(
+        self,
+        tool_ctx,
+        mock_repository,
+        mock_encryption_service,
+        monkeypatch,
+    ):
+        """Projectless ToolContext must not inherit project scope from the base handler."""
+        from src.infrastructure.agent.hitl.ray_hitl_handler import RayHITLHandler
+
+        captured_scope: dict[str, Any] = {}
+
+        async def fake_request_env_vars(
+            self: RayHITLHandler,
+            *,
+            tool_name: str,
+            fields: list[dict[str, str]],
+            message: str | None = None,
+            context: dict[str, str] | None = None,
+            timeout_seconds: float | None = None,
+            allow_save: bool = True,
+            save_project_id: str | None = None,
+            request_id: str | None = None,
+        ) -> dict[str, str]:
+            captured_scope["tenant_id"] = self.tenant_id
+            captured_scope["project_id"] = self.project_id
+            captured_scope["save_project_id"] = save_project_id
+            return {"API_KEY": "secret"}
+
+        monkeypatch.setattr(RayHITLHandler, "request_env_vars", fake_request_env_vars)
+
+        tool_ctx.tenant_id = "tenant-ctx"
+        tool_ctx.project_id = ""
+        handler = RayHITLHandler(
+            conversation_id="conv-1",
+            tenant_id="tenant-global",
+            project_id="project-global",
+        )
+        configure_env_var_tools(
+            repository=mock_repository,
+            encryption_service=mock_encryption_service,
+            hitl_handler=handler,
+            tenant_id="tenant-global",
+            project_id="project-global",
+        )
+
+        result = await request_env_var_tool.execute(
+            tool_ctx,
+            tool_name="web_search",
+            fields=[{"variable_name": "API_KEY"}],
+            save_to_project=False,
+        )
+
+        assert isinstance(result, ToolResult)
+        result_data = json.loads(result.output)
+        assert result_data["status"] == "success"
+        assert captured_scope == {
+            "tenant_id": "tenant-ctx",
+            "project_id": "",
+            "save_project_id": None,
+        }
 
     def test_create_project_level_var(self):
         """Test creating a project-level env var."""

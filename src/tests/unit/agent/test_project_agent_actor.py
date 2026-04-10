@@ -1,0 +1,83 @@
+"""Unit tests for ProjectAgentActor HITL resume paths."""
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from src.infrastructure.adapters.secondary.persistence import (
+    database as database_mod,
+    sql_hitl_request_repository as hitl_repo_mod,
+)
+from src.infrastructure.agent.actor import project_agent_actor
+from src.infrastructure.agent.hitl import coordinator as coordinator_mod
+
+
+def _build_actor() -> object:
+    actor_cls = project_agent_actor.ProjectAgentActor
+    inner_cls = actor_cls.__ray_metadata__.modified_class
+    actor = inner_cls.__new__(inner_cls)
+    actor._agent = object()
+    actor._lease_owner_suffix = "lease-1"
+    actor._config = SimpleNamespace(
+        tenant_id="tenant-1",
+        project_id="project-1",
+        agent_mode="plan",
+    )
+    return actor
+
+
+@pytest.mark.unit
+class TestProjectAgentActor:
+    async def test_run_continue_reopens_rejected_live_response(self, monkeypatch) -> None:
+        actor = _build_actor()
+        reopen_mock = AsyncMock(return_value=True)
+        complete_mock = AsyncMock()
+
+        monkeypatch.setattr(actor, "_reopen_answered_request", reopen_mock)
+        monkeypatch.setattr(
+            coordinator_mod,
+            "resolve_by_request_id",
+            lambda *_args, **_kwargs: coordinator_mod.ResolveResult.REJECTED,
+        )
+        monkeypatch.setattr(coordinator_mod, "complete_hitl_request", complete_mock)
+
+        result = await actor._run_continue("req-1", {"answer": "ok"}, "conv-1", "msg-1")
+
+        assert result == {
+            "status": "rejected",
+            "request_id": "req-1",
+            "ack": True,
+            "durably_completed": False,
+        }
+        reopen_mock.assert_awaited_once_with("req-1")
+        complete_mock.assert_not_awaited()
+
+    async def test_resume_continue_request_uses_stable_lease_owner(self, monkeypatch) -> None:
+        actor = _build_actor()
+        repo = SimpleNamespace(claim_for_processing=AsyncMock(return_value=None))
+        session = AsyncMock()
+        session_cm = AsyncMock()
+        session_cm.__aenter__.return_value = session
+        session_cm.__aexit__.return_value = False
+
+        monkeypatch.setattr(database_mod, "async_session_factory", lambda: session_cm)
+        monkeypatch.setattr(hitl_repo_mod, "SqlHITLRequestRepository", lambda _session: repo)
+
+        result = await actor._resume_continue_request(
+            request_id="req-1",
+            response_data={"answer": "ok"},
+            conversation_id="conv-1",
+            message_id="msg-1",
+        )
+
+        assert result == {
+            "status": "processing",
+            "request_id": "req-1",
+            "ack": False,
+            "durably_completed": False,
+        }
+        repo.claim_for_processing.assert_awaited_once_with(
+            "req-1",
+            lease_owner="agent:tenant-1:project-1:plan:lease-1",
+        )

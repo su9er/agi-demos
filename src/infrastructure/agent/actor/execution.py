@@ -496,7 +496,7 @@ async def _load_persisted_agent_config(conversation_id: str) -> dict[str, Any] |
     return None
 
 
-async def execute_project_chat(  # noqa: PLR0915
+async def execute_project_chat(
     agent: ProjectReActAgent,
     request: ProjectChatRequest,
     abort_signal: asyncio.Event | None = None,
@@ -735,6 +735,12 @@ async def continue_project_chat(
     agent: ProjectReActAgent,
     request_id: str,
     response_data: dict[str, Any],
+    *,
+    lease_owner: str | None = None,
+    tenant_id: str | None = None,
+    project_id: str | None = None,
+    conversation_id: str | None = None,
+    message_id: str | None = None,
 ) -> ProjectChatResult:
     """Resume an HITL-paused chat using stored state."""
     start_time = time_module.time()
@@ -760,15 +766,58 @@ async def continue_project_chat(
         f"last_event_counter={state.last_event_counter}"
     )
 
+    from src.domain.model.agent.hitl_types import HITLType
+    from src.infrastructure.agent.hitl.coordinator import (
+        mark_hitl_request_completed,
+        validate_hitl_response,
+    )
+
+    try:
+        hitl_type = HITLType(state.hitl_type)
+    except ValueError:
+        execution_time_ms = (time_module.time() - start_time) * 1000
+        return ProjectChatResult(
+            conversation_id=state.conversation_id,
+            message_id=state.message_id,
+            is_error=True,
+            error_message=f"Unsupported HITL type: {state.hitl_type}",
+            execution_time_ms=execution_time_ms,
+        )
+
+    is_valid, validation_error = validate_hitl_response(
+        hitl_type=hitl_type,
+        request_data=state.hitl_request_data,
+        response_data=response_data,
+        conversation_id=state.conversation_id,
+        tenant_id=state.tenant_id,
+        project_id=state.project_id,
+        message_id=state.message_id,
+        received_tenant_id=tenant_id,
+        received_project_id=project_id,
+        received_conversation_id=conversation_id,
+        received_message_id=message_id,
+    )
+    if not is_valid:
+        logger.warning(
+            "[ActorExecution] Rejected HITL response for request_id=%s: %s",
+            request_id,
+            validation_error,
+        )
+        execution_time_ms = (time_module.time() - start_time) * 1000
+        return ProjectChatResult(
+            conversation_id=state.conversation_id,
+            message_id=state.message_id,
+            is_error=True,
+            error_message=validation_error,
+            execution_time_ms=execution_time_ms,
+        )
+
     db_event_time = await _get_last_db_event_time(state.conversation_id)
     time_gen = _init_continue_time_gen(state, db_event_time)
     await set_agent_running(state.conversation_id, state.message_id)
 
     try:
         conversation_context = _build_hitl_context(state, response_data)
-
-        await state_store.delete_state_by_request(request_id)
-        await delete_hitl_snapshot(request_id)
 
         async for event in agent.execute_chat(
             conversation_id=state.conversation_id,
@@ -824,7 +873,20 @@ async def continue_project_chat(
                 conversation_id=state.conversation_id,
                 summary_data=ss.summary_save_data,
                 last_event_time_us=time_gen.last_time_us,
-            )
+        )
+
+        if not ss.is_error:
+            completed = await mark_hitl_request_completed(request_id, lease_owner=lease_owner)
+            if completed:
+                await state_store.delete_state_by_request(request_id)
+                await delete_hitl_snapshot(request_id)
+            else:
+                logger.warning(
+                    "[ActorExecution] Skipped cleanup after fenced completion miss: request_id=%s "
+                    "lease_owner=%s",
+                    request_id,
+                    lease_owner,
+                )
 
         execution_time_ms = (time_module.time() - start_time) * 1000
 

@@ -67,7 +67,7 @@ from ..core.llm_stream import LLMStream, StreamConfig, StreamEventType
 from ..core.message import Message, MessageRole, ToolPart, ToolState
 from ..cost import CostTracker, TokenUsage
 from ..doom_loop import DoomLoopDetector
-from ..hitl.coordinator import HITLCoordinator
+from ..hitl.coordinator import HITLCoordinator, complete_hitl_request
 from ..permission import PermissionAction, PermissionManager
 from ..retry import RetryPolicy
 from .artifact_handler import ArtifactHandler, strip_artifact_binary_data
@@ -77,6 +77,8 @@ from .hitl_tool_handler import (
     handle_clarification_tool,
     handle_decision_tool,
     handle_env_var_tool,
+    pop_tool_part_hitl_completion_request_ids,
+    queue_tool_part_hitl_completion,
 )
 from .message_utils import classify_tool_by_description, extract_user_query
 from .run_context import RunContext
@@ -672,9 +674,7 @@ class SessionProcessor:
                 yield event
 
             effective_result = (
-                self._last_process_result
-                if result == ProcessorResult.COMPLETE
-                else result
+                self._last_process_result if result == ProcessorResult.COMPLETE else result
             )
             await self._notify_plugin_hook(
                 "on_session_end",
@@ -1972,6 +1972,7 @@ class SessionProcessor:
                 hitl_type=HITLType.PERMISSION,
                 timeout_seconds=self.config.permission_timeout,
             )
+            queue_tool_part_hitl_completion(tool_part, request_id)
 
             if not permission_granted:
                 tool_part.status = ToolState.ERROR
@@ -2019,6 +2020,11 @@ class SessionProcessor:
             )
 
         return None  # granted
+
+    async def _flush_tool_part_hitl_completions(self, tool_part: ToolPart) -> None:
+        """Persist and release any queued HITL completions for a tool part."""
+        for request_id in pop_tool_part_hitl_completion_request_ids(tool_part):
+            await complete_hitl_request(request_id)
 
     def _parse_and_fix_arguments(
         self,
@@ -3094,14 +3100,17 @@ class SessionProcessor:
         hitl_handler = self._check_hitl_dispatch(tool_name)
         if hitl_handler is not None:
             handler_method = getattr(self, hitl_handler)
-            async for ev in handler_method(
-                session_id,
-                call_id,
-                tool_name,
-                arguments,
-                tool_part,
-            ):
-                yield ev
+            try:
+                async for ev in handler_method(
+                    session_id,
+                    call_id,
+                    tool_name,
+                    arguments,
+                    tool_part,
+                ):
+                    yield ev
+            finally:
+                await self._flush_tool_part_hitl_completions(tool_part)
             return
 
         # ── Pipeline shortcut ── (phases 2, 4, 6 handled by pipeline)
@@ -3185,6 +3194,8 @@ class SessionProcessor:
                     call_id=call_id,
                     tool_execution_id=tool_part.tool_execution_id,
                 )
+            finally:
+                await self._flush_tool_part_hitl_completions(tool_part)
 
             self._state = ProcessorState.OBSERVING
             return
@@ -3205,6 +3216,7 @@ class SessionProcessor:
         if perm_result is not None:
             async for ev in perm_result:
                 yield ev
+            await self._flush_tool_part_hitl_completions(tool_part)
             return
 
         # 5. Parse & fix arguments
@@ -3278,6 +3290,8 @@ class SessionProcessor:
                 call_id=call_id,
                 tool_execution_id=tool_part.tool_execution_id,
             )
+        finally:
+            await self._flush_tool_part_hitl_completions(tool_part)
 
         # Reset error tracker on successful non-pipeline execution
         self.doom_loop_detector.reset_errors()

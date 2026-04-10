@@ -329,16 +329,31 @@ function normalizeComponentEntry(rawEntry: unknown): EnvelopeRecord | null {
   if (!entry) return null;
   if (typeof entry.id !== 'string' || !entry.id) return null;
   const component = normalizeEnvelopePayload(entry.component);
-  if (!component) return null;
+  let componentName: string | undefined;
+  let payload: EnvelopeRecord = {};
+  let siblingStyle: EnvelopeRecord | null = null;
 
-  const componentKeys = Object.keys(component).filter((key) => A2UI_COMPONENT_KEYS.has(key));
-  if (componentKeys.length === 0) return null;
-  const componentName = componentKeys[0];
-  if (!componentName) return null;
+  if (component) {
+    const componentKeys = Object.keys(component).filter((key) => A2UI_COMPONENT_KEYS.has(key));
+    if (componentKeys.length === 0) return null;
+    componentName = componentKeys[0];
+    if (!componentName) return null;
+    payload = normalizeEnvelopePayload(component[componentName]) ?? {};
+    siblingStyle = normalizeEnvelopePayload(component.style);
+  } else if (typeof entry.type === 'string' && A2UI_COMPONENT_KEYS.has(entry.type)) {
+    componentName = entry.type;
+    siblingStyle = normalizeEnvelopePayload(entry.style);
+    payload = Object.entries(entry).reduce<EnvelopeRecord>((acc, [key, value]) => {
+      if (key !== 'id' && key !== 'type' && key !== 'style') {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+  } else {
+    return null;
+  }
 
-  const payload = normalizeEnvelopePayload(component[componentName]) ?? {};
   const normalizedPayload: EnvelopeRecord = { ...payload };
-  const siblingStyle = normalizeEnvelopePayload(component.style);
   if (siblingStyle && !normalizeEnvelopePayload(normalizedPayload.style)) {
     normalizedPayload.style = siblingStyle;
   }
@@ -428,7 +443,7 @@ function normalizeComponentEntry(rawEntry: unknown): EnvelopeRecord | null {
   }
 
   return {
-    ...entry,
+    id: entry.id,
     component: {
       [componentName]: normalizedPayload,
     },
@@ -1024,6 +1039,25 @@ function getEnvelopeSurfaceId(rawEnvelope: unknown): string | null {
   );
 }
 
+function getEnvelopeComponentSource(
+  envelope: EnvelopeRecord,
+  update: EnvelopeRecord | null
+): A2UIViewerProps['components'] | null {
+  const updateComponents = update?.components;
+  if (Array.isArray(updateComponents) || (updateComponents && typeof updateComponents === 'object')) {
+    return updateComponents as A2UIViewerProps['components'];
+  }
+  const topLevelComponents = envelope.components;
+  if (Array.isArray(topLevelComponents) || (topLevelComponents && typeof topLevelComponents === 'object')) {
+    return topLevelComponents as A2UIViewerProps['components'];
+  }
+  return null;
+}
+
+function getEnvelopeDirectDataModel(envelope: EnvelopeRecord): EnvelopeRecord | null {
+  return normalizeEnvelopePayload(envelope.dataModel) ?? normalizeEnvelopePayload(envelope.data_model);
+}
+
 function consumeEnvelope(
   result: ParsedSurface,
   rawEnvelope: unknown,
@@ -1074,18 +1108,9 @@ function consumeEnvelope(
     result.root = envelope.root;
   }
 
-  if (update) {
-    const components = normalizeViewerComponents(
-      update.components as A2UIViewerProps['components']
-    );
-    result.components = components;
-  } else if (
-    Array.isArray(envelope.components) ||
-    (envelope.components && typeof envelope.components === 'object')
-  ) {
-    result.components = normalizeViewerComponents(
-      envelope.components as A2UIViewerProps['components']
-    );
+  const componentSource = getEnvelopeComponentSource(envelope, update);
+  if (componentSource) {
+    result.components = normalizeViewerComponents(componentSource);
   }
 
   if (deleteUpdate) {
@@ -1096,10 +1121,17 @@ function consumeEnvelope(
     return;
   }
 
-  if (!dataUpdate) return;
-  const path = typeof dataUpdate.path === 'string' ? dataUpdate.path : '/';
-  const contents = Array.isArray(dataUpdate.contents) ? dataUpdate.contents : [];
-  applyDataModelUpdate(result.data, path, contents);
+  if (dataUpdate) {
+    const path = typeof dataUpdate.path === 'string' ? dataUpdate.path : '/';
+    const contents = Array.isArray(dataUpdate.contents) ? dataUpdate.contents : [];
+    applyDataModelUpdate(result.data, path, contents);
+    return;
+  }
+
+  const directDataModel = getEnvelopeDirectDataModel(envelope);
+  if (directDataModel) {
+    applyDataModelUpdate(result.data, '/', [directDataModel]);
+  }
 }
 
 function parseA2UIMessages(jsonl: string, targetSurfaceId?: string): ParsedSurfaceResult {

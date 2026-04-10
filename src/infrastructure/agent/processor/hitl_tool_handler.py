@@ -32,19 +32,30 @@ from src.domain.events.agent_events import (
     AgentEnvVarRequestedEvent,
     AgentObserveEvent,
 )
+from src.domain.model.agent.hitl.hitl_types import EnvVarRequestData
 from src.domain.model.agent.hitl_types import HITLType
 from src.infrastructure.adapters.secondary.persistence.database import async_session_factory
 from src.infrastructure.adapters.secondary.persistence.sql_hitl_request_repository import (
     SqlHITLRequestRepository,
 )
-from src.infrastructure.agent.canvas.a2ui_builder import extract_surface_id
+from src.infrastructure.agent.canvas.a2ui_builder import extract_surface_id, validate_a2ui_messages
 from src.infrastructure.agent.canvas.manager import CanvasManager
 from src.infrastructure.agent.canvas.models import CanvasBlock
+from src.infrastructure.agent.hitl.hitl_strategies import (
+    ClarificationStrategy,
+    DecisionStrategy,
+    EnvVarStrategy,
+)
+from src.infrastructure.agent.hitl.utils import sanitize_env_var_plain_text
+from src.infrastructure.agent.tools.env_var_tools import _normalize_hitl_env_values
+from src.infrastructure.agent.tools.result import ToolResult
 
 from ..core.message import ToolPart, ToolState
 from ..hitl.coordinator import HITLCoordinator, unregister_coordinator
 
 logger = logging.getLogger(__name__)
+
+_PENDING_HITL_COMPLETION_REQUEST_IDS_KEY = "_pending_hitl_completion_request_ids"
 
 
 def _ensure_dict(raw: Any) -> dict[str, Any]:
@@ -54,6 +65,122 @@ def _ensure_dict(raw: Any) -> dict[str, Any]:
     if isinstance(raw, dict):
         return raw.copy()
     return {}
+
+
+def _extract_tool_result_message(result: ToolResult, default: str) -> str:
+    """Extract a human-readable error message from a ToolResult payload."""
+    try:
+        payload = json.loads(result.output)
+    except (TypeError, json.JSONDecodeError):
+        return default
+
+    if isinstance(payload, dict):
+        message = payload.get("message")
+        if isinstance(message, str) and message:
+            return message
+    return default
+
+
+def _observe_env_var_error(
+    *,
+    tool_name: str,
+    error_message: str,
+    call_id: str,
+    tool_part: ToolPart,
+    end_time: float,
+    start_time: float | None = None,
+) -> AgentObserveEvent:
+    """Mark the tool as failed and build the observe event."""
+    tool_part.status = ToolState.ERROR
+    tool_part.error = error_message
+    tool_part.end_time = end_time
+    duration_ms = int((end_time - start_time) * 1000) if start_time is not None else None
+    return AgentObserveEvent(
+        tool_name=tool_name,
+        error=error_message,
+        duration_ms=duration_ms,
+        call_id=call_id,
+        tool_execution_id=tool_part.tool_execution_id,
+    )
+
+
+def queue_tool_part_hitl_completion(tool_part: ToolPart, request_id: str) -> None:
+    """Queue a consumed HITL request for durable completion after outer processing finishes."""
+    queued_request_ids = tool_part.metadata.setdefault(_PENDING_HITL_COMPLETION_REQUEST_IDS_KEY, [])
+    if not isinstance(queued_request_ids, list):
+        queued_request_ids = []
+        tool_part.metadata[_PENDING_HITL_COMPLETION_REQUEST_IDS_KEY] = queued_request_ids
+    if request_id not in queued_request_ids:
+        queued_request_ids.append(request_id)
+
+
+def pop_tool_part_hitl_completion_request_ids(tool_part: ToolPart) -> list[str]:
+    """Pop queued HITL completion request IDs from a tool part."""
+    queued_request_ids = tool_part.metadata.pop(_PENDING_HITL_COMPLETION_REQUEST_IDS_KEY, [])
+    if not isinstance(queued_request_ids, list):
+        return []
+    return [request_id for request_id in queued_request_ids if isinstance(request_id, str) and request_id]
+
+
+def _observe_env_var_result(
+    *,
+    tool_name: str,
+    result: dict[str, Any],
+    call_id: str,
+    tool_part: ToolPart,
+    end_time: float,
+    start_time: float,
+) -> AgentObserveEvent:
+    """Mark the tool as completed and build the observe event."""
+    tool_part.status = ToolState.COMPLETED
+    tool_part.output = json.dumps(result)
+    tool_part.end_time = end_time
+    return AgentObserveEvent(
+        tool_name=tool_name,
+        result=result,
+        duration_ms=int((end_time - start_time) * 1000),
+        call_id=call_id,
+        tool_execution_id=tool_part.tool_execution_id,
+    )
+
+
+def _parse_env_var_hitl_response(
+    response: object,
+    env_var_data: EnvVarRequestData,
+) -> tuple[dict[str, str] | None, dict[str, Any] | None, str | None]:
+    """Normalize HITL env-var responses into values, cancellation, or an error."""
+    invalid_error = "Invalid environment variable values returned from HITL"
+    if not isinstance(response, dict):
+        return None, None, invalid_error
+
+    if response.get("timeout"):
+        return None, None, "Environment variable request timed out"
+
+    if response.get("cancelled"):
+        return (
+            None,
+            {
+                "success": False,
+                "cancelled": True,
+                "tool_name": env_var_data.tool_name,
+                "saved_variables": [],
+                "message": "User did not provide the requested environment variables",
+            },
+            None,
+        )
+
+    raw_values = response.get("values", response)
+    field_specs = {
+        field.name: {
+            "is_required": field.required,
+            "is_secret": field.secret,
+        }
+        for field in env_var_data.fields
+    }
+    normalized_values = _normalize_hitl_env_values(raw_values, field_specs)
+    if isinstance(normalized_values, ToolResult):
+        return None, None, _extract_tool_result_message(normalized_values, invalid_error)
+    return normalized_values, None, None
 
 
 async def handle_clarification_tool(
@@ -73,16 +200,33 @@ async def handle_clarification_tool(
         timeout = arguments.get("timeout", 300.0)
         default_value = arguments.get("default_value")
 
-        clarification_options: list[dict[str, Any]] = []
-        for i, opt in enumerate(options_raw):
-            clarification_options.append(
-                {
-                    "id": opt.get("id") or str(i),
-                    "label": opt.get("label", ""),
-                    "description": opt.get("description"),
-                    "recommended": opt.get("recommended", False),
-                }
-            )
+        preview_request = ClarificationStrategy().create_request(
+            conversation_id="preview",
+            request_data={
+                "question": question,
+                "options": options_raw,
+                "clarification_type": clarification_type,
+                "allow_custom": allow_custom,
+                "context": context,
+                "default_value": default_value,
+            },
+            timeout_seconds=timeout,
+            default_value=default_value,
+        )
+        clarification_data = preview_request.clarification_data
+        if clarification_data is None:
+            raise ValueError("Clarification preview request missing clarification_data")
+
+        question = preview_request.question
+        clarification_type = clarification_data.clarification_type.value
+        allow_custom = clarification_data.allow_custom
+        context = clarification_data.context
+        default_value = clarification_data.default_value
+        clarification_options = [option.to_dict() for option in clarification_data.options]
+        valid_option_ids = {option["id"] for option in clarification_options}
+        if clarification_options and default_value is not None and default_value not in valid_option_ids:
+            if not allow_custom:
+                default_value = None
 
         # Auto-enable allow_custom when options are empty
         if not clarification_options:
@@ -113,6 +257,7 @@ async def handle_clarification_tool(
             clarification_type=clarification_type,
             options=clarification_options,
             allow_custom=allow_custom,
+            default_value=default_value,
             context=context,
         )
 
@@ -123,6 +268,7 @@ async def handle_clarification_tool(
             timeout,
         )
         end_time = time.time()
+        queue_tool_part_hitl_completion(tool_part, request_id)
 
         yield AgentClarificationAnsweredEvent(
             request_id=request_id,
@@ -186,19 +332,36 @@ async def handle_decision_tool(
         selection_mode = arguments.get("selection_mode", "single")
         max_selections = arguments.get("max_selections")
 
-        decision_options: list[dict[str, Any]] = []
-        for i, opt in enumerate(options_raw):
-            decision_options.append(
-                {
-                    "id": opt.get("id") or str(i),
-                    "label": opt.get("label", ""),
-                    "description": opt.get("description"),
-                    "recommended": opt.get("recommended", False),
-                    "estimated_time": opt.get("estimated_time"),
-                    "estimated_cost": opt.get("estimated_cost"),
-                    "risks": opt.get("risks", []),
-                }
-            )
+        preview_request = DecisionStrategy().create_request(
+            conversation_id="preview",
+            request_data={
+                "question": question,
+                "options": options_raw,
+                "decision_type": decision_type,
+                "allow_custom": allow_custom,
+                "context": context,
+                "default_option": default_option,
+                "selection_mode": selection_mode,
+                "max_selections": max_selections,
+            },
+            timeout_seconds=timeout,
+            default_option=default_option,
+            max_selections=max_selections,
+        )
+        decision_data = preview_request.decision_data
+        if decision_data is None:
+            raise ValueError("Decision preview request missing decision_data")
+
+        question = preview_request.question
+        decision_type = decision_data.decision_type.value
+        allow_custom = decision_data.allow_custom
+        context = decision_data.context
+        default_option = decision_data.default_option
+        max_selections = decision_data.max_selections
+        decision_options = [option.to_dict() for option in decision_data.options]
+        valid_option_ids = {option["id"] for option in decision_options}
+        if default_option not in valid_option_ids:
+            default_option = None
 
         # Auto-enable allow_custom when options are empty
         if not decision_options:
@@ -244,6 +407,7 @@ async def handle_decision_tool(
             timeout,
         )
         end_time = time.time()
+        queue_tool_part_hitl_completion(tool_part, request_id)
 
         yield AgentDecisionAnsweredEvent(
             request_id=request_id,
@@ -328,6 +492,10 @@ async def handle_env_var_tool(
         context = _ensure_dict(arguments.get("context", {}))
         timeout = arguments.get("timeout", 300.0)
         save_to_project = arguments.get("save_to_project", False)
+        active_project_id = coordinator.project_id or None
+        save_project_id = active_project_id if save_to_project else None
+        if save_to_project and not save_project_id:
+            raise ValueError("Project-scoped environment variables require an active project")
 
         fields_for_sse = _prepare_fields_for_sse(fields_raw)
 
@@ -335,98 +503,162 @@ async def handle_env_var_tool(
             "tool_name": target_tool_name,
             "fields": fields_for_sse,
             "message": message,
+            "context": context,
             "allow_save": True,
         }
+        prepared_request = EnvVarStrategy().create_request(
+            conversation_id=coordinator.conversation_id,
+            request_data=request_data,
+            timeout_seconds=timeout,
+            tenant_id=coordinator.tenant_id,
+            project_id=coordinator.project_id,
+            message_id=getattr(coordinator, "message_id", None),
+            save_project_id=save_project_id,
+        )
+        env_var_data = prepared_request.env_var_data
+        if env_var_data is None:
+            raise ValueError("Failed to build environment variable HITL request")
+        request_data["_request_id"] = prepared_request.request_id
 
         request_id = await coordinator.prepare_request(
             HITLType.ENV_VAR,
             request_data,
             timeout,
+            save_project_id=save_project_id,
         )
 
         yield AgentEnvVarRequestedEvent(
             request_id=request_id,
-            tool_name=target_tool_name,
-            fields=fields_for_sse,
-            context=context if context else {},
+            tool_name=env_var_data.tool_name,
+            fields=[field.to_dict() for field in env_var_data.fields],
+            context=env_var_data.context,
         )
 
         start_time = time.time()
-        values = await coordinator.wait_for_response(
+        response = await coordinator.wait_for_response(
             request_id,
             HITLType.ENV_VAR,
             timeout,
         )
         end_time = time.time()
+        queue_tool_part_hitl_completion(tool_part, request_id)
+
+        normalized_values, cancelled_result, error_message = _parse_env_var_hitl_response(
+            response,
+            env_var_data,
+        )
+        if error_message:
+            yield _observe_env_var_error(
+                tool_name=tool_name,
+                error_message=error_message,
+                call_id=call_id,
+                tool_part=tool_part,
+                end_time=end_time,
+                start_time=start_time,
+            )
+            return
+
+        if cancelled_result is not None:
+            yield _observe_env_var_result(
+                tool_name=tool_name,
+                result=cancelled_result,
+                call_id=call_id,
+                tool_part=tool_part,
+                end_time=end_time,
+                start_time=start_time,
+            )
+            return
+
+        if normalized_values is None:
+            yield _observe_env_var_error(
+                tool_name=tool_name,
+                error_message="Invalid environment variable values returned from HITL",
+                call_id=call_id,
+                tool_part=tool_part,
+                end_time=end_time,
+                start_time=start_time,
+            )
+            return
 
         saved_variables: list[str] = []
-        ctx = langfuse_context or {}
-        tenant_id = ctx.get("tenant_id")
-        project_id = ctx.get("project_id")
+        tenant_id = coordinator.tenant_id
 
-        if tenant_id and values:
+        if normalized_values and not tenant_id:
+            error_message = "Missing tenant context for environment variable save"
+            yield _observe_env_var_error(
+                tool_name=tool_name,
+                error_message=error_message,
+                call_id=call_id,
+                tool_part=tool_part,
+                end_time=end_time,
+                start_time=start_time,
+            )
+            return
+
+        if tenant_id and normalized_values:
             try:
                 saved_variables = await _save_env_vars(
-                    values=values,
-                    fields_for_sse=fields_for_sse,
-                    target_tool_name=target_tool_name,
+                    values=normalized_values,
+                    fields_for_sse=[field.to_dict() for field in env_var_data.fields],
+                    target_tool_name=env_var_data.tool_name,
                     tenant_id=tenant_id,
-                    project_id=project_id,
+                    project_id=save_project_id,
                     save_to_project=save_to_project,
                 )
-            except Exception as e:
-                logger.error(f"Error saving env vars to database: {e}")
-                saved_variables = list(values.keys()) if values else []
+            except Exception as exc:
+                error_message = f"Failed to save environment variables: {exc}"
+                logger.error(error_message, exc_info=True)
+                yield _observe_env_var_error(
+                    tool_name=tool_name,
+                    error_message=error_message,
+                    call_id=call_id,
+                    tool_part=tool_part,
+                    end_time=end_time,
+                    start_time=start_time,
+                )
+                return
         else:
-            saved_variables = list(values.keys()) if values else []
+            saved_variables = list(normalized_values.keys())
 
         yield AgentEnvVarProvidedEvent(
             request_id=request_id,
-            tool_name=target_tool_name,
+            tool_name=env_var_data.tool_name,
             saved_variables=saved_variables,
         )
 
         tool_part.status = ToolState.COMPLETED
         result = {
             "success": True,
-            "tool_name": target_tool_name,
+            "tool_name": env_var_data.tool_name,
             "saved_variables": saved_variables,
             "message": f"Successfully saved {len(saved_variables)} environment variable(s)",
         }
-        tool_part.output = json.dumps(result)
-        tool_part.end_time = end_time
-
-        yield AgentObserveEvent(
+        yield _observe_env_var_result(
             tool_name=tool_name,
             result=result,
-            duration_ms=int((end_time - start_time) * 1000),
             call_id=call_id,
-            tool_execution_id=tool_part.tool_execution_id,
+            tool_part=tool_part,
+            end_time=end_time,
+            start_time=start_time,
         )
 
     except TimeoutError:
-        tool_part.status = ToolState.ERROR
-        tool_part.error = "Environment variable request timed out"
-        tool_part.end_time = time.time()
-
-        yield AgentObserveEvent(
+        yield _observe_env_var_error(
             tool_name=tool_name,
-            error="Environment variable request timed out",
+            error_message="Environment variable request timed out",
             call_id=call_id,
-            tool_execution_id=tool_part.tool_execution_id,
+            tool_part=tool_part,
+            end_time=time.time(),
         )
 
     except Exception as e:
         logger.error(f"Environment variable tool error: {e}", exc_info=True)
-        tool_part.status = ToolState.ERROR
-        tool_part.error = str(e)
-        tool_part.end_time = time.time()
-
-        yield AgentObserveEvent(
+        yield _observe_env_var_error(
             tool_name=tool_name,
-            error=str(e),
+            error_message=str(e),
             call_id=call_id,
-            tool_execution_id=tool_part.tool_execution_id,
+            tool_part=tool_part,
+            end_time=time.time(),
         )
 
 
@@ -464,13 +696,18 @@ async def _save_env_vars(
             var_name = field_spec["name"]
             if values.get(var_name):
                 encrypted_value = encryption_service.encrypt(values[var_name])
+                persisted_description = None
+                if not field_spec.get("secret", True):
+                    persisted_description = sanitize_env_var_plain_text(
+                        field_spec.get("description")
+                    )
                 env_var = ToolEnvironmentVariable(
                     tenant_id=tenant_id,
                     project_id=effective_project_id,
                     tool_name=target_tool_name,
                     variable_name=var_name,
                     encrypted_value=encrypted_value,
-                    description=field_spec.get("description"),
+                    description=persisted_description,
                     is_required=field_spec.get("required", True),
                     is_secret=field_spec.get("secret", True),
                     scope=scope,
@@ -555,6 +792,13 @@ def _upsert_a2ui_canvas_block(
     if existing_block is not None and existing_block.block_type.value != "a2ui_surface":
         msg = f"Canvas block '{resolved_block_id}' is not an A2UI surface"
         raise ValueError(msg)
+
+    validation_error = validate_a2ui_messages(
+        components,
+        require_initial_render=existing_block is None,
+    )
+    if validation_error is not None:
+        raise ValueError(validation_error)
 
     surface_id = extract_surface_id(components) or (
         existing_block.metadata.get("surface_id") if existing_block is not None else None
@@ -656,9 +900,14 @@ async def _discard_prepared_request(
     reason: str,
 ) -> None:
     """Remove a prepared HITL request when setup fails before waiting."""
-    pending_future = coordinator._pending.pop(request_id, None)
-    if pending_future is not None and not pending_future.done():
-        pending_future.set_result({"cancelled": True, "reason": reason})
+    pending_entry = coordinator._pending.pop(request_id, None)
+    if pending_entry is not None:
+        pending_future = getattr(pending_entry, "future", pending_entry)
+        completion_future = getattr(pending_entry, "completion_future", None)
+        if hasattr(pending_future, "done") and not pending_future.done():
+            pending_future.set_result({"cancelled": True, "reason": reason})
+        if completion_future is not None and not completion_future.done():
+            completion_future.set_result(None)
     unregister_coordinator(request_id)
     async with async_session_factory() as session:
         repo = SqlHITLRequestRepository(session)
@@ -824,6 +1073,7 @@ async def handle_a2ui_action_tool(
             timeout,
         )
         end_time = time.time()
+        queue_tool_part_hitl_completion(tool_part, request_id)
         action_name, source_component_id, action_context, result = _extract_a2ui_response(
             answer,
             effective_block_id,

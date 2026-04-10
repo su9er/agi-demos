@@ -128,6 +128,34 @@ class SqlToolEnvironmentVariableRepository(
 
         return self._to_domain(db_record) if db_record else None
 
+    async def _get_exact_scope(
+        self,
+        tenant_id: str,
+        tool_name: str,
+        variable_name: str,
+        project_id: str | None = None,
+    ) -> ToolEnvironmentVariable | None:
+        """Get an environment variable only within the exact requested scope."""
+        from src.infrastructure.adapters.secondary.persistence.models import (
+            ToolEnvironmentVariableRecord,
+        )
+
+        conditions = [
+            ToolEnvironmentVariableRecord.tenant_id == tenant_id,
+            ToolEnvironmentVariableRecord.tool_name == tool_name,
+            ToolEnvironmentVariableRecord.variable_name == variable_name,
+        ]
+        if project_id:
+            conditions.append(ToolEnvironmentVariableRecord.project_id == project_id)
+        else:
+            conditions.append(ToolEnvironmentVariableRecord.project_id.is_(None))
+
+        result = await self._session.execute(
+            select(ToolEnvironmentVariableRecord).where(*conditions)
+        )
+        db_record = result.scalar_one_or_none()
+        return self._to_domain(db_record) if db_record else None
+
     async def get_for_tool(
         self,
         tenant_id: str,
@@ -264,6 +292,7 @@ class SqlToolEnvironmentVariableRepository(
 
         logger.info(f"Deleted env var: {env_var_id}")
         return True
+
     async def delete_by_tool(
         self,
         tenant_id: str,
@@ -299,7 +328,7 @@ class SqlToolEnvironmentVariableRepository(
         """Create or update an environment variable."""
 
         # Check if exists
-        existing = await self.get(
+        existing = await self._get_exact_scope(
             tenant_id=env_var.tenant_id,
             tool_name=env_var.tool_name,
             variable_name=env_var.variable_name,

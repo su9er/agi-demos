@@ -3,10 +3,11 @@
 import json
 import sys
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.application.services.channels.hitl_responder import HITLChannelResponseOutcome
 from src.domain.model.channels.message import ChannelConfig, ChatType
 from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import load_channel_module
 
@@ -818,18 +819,201 @@ def test_on_card_action_with_typed_event(adapter: FeishuAdapter) -> None:
     with patch(
         "src.application.services.channels.hitl_responder.HITLChannelResponder.respond",
         new_callable=AsyncMock,
+        return_value=HITLChannelResponseOutcome.QUEUED,
     ):
         response = adapter._on_card_action(event)
 
     # Should return response with toast and updated card
     assert response is not None
     assert response.toast is not None
-    assert response.toast.type == "success"
+    assert response.toast.type == "info"
     assert response.card is not None
     assert response.card.type == "raw"
-    assert response.card.data["header"]["title"]["content"] == "Decision Made"
+    assert response.card.data["header"]["title"]["content"] == "Decision Pending"
 
 
+@pytest.mark.unit
+def test_on_card_action_marshals_hitl_response_to_app_loop(adapter: FeishuAdapter) -> None:
+    """Card actions should schedule DB work onto the main app loop, not the websocket loop."""
+
+    class _FakeLoop:
+        @staticmethod
+        def is_running() -> bool:
+            return True
+
+    class _FakeFuture:
+        def add_done_callback(self, callback) -> None:
+            callback(self)
+
+        @staticmethod
+        def result(timeout: float | None = None) -> HITLChannelResponseOutcome:
+            return HITLChannelResponseOutcome.QUEUED
+
+    scheduled_loops = []
+
+    def _run_coroutine_threadsafe(coro, loop):
+        scheduled_loops.append(loop)
+        coro.close()
+        return _FakeFuture()
+
+    operator = SimpleNamespace(open_id="ou_user123", user_id="uid_123", union_id="un_123")
+    action = SimpleNamespace(
+        value={
+            "hitl_request_id": "req-001",
+            "hitl_type": "decision",
+            "response_data": '{"answer": "Option B"}',
+        },
+        tag="button",
+        option=None,
+        timezone=None,
+        name=None,
+        form_value=None,
+        input_value=None,
+        options=None,
+        checked=None,
+    )
+    context = SimpleNamespace(open_message_id="om_msg123", open_chat_id="oc_chat456")
+    event = SimpleNamespace(
+        event=SimpleNamespace(
+            operator=operator,
+            action=action,
+            token="card-token",
+            context=context,
+            host="im_message",
+            delivery_type=None,
+        )
+    )
+
+    adapter._app_loop = _FakeLoop()
+
+    with (
+        patch(
+            "memstack_plugins_feishu.adapter.asyncio.get_running_loop",
+            return_value=_FakeLoop(),
+        ),
+        patch(
+            "memstack_plugins_feishu.adapter.asyncio.run_coroutine_threadsafe",
+            side_effect=_run_coroutine_threadsafe,
+        ),
+        patch(
+            "src.application.services.channels.hitl_responder.HITLChannelResponder.respond",
+            new_callable=AsyncMock,
+            return_value=HITLChannelResponseOutcome.QUEUED,
+        ),
+    ):
+        adapter._on_card_action(event)
+
+    assert scheduled_loops == [adapter._app_loop]
+
+
+@pytest.mark.unit
+def test_on_card_action_does_not_log_secret_values(adapter: FeishuAdapter) -> None:
+    """Card action logs should include variable names, not submitted secret values."""
+    operator = SimpleNamespace(open_id="ou_user123", user_id="uid_123", union_id="un_123")
+    action = SimpleNamespace(
+        value={
+            "hitl_request_id": "req-001",
+            "hitl_type": "env_var",
+            "response_data": '{"values": {"OPENAI_API_KEY": "super-secret"}}',
+        },
+        tag="button",
+        option=None,
+        timezone=None,
+        name=None,
+        form_value=None,
+        input_value=None,
+        options=None,
+        checked=None,
+    )
+    context = SimpleNamespace(open_message_id="om_msg123", open_chat_id="oc_chat456")
+    event = SimpleNamespace(
+        event=SimpleNamespace(
+            operator=operator,
+            action=action,
+            token="card-token",
+            context=context,
+            host="im_message",
+            delivery_type=None,
+        )
+    )
+
+    with (
+        patch("memstack_plugins_feishu.adapter.logger.info") as info_mock,
+        patch(
+            "src.application.services.channels.hitl_responder.HITLChannelResponder.respond",
+            new_callable=AsyncMock,
+            return_value=HITLChannelResponseOutcome.QUEUED,
+        ),
+    ):
+        adapter._on_card_action(event)
+
+    logged_output = " ".join(str(call) for call in info_mock.call_args_list)
+    assert "super-secret" not in logged_output
+    assert "OPENAI_API_KEY" in logged_output
+
+
+@pytest.mark.unit
+def test_on_card_action_returns_neutral_state_when_running_on_active_loop(
+    adapter: FeishuAdapter,
+) -> None:
+    operator = SimpleNamespace(open_id="ou_user123", user_id="uid_123", union_id="un_123")
+    action = SimpleNamespace(
+        value={
+            "hitl_request_id": "req-001",
+            "hitl_type": "decision",
+            "response_data": '{"answer": "Option B"}',
+        },
+        tag="button",
+        option=None,
+        timezone=None,
+        name=None,
+        form_value=None,
+        input_value=None,
+        options=None,
+        checked=None,
+    )
+    context = SimpleNamespace(open_message_id="om_msg123", open_chat_id="oc_chat456")
+    event = SimpleNamespace(
+        event=SimpleNamespace(
+            operator=operator,
+            action=action,
+            token="card-token",
+            context=context,
+            host="im_message",
+            delivery_type=None,
+        )
+    )
+
+    class _FakeLoop:
+        @staticmethod
+        def is_running() -> bool:
+            return True
+
+        @staticmethod
+        def create_task(coro):
+            coro.close()
+            task = MagicMock()
+            task.add_done_callback = MagicMock()
+            return task
+
+    adapter._app_loop = _FakeLoop()
+
+    with (
+        patch(
+            "memstack_plugins_feishu.adapter.asyncio.get_running_loop",
+            return_value=adapter._app_loop,
+        ),
+        patch(
+            "src.application.services.channels.hitl_responder.HITLChannelResponder.respond",
+            new_callable=AsyncMock,
+            return_value=HITLChannelResponseOutcome.QUEUED,
+        ),
+    ):
+        response = adapter._on_card_action(event)
+
+    assert response.toast is not None
+    assert response.toast.type == "info"
+    assert response.card is None
 @pytest.mark.unit
 def test_on_card_action_without_hitl_request_id(adapter: FeishuAdapter) -> None:
     """_on_card_action should ignore events without hitl_request_id."""

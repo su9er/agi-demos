@@ -86,7 +86,11 @@ class SendMessageHandler(WebSocketMessageHandler):
             )
 
             if pending_hitl:
-                pending_types = [r.request_type.value for r in pending_hitl]
+                from src.infrastructure.agent.hitl.utils import resolve_trusted_hitl_type
+
+                pending_types = [
+                    resolve_trusted_hitl_type(r) or r.request_type.value for r in pending_hitl
+                ]
                 await context.send_error(
                     f"Agent is waiting for your response. Please complete the pending "
                     f"{', '.join(pending_types)} request(s) before sending new messages.",
@@ -96,7 +100,8 @@ class SendMessageHandler(WebSocketMessageHandler):
                         "pending_requests": [
                             {
                                 "request_id": r.id,
-                                "request_type": r.request_type.value,
+                                "request_type": resolve_trusted_hitl_type(r)
+                                or r.request_type.value,
                                 "question": r.question,
                             }
                             for r in pending_hitl

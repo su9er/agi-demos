@@ -16,10 +16,32 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
-import { AlertCircle, AlertTriangle, CheckCircle2, Clock, Code, FileText, HelpCircle, Key, Lock, ShieldCheck, XCircle } from 'lucide-react';
-
+import {
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Code,
+  FileText,
+  HelpCircle,
+  Key,
+  Lock,
+  ShieldCheck,
+  XCircle,
+} from 'lucide-react';
 
 import { useThemeColors } from '@/hooks/useThemeColor';
+
+import {
+  decodeEnvVarContext,
+  decodeHtmlEntities,
+  decodeUnifiedEnvVarRequestData,
+} from '@/utils/hitlEnvVarDisplay';
+import {
+  getOptionDescriptionText,
+  getOptionLabelText,
+  getOptionRiskList,
+} from '@/utils/hitlOptionDisplay';
 
 import {
   Modal,
@@ -66,25 +88,25 @@ interface TypeConfigEntry {
 
 const TYPE_CONFIG: Record<HITLType, TypeConfigEntry> = {
   clarification: {
-    icon: <HelpCircle style={{ color: 'var(--color-info)'}} size={16} />,
+    icon: <HelpCircle style={{ color: 'var(--color-info)' }} size={16} />,
     title: '需要澄清',
     color: 'blue',
     submitText: '确认回答',
   },
   decision: {
-    icon: <AlertCircle style={{ color: 'var(--color-warning)'}} size={16} />,
+    icon: <AlertCircle style={{ color: 'var(--color-warning)' }} size={16} />,
     title: '需要决策',
     color: 'gold',
     submitText: '确认决策',
   },
   env_var: {
-    icon: <Key style={{ color: 'var(--color-success)'}} size={16} />,
+    icon: <Key style={{ color: 'var(--color-success)' }} size={16} />,
     title: '配置环境变量',
     color: 'green',
     submitText: '保存配置',
   },
   permission: {
-    icon: <ShieldCheck style={{ color: 'var(--color-tile-purple)'}} size={16} />,
+    icon: <ShieldCheck style={{ color: 'var(--color-tile-purple)' }} size={16} />,
     title: '权限请求',
     color: 'purple',
     submitText: '授权执行',
@@ -111,17 +133,17 @@ const RISK_LEVEL_CONFIG: Record<string, { label: string; color: string; icon: Re
   low: {
     label: '低风险',
     color: 'green',
-    icon: <ShieldCheck style={{ color: 'var(--color-success)'}} size={16} />,
+    icon: <ShieldCheck style={{ color: 'var(--color-success)' }} size={16} />,
   },
   medium: {
     label: '中等风险',
     color: 'gold',
-    icon: <AlertTriangle style={{ color: 'var(--color-warning)'}} size={16} />,
+    icon: <AlertTriangle style={{ color: 'var(--color-warning)' }} size={16} />,
   },
   high: {
     label: '高风险',
     color: 'red',
-    icon: <AlertTriangle style={{ color: 'var(--color-error)'}} size={16} />,
+    icon: <AlertTriangle style={{ color: 'var(--color-error)' }} size={16} />,
   },
 };
 
@@ -210,7 +232,7 @@ export const UnifiedHITLPanel: React.FC<UnifiedHITLPanelProps> = ({ request, onC
                   marginRight: 8,
                 }}
               >
-                <Clock style={{ marginRight: 4}} size={16} />
+                <Clock style={{ marginRight: 4 }} size={16} />
               </Badge>
             </Tooltip>
           )}
@@ -272,7 +294,7 @@ const SubtypeTag: React.FC<{ request: UnifiedHITLRequest }> = ({ request }) => {
       break;
     case 'env_var':
       if (request.envVarData?.toolName) {
-        label = request.envVarData.toolName;
+        label = decodeHtmlEntities(request.envVarData.toolName) ?? request.envVarData.toolName;
         color = 'green';
       }
       break;
@@ -290,10 +312,11 @@ const SubtypeTag: React.FC<{ request: UnifiedHITLRequest }> = ({ request }) => {
 
 const ContextAlert: React.FC<{ request: UnifiedHITLRequest }> = ({ request }) => {
   const context =
-    request.clarificationData?.context ||
-    request.decisionData?.context ||
-    request.envVarData?.context ||
-    request.permissionData?.context;
+    request.hitlType === 'env_var'
+      ? decodeEnvVarContext(request.envVarData?.context)
+      : request.clarificationData?.context ||
+        request.decisionData?.context ||
+        request.permissionData?.context;
 
   if (!context || Object.keys(context).length === 0) return null;
 
@@ -396,25 +419,30 @@ const ClarificationContent: React.FC<HITLContentProps> = ({
           className="w-full"
         >
           <Space direction="vertical" className="w-full" size="middle">
-            {data?.options.map((option, idx) => (
-              <Radio key={option.id || `option-${idx}`} value={option.id} className="w-full">
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-2">
-                    <Text strong>{option.label}</Text>
-                    {option.recommended && (
-                      <Tag color="green" className="text-xs">
-                        推荐
-                      </Tag>
-                    )}
+            {data?.options.map((option, idx) => {
+              const optionLabel = getOptionLabelText(option.label) ?? option.id;
+              const optionDescription = getOptionDescriptionText(option.description);
+
+              return (
+                <Radio key={option.id || `option-${idx}`} value={option.id} className="w-full">
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <Text strong>{optionLabel}</Text>
+                      {option.recommended && (
+                        <Tag color="green" className="text-xs">
+                          推荐
+                        </Tag>
+                      )}
+                    </div>
+                    {optionDescription ? (
+                      <Text type="secondary" className="text-sm mt-1">
+                        {optionDescription}
+                      </Text>
+                    ) : null}
                   </div>
-                  {option.description && (
-                    <Text type="secondary" className="text-sm mt-1">
-                      {option.description}
-                    </Text>
-                  )}
-                </div>
-              </Radio>
-            ))}
+                </Radio>
+              );
+            })}
 
             {data?.allowCustom && (
               <Radio value="custom" className="w-full">
@@ -525,7 +553,10 @@ const DecisionContent: React.FC<HITLContentProps> = ({
   })();
 
   const selectedOptionData = data?.options.find((opt) => opt.id === selectedOption);
-  const hasHighRisk = selectedOptionData?.risks && selectedOptionData.risks.length > 0;
+  const hasHighRisk = getOptionRiskList(selectedOptionData?.risks).length > 0;
+  const defaultOptionLabel =
+    getOptionLabelText(data?.options.find((opt) => opt.id === data.defaultOption)?.label) ??
+    data?.defaultOption;
 
   return (
     <div className="space-y-4">
@@ -538,9 +569,7 @@ const DecisionContent: React.FC<HITLContentProps> = ({
       {data?.defaultOption && (
         <Alert
           message="超时默认选项"
-          description={`如果您未在限定时间内做出决策，系统将自动选择：${
-            data.options.find((opt) => opt.id === data.defaultOption)?.label
-          }`}
+          description={`如果您未在限定时间内做出决策，系统将自动选择：${defaultOptionLabel ?? ''}`}
           type="info"
           showIcon
         />
@@ -653,7 +682,10 @@ const DecisionOptionCard: React.FC<{
   isMultiSelect?: boolean;
   onSelect: () => void;
 }> = ({ option, selected, isMultiSelect = false, onSelect }) => {
-  const hasRisks = option.risks && option.risks.length > 0;
+  const optionLabel = getOptionLabelText(option.label) ?? option.id;
+  const optionRisks = getOptionRiskList(option.risks);
+  const hasRisks = optionRisks.length > 0;
+  const optionDescription = getOptionDescriptionText(option.description);
 
   return (
     <div
@@ -671,7 +703,7 @@ const DecisionOptionCard: React.FC<{
         <div className="flex items-center gap-2 flex-1">
           {isMultiSelect ? <Checkbox checked={selected} /> : <Radio checked={selected} />}
           <Text strong className="text-base">
-            {option.label}
+            {optionLabel}
           </Text>
           {option.recommended && (
             <Tag color="green" className="text-xs">
@@ -681,11 +713,11 @@ const DecisionOptionCard: React.FC<{
         </div>
       </div>
 
-      {option.description && (
+      {optionDescription ? (
         <Paragraph className={'text-sm text-slate-600 dark:text-slate-400 mb-3 ml-6'}>
-          {option.description}
+          {optionDescription}
         </Paragraph>
-      )}
+      ) : null}
 
       {(option.estimatedTime || option.estimatedCost) && (
         <div className="flex gap-4 ml-6 mb-2">
@@ -709,7 +741,7 @@ const DecisionOptionCard: React.FC<{
           title="风险提示"
           description={
             <ul className="list-disc list-inside space-y-1 text-sm">
-              {option.risks!.map((risk, idx) => (
+              {optionRisks.map((risk, idx) => (
                 <li key={idx}>{risk}</li>
               ))}
             </ul>
@@ -735,7 +767,10 @@ const EnvVarContent: React.FC<HITLContentProps> = ({
   isSubmitting,
   submitText,
 }) => {
-  const data = request.envVarData;
+  const data = useMemo(
+    () => decodeUnifiedEnvVarRequestData(request.envVarData),
+    [request.envVarData]
+  );
   const [form] = Form.useForm();
 
   useEffect(() => {

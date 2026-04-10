@@ -386,6 +386,31 @@ class HITLCardBuilder:
             elements=[{"tag": "markdown", "content": content}],
         )
 
+    def build_processing_card(
+        self,
+        hitl_type: str,
+        selected_label: str = "",
+    ) -> dict[str, Any]:
+        """Build a non-interactive card while the response is still being applied."""
+        type_titles = {
+            "clarification": "Clarification Pending",
+            "decision": "Decision Pending",
+            "permission": "Permission Pending",
+            "env_var": "Variables Pending",
+        }
+        canonical = self._TYPE_MAP.get(hitl_type, hitl_type)
+        title = type_titles.get(canonical, "Response Pending")
+
+        content = "Your response was received and is being processed."
+        if selected_label:
+            content = f"**Selected**: {selected_label}\n\n{content}"
+
+        return self._wrap_card(
+            title=title,
+            template="blue",
+            elements=[{"tag": "markdown", "content": content}],
+        )
+
     # ------------------------------------------------------------------
     # CardKit-compatible builders (Card JSON 2.0)
     # ------------------------------------------------------------------

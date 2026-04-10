@@ -34,10 +34,13 @@ from src.domain.ports.repositories.tool_environment_variable_repository import (
     ToolEnvironmentVariableRepositoryPort,
 )
 from src.infrastructure.agent.hitl.utils import (
+    build_env_var_request_context as _build_shared_env_var_request_context,
     build_stable_hitl_request_id as _build_stable_hitl_request_id,
-    sanitize_hitl_context as _shared_sanitize_hitl_context,
-    sanitize_hitl_text as _shared_sanitize_hitl_text,
-    scope_hitl_handler as _scope_hitl_handler,
+    contains_secret_like_text as _shared_contains_secret_like_text,
+    normalize_env_var_name as _shared_normalize_env_var_name,
+    sanitize_env_var_context as _shared_sanitize_env_var_context,
+    sanitize_env_var_plain_text as _shared_sanitize_env_var_plain_text,
+    sanitize_env_var_text as _shared_sanitize_env_var_text,
 )
 from src.infrastructure.agent.tools.context import ToolContext
 from src.infrastructure.agent.tools.define import tool_define
@@ -69,7 +72,6 @@ class PreparedEnvVarRequest:
     scope_label: str
 
 
-
 # ===========================================================================
 # Decorator-based tool definitions (@tool_define)
 #
@@ -89,52 +91,8 @@ _session_factory_ref: Any = None
 _tenant_id_ref: str | None = None
 _project_id_ref: str | None = None
 _event_publisher_ref: Callable[[dict[str, Any]], None] | None = None
-_SAFE_ENV_CONTEXT_KEYS = frozenset(
-    {
-        "help_url",
-        "hint",
-        "provider",
-        "reason",
-        "required_for",
-        "source",
-        "step",
-        "workflow",
-    }
-)
-_SENSITIVE_CONTEXT_KEYWORDS = (
-    "auth",
-    "cookie",
-    "credential",
-    "jwt",
-    "key",
-    "password",
-    "secret",
-    "token",
-)
-_ENV_VAR_NAME_MAX_LEN = 100
-_ENV_VAR_NAME_RE = re.compile(rf"^[A-Z][A-Z0-9_]{{0,{_ENV_VAR_NAME_MAX_LEN - 1}}}$")
-_SECRET_LIKE_ENV_VAR_PATTERNS = (
-    re.compile(r"^(?:AKIA|ASIA)[A-Z0-9]{16}$"),
-    re.compile(r"^GHP_[A-Z0-9]{20,}$"),
-    re.compile(r"^GITHUB_PAT_[A-Z0-9_]{20,}$"),
-    re.compile(r"^SK(?:_LIVE|_TEST)?_[A-Z0-9_]{16,}$"),
-    re.compile(r"^MS_SK_[A-F0-9]{16,}$"),
-    re.compile(r"^XOX[BAPRS]_[A-Z0-9_]{10,}$"),
-)
 _TOOL_NAME_MAX_LEN = 100
 _TOOL_NAME_RE = re.compile(rf"^[A-Za-z][A-Za-z0-9_-]{{0,{_TOOL_NAME_MAX_LEN - 1}}}$")
-_SECRET_LIKE_TEXT_PATTERNS = (
-    re.compile(r"(?i)\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
-    re.compile(r"(?i)\bGHP_[A-Z0-9]{20,}\b"),
-    re.compile(r"(?i)\bGITHUB_PAT_[A-Z0-9_]{20,}\b"),
-    re.compile(r"(?i)\bBEARER\s+[A-Z0-9._-]{16,}\b"),
-    re.compile(r"(?i)\bSK-[A-Z0-9]{16,}\b"),
-    re.compile(r"(?i)\bSK(?:_LIVE|_TEST)?_[A-Z0-9_]{16,}\b"),
-    re.compile(r"(?i)\bMS_SK_[A-F0-9]{16,}\b"),
-    re.compile(r"(?i)\bXOX[BAPRS]_[A-Z0-9_]{10,}\b"),
-    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"),
-)
-_SECRET_TEXT_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{8,}")
 
 
 def configure_env_var_tools(
@@ -167,16 +125,7 @@ def configure_env_var_tools(
 
 def _normalize_env_var_name(value: object) -> str:
     """Validate and normalize an environment variable identifier."""
-    if not isinstance(value, str):
-        return ""
-    candidate = value.strip()
-    if not candidate:
-        return ""
-    if not _ENV_VAR_NAME_RE.fullmatch(candidate):
-        return ""
-    if _is_secret_like_value(candidate):
-        return ""
-    return candidate
+    return _shared_normalize_env_var_name(value)
 
 
 def _normalize_tool_name(value: object) -> str:
@@ -193,22 +142,55 @@ def _normalize_tool_name(value: object) -> str:
     return candidate
 
 
-def _is_secret_like_value(candidate: str) -> bool:
-    """Return True when an identifier fully matches a high-confidence secret value shape."""
-    normalized = candidate.upper()
-    return any(pattern.fullmatch(normalized) for pattern in _SECRET_LIKE_ENV_VAR_PATTERNS)
+def _resolve_tool_scope(ctx: ToolContext) -> tuple[str | None, str | None]:
+    """Resolve tenant/project scope strictly from the per-call tool context."""
+    tenant_id = ctx.tenant_id.strip() or None
+    project_id = ctx.project_id.strip() or None
+    return tenant_id, project_id
+
+
+def _scope_env_var_hitl_handler(
+    base_handler: Any,
+    *,
+    tenant_id: str | None,
+    project_id: str | None,
+    conversation_id: str | None,
+    message_id: str | None,
+) -> Any:
+    """Clone a HITL handler without restoring tenant/project scope from ambient state."""
+    if base_handler is None:
+        return None
+
+    from src.infrastructure.agent.hitl.ray_hitl_handler import RayHITLHandler
+
+    if not isinstance(base_handler, RayHITLHandler):
+        return base_handler
+
+    resolved_conversation_id = conversation_id or base_handler.conversation_id
+    resolved_message_id = base_handler.message_id if message_id is None else message_id
+
+    return base_handler.with_scope(
+        tenant_id=tenant_id or "",
+        project_id=project_id,
+        conversation_id=resolved_conversation_id,
+        message_id=resolved_message_id,
+    )
+
+
+_scope_hitl_handler = _scope_env_var_hitl_handler
+
+
+_scope_hitl_handler = _scope_env_var_hitl_handler
 
 
 def _contains_secret_like_text(value: str) -> bool:
     """Detect secret-like tokens in freeform text before persisting or echoing them."""
-    if any(pattern.search(value) for pattern in _SECRET_LIKE_TEXT_PATTERNS):
-        return True
-    return any(_is_secret_like_value(token) for token in _SECRET_TEXT_TOKEN_RE.findall(value))
+    return _shared_contains_secret_like_text(value)
 
 
 def _sanitize_persisted_description(value: object) -> str | None:
     """Persist descriptions only when they do not contain secret-like content."""
-    return _sanitize_text_field(value)
+    return _shared_sanitize_env_var_plain_text(value)
 
 
 def _sanitize_request_message(value: object) -> str | None:
@@ -217,64 +199,18 @@ def _sanitize_request_message(value: object) -> str | None:
 
 
 def _sanitize_text_field(value: object) -> str | None:
-    """Allow only plain-text, non-secret strings in HITL-persisted content."""
-    if not isinstance(value, str):
-        return None
-    candidate = value.strip()
-    if not candidate:
-        return None
-    if _contains_secret_like_text(candidate):
-        return None
-    return _shared_sanitize_hitl_text(candidate)
-
-
-def _sanitize_context_scalar(value: object) -> bool | int | float | str | None:
-    """Return a safe scalar context value or None when it should be dropped."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value
-    if not isinstance(value, str):
-        return None
-    return _sanitize_text_field(value)
-
-
-def _sanitize_context_sequence(value: object) -> list[bool | int | float | str] | None:
-    """Return a safe list context value or None when any item is unsafe."""
-    if not isinstance(value, (list, tuple)):
-        return None
-    sanitized_items: list[bool | int | float | str] = []
-    for item in value:
-        sanitized_item = _sanitize_context_scalar(item)
-        if sanitized_item is None:
-            return None
-        sanitized_items.append(sanitized_item)
-    return sanitized_items or None
+    """Allow only HTML-safe, non-secret strings in HITL payload content."""
+    return _shared_sanitize_env_var_text(value)
 
 
 def _sanitize_request_context(raw_context: dict[str, Any]) -> dict[str, Any]:
     """Filter HITL context to safe scalar or list values only."""
-    request_context: dict[str, Any] = {}
-    for key, value in _shared_sanitize_hitl_context(raw_context).items():
-        if key == "message":
-            continue
-        if key not in _SAFE_ENV_CONTEXT_KEYS:
-            continue
-        if any(keyword in key.lower() for keyword in _SENSITIVE_CONTEXT_KEYWORDS):
-            continue
-        sanitized_scalar = _sanitize_context_scalar(value)
-        if sanitized_scalar is not None:
-            request_context[key] = sanitized_scalar
-            continue
-        sanitized_sequence = _sanitize_context_sequence(value)
-        if sanitized_sequence is not None:
-            request_context[key] = sanitized_sequence
-    return request_context
+    return _shared_sanitize_env_var_context(raw_context)
 
 
 def _build_requested_names(fields: list[dict[str, Any]]) -> list[str]:
     """Build safe user-facing field names for HITL messages."""
-    return [_safe_field_label(field) for field in fields if _safe_field_label(field)]
+    return [_safe_field_label_plain(field) for field in fields if _safe_field_label_plain(field)]
 
 
 def _build_hitl_env_fields(
@@ -288,22 +224,30 @@ def _build_hitl_env_fields(
         input_type = field.get("input_type", "text")
         is_secret = bool(field.get("is_secret", True))
         variable_name = _normalize_env_var_name(field.get("variable_name"))
-        label = _safe_field_label(field)
-        sanitized_description = _sanitize_persisted_description(field.get("description"))
-        persisted_description = None if is_secret else sanitized_description
+        label = _sanitize_text_field(field.get("display_name")) or variable_name
+        sanitized_description = _sanitize_text_field(field.get("description"))
+        sanitized_default_value = _sanitize_text_field(field.get("default_value"))
+        sanitized_placeholder = _sanitize_text_field(field.get("placeholder"))
+        persisted_description = (
+            None if is_secret else _sanitize_persisted_description(field.get("description"))
+        )
         if input_type == "password" or is_secret:
             input_type = "password"
+            sanitized_default_value = None
+            sanitized_placeholder = None
 
-        hitl_fields.append({
-            "name": variable_name,
-            "label": label,
-            "description": sanitized_description,
-            "required": bool(field.get("is_required", True)),
-            "secret": is_secret,
-            "input_type": input_type,
-            "default_value": None,
-            "placeholder": None,
-        })
+        hitl_fields.append(
+            {
+                "name": variable_name,
+                "label": label,
+                "description": sanitized_description,
+                "required": bool(field.get("is_required", True)),
+                "secret": is_secret,
+                "input_type": input_type,
+                "default_value": sanitized_default_value,
+                "placeholder": sanitized_placeholder,
+            }
+        )
         field_specs[variable_name] = {
             "description": persisted_description,
             "is_required": bool(field.get("is_required", True)),
@@ -346,8 +290,15 @@ def _build_env_var_request_id(
 
 
 def _safe_field_label(field: dict[str, Any]) -> str:
-    """Use the validated env-var identifier as the only stable user-facing label."""
-    return _normalize_env_var_name(field.get("variable_name"))
+    """Use a sanitized display name when available, otherwise fall back to the identifier."""
+    variable_name = _normalize_env_var_name(field.get("variable_name"))
+    return _sanitize_text_field(field.get("display_name")) or variable_name
+
+
+def _safe_field_label_plain(field: dict[str, Any]) -> str:
+    """Use a secret-safe plain label for user-facing summaries and tool results."""
+    variable_name = _normalize_env_var_name(field.get("variable_name"))
+    return _shared_sanitize_env_var_plain_text(field.get("display_name")) or variable_name
 
 
 # ---------------------------------------------------------------------------
@@ -480,16 +431,28 @@ async def _save_env_vars_impl(
         async with session_factory() as db_session:
             repo = SqlToolEnvironmentVariableRepository(db_session)
             saved = await _upsert_env_vars_to_repo(
-                repo, encryption_service, tenant_id, tool_name, values,
-                field_specs, scope, project_id,
+                repo,
+                encryption_service,
+                tenant_id,
+                tool_name,
+                values,
+                field_specs,
+                scope,
+                project_id,
             )
             await db_session.commit()
             return saved
 
     if repository is not None:
         return await _upsert_env_vars_to_repo(
-            repository, encryption_service, tenant_id, tool_name, values,
-            field_specs, scope, project_id,
+            repository,
+            encryption_service,
+            tenant_id,
+            tool_name,
+            values,
+            field_specs,
+            scope,
+            project_id,
         )
     return []
 
@@ -504,31 +467,31 @@ def _build_env_var_request_details(
 ) -> tuple[str, dict[str, Any], list[str], str]:
     """Build user-facing message and context for env var requests."""
     raw_context = dict(context or {})
-    request_context = _sanitize_request_context(raw_context)
     requested_names = _build_requested_names(fields)
-    scope_label = "project" if save_to_project else "tenant"
+    request_context, scope_label = _build_shared_env_var_request_context(
+        raw_context=raw_context,
+        tool_name=tool_name,
+        requested_variables=requested_names,
+        project_id=project_id if save_to_project else None,
+    )
     default_message = (
         f"The tool '{tool_name}' needs environment variables: "
         f"{', '.join(requested_names) or 'unknown variables'}. "
         f"They will be saved at the {scope_label} scope."
     )
     request_message = _sanitize_request_message(raw_context.get("message")) or default_message
-    request_context.setdefault("tool_name", tool_name)
-    request_context.setdefault("requested_variables", requested_names)
-    request_context.setdefault("save_scope", scope_label)
-    if save_to_project and project_id:
-        request_context.setdefault("project_id", project_id)
-
     return request_message, request_context, requested_names, scope_label
 
 
 def _env_request_error_result(message: str) -> ToolResult:
     """Build a standardized error result for env-var request validation."""
     return ToolResult(
-        output=json.dumps({
-            "status": "error",
-            "message": message,
-        }),
+        output=json.dumps(
+            {
+                "status": "error",
+                "message": message,
+            }
+        ),
         is_error=True,
     )
 
@@ -559,7 +522,9 @@ def _validate_request_env_inputs(
     return None
 
 
-def _normalize_request_env_fields(fields: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str | None]:
+def _normalize_request_env_fields(
+    fields: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], str | None]:
     """Normalize env-var request fields and return an error message, if any."""
     normalized_fields: list[dict[str, Any]] = []
     seen_variable_names: set[str] = set()
@@ -637,9 +602,7 @@ def _normalize_request_env_inputs(
         "properties": {
             "tool_name": {
                 "type": "string",
-                "description": (
-                    "Name of the tool that needs the environment variable"
-                ),
+                "description": ("Name of the tool that needs the environment variable"),
             },
             "variable_name": {
                 "type": "string",
@@ -658,35 +621,40 @@ async def get_env_var_tool(
     variable_name: str,
 ) -> ToolResult:
     """Load an environment variable value for a tool."""
-    tenant_id = ctx.tenant_id or _tenant_id_ref
-    project_id = ctx.project_id or _project_id_ref
+    tenant_id, project_id = _resolve_tool_scope(ctx)
     session_factory = _session_factory_ref
     repository = _env_var_repo
     encryption_service = _encryption_svc
     if not tenant_id:
         return ToolResult(
-            output=json.dumps({
-                "status": "error",
-                "message": "Invalid arguments or missing tenant context",
-            }),
+            output=json.dumps(
+                {
+                    "status": "error",
+                    "message": "Invalid arguments or missing tenant context",
+                }
+            ),
             is_error=True,
         )
     normalized_tool_name = _normalize_tool_name(tool_name)
     if not normalized_tool_name:
         return ToolResult(
-            output=json.dumps({
-                "status": "error",
-                "message": "Invalid tool name",
-            }),
+            output=json.dumps(
+                {
+                    "status": "error",
+                    "message": "Invalid tool name",
+                }
+            ),
             is_error=True,
         )
     normalized_variable_name = _normalize_env_var_name(variable_name)
     if not normalized_variable_name:
         return ToolResult(
-            output=json.dumps({
-                "status": "error",
-                "message": "Invalid environment variable name",
-            }),
+            output=json.dumps(
+                {
+                    "status": "error",
+                    "message": "Invalid environment variable name",
+                }
+            ),
             is_error=True,
         )
 
@@ -703,32 +671,38 @@ async def get_env_var_tool(
         if env_var:
             assert encryption_service is not None
             decrypted = encryption_service.decrypt(env_var.encrypted_value)
-            log_val = "***" if env_var.is_secret else decrypted[:20] + "..."
             logger.info(
-                "Retrieved env var %s/%s: %s",
-                normalized_tool_name, normalized_variable_name, log_val,
+                "Retrieved env var %s/%s (secret=%s, scope=%s)",
+                normalized_tool_name,
+                normalized_variable_name,
+                env_var.is_secret,
+                env_var.scope.value,
             )
             return ToolResult(
-                output=json.dumps({
-                    "status": "found",
-                    "variable_name": normalized_variable_name,
-                    "value": decrypted,
-                    "is_secret": env_var.is_secret,
-                    "scope": env_var.scope.value,
-                }),
+                output=json.dumps(
+                    {
+                        "status": "found",
+                        "variable_name": normalized_variable_name,
+                        "value": decrypted,
+                        "is_secret": env_var.is_secret,
+                        "scope": env_var.scope.value,
+                    }
+                ),
             )
 
         logger.info("Env var not found: %s/%s", normalized_tool_name, normalized_variable_name)
         return ToolResult(
-            output=json.dumps({
-                "status": "not_found",
-                "variable_name": normalized_variable_name,
-                "message": (
-                    f"Environment variable '{normalized_variable_name}' "
-                    f"not configured for tool '{normalized_tool_name}'. "
-                    "Use request_env_var to ask the user for it."
-                ),
-            }),
+            output=json.dumps(
+                {
+                    "status": "not_found",
+                    "variable_name": normalized_variable_name,
+                    "message": (
+                        f"Environment variable '{normalized_variable_name}' "
+                        f"not configured for tool '{normalized_tool_name}'. "
+                        "Use request_env_var to ask the user for it."
+                    ),
+                }
+            ),
         )
 
     except Exception as exc:
@@ -760,9 +734,7 @@ async def get_env_var_tool(
         "properties": {
             "tool_name": {
                 "type": "string",
-                "description": (
-                    "Name of the tool that needs the environment variables"
-                ),
+                "description": ("Name of the tool that needs the environment variables"),
             },
             "fields": {
                 "type": "array",
@@ -771,9 +743,7 @@ async def get_env_var_tool(
                     "properties": {
                         "variable_name": {
                             "type": "string",
-                            "description": (
-                                "Name of the environment variable"
-                            ),
+                            "description": ("Name of the environment variable"),
                         },
                         "display_name": {
                             "type": "string",
@@ -782,6 +752,14 @@ async def get_env_var_tool(
                         "description": {
                             "type": "string",
                             "description": "What this variable is for",
+                        },
+                        "placeholder": {
+                            "type": "string",
+                            "description": "Optional helper text shown in the HITL input",
+                        },
+                        "default_value": {
+                            "type": "string",
+                            "description": "Optional default value prefilled in the HITL input",
                         },
                         "input_type": {
                             "type": "string",
@@ -799,9 +777,7 @@ async def get_env_var_tool(
                     },
                     "required": ["variable_name"],
                 },
-                "description": (
-                    "List of env var fields to request from the user"
-                ),
+                "description": ("List of env var fields to request from the user"),
             },
             "context": {
                 "type": "object",
@@ -809,9 +785,7 @@ async def get_env_var_tool(
             },
             "save_to_project": {
                 "type": "boolean",
-                "description": (
-                    "If true, save at project level; otherwise tenant level"
-                ),
+                "description": ("If true, save at project level; otherwise tenant level"),
                 "default": False,
             },
         },
@@ -830,13 +804,12 @@ async def request_env_var_tool(
     timeout: float = 600.0,
 ) -> ToolResult:
     """Request environment variables from the user via HITL."""
-    tenant_id = ctx.tenant_id or _tenant_id_ref
-    current_project_id = ctx.project_id or _project_id_ref
+    tenant_id, current_project_id = _resolve_tool_scope(ctx)
     save_project_id = current_project_id if save_to_project else None
     session_factory = _session_factory_ref
     repository = _env_var_repo
     encryption_service = _encryption_svc
-    hitl_handler = _scope_hitl_handler(
+    hitl_handler = _scope_env_var_hitl_handler(
         _hitl_handler_ref,
         tenant_id=tenant_id or "",
         project_id=current_project_id,
@@ -904,6 +877,56 @@ async def request_env_var_tool(
     )
 
 
+def _tool_result_payload(payload: dict[str, Any], *, is_error: bool = False) -> ToolResult:
+    """Build a serialized ToolResult payload."""
+    return ToolResult(output=json.dumps(payload), is_error=is_error)
+
+
+def _requested_env_var_text(prepared_request: PreparedEnvVarRequest) -> str:
+    """Return readable requested variable names for user-facing messages."""
+    return ", ".join(prepared_request.requested_names) or "the requested variables"
+
+
+def _resolve_env_var_tool_response(
+    response: object,
+    prepared_request: PreparedEnvVarRequest,
+) -> dict[str, str] | ToolResult:
+    """Normalize the HITL response into env-var values or a terminal ToolResult."""
+    if not isinstance(response, dict):
+        return _tool_result_payload(
+            {
+                "status": "error",
+                "message": "Invalid environment variable values returned from HITL",
+            },
+            is_error=True,
+        )
+
+    requested_text = _requested_env_var_text(prepared_request)
+    if response.get("timeout"):
+        return _tool_result_payload(
+            {
+                "status": "timeout",
+                "message": (
+                    "User did not provide the requested "
+                    f"environment variables in time: {requested_text}"
+                ),
+            }
+        )
+
+    if response.get("cancelled"):
+        return _tool_result_payload(
+            {
+                "status": "cancelled",
+                "message": (
+                    "User did not provide the requested " f"environment variables: {requested_text}"
+                ),
+            }
+        )
+
+    raw_values = response.get("values", response)
+    return _normalize_hitl_env_values(raw_values, prepared_request.field_specs)
+
+
 async def _request_env_var_impl(
     *,
     tenant_id: str,
@@ -920,33 +943,23 @@ async def _request_env_var_impl(
     """Inner implementation for request_env_var_tool (split for complexity)."""
     logger.info(
         "Requesting env vars for tool=%s: %s",
-        tool_name, [fld["name"] for fld in prepared_request.hitl_fields],
+        tool_name,
+        [fld["name"] for fld in prepared_request.hitl_fields],
     )
 
     try:
-        values = await hitl_handler.request_env_vars(
+        response = await hitl_handler.request_env_vars(
             tool_name=tool_name,
             fields=prepared_request.hitl_fields,
             message=prepared_request.request_message,
             context=prepared_request.request_context,
             timeout_seconds=timeout,
             allow_save=True,
+            save_project_id=project_id,
             request_id=request_id,
         )
 
-        if not values:
-            requested_text = ", ".join(prepared_request.requested_names) or "the requested variables"
-            return ToolResult(
-                output=json.dumps({
-                    "status": "cancelled",
-                    "message": (
-                        "User did not provide the requested "
-                        f"environment variables: {requested_text}"
-                    ),
-                }),
-            )
-
-        normalized_values = _normalize_hitl_env_values(values, prepared_request.field_specs)
+        normalized_values = _resolve_env_var_tool_response(response, prepared_request)
         if isinstance(normalized_values, ToolResult):
             return normalized_values
 
@@ -964,40 +977,38 @@ async def _request_env_var_impl(
         )
 
         return ToolResult(
-            output=json.dumps({
-                "status": "success",
-                "saved_variables": saved,
-                "scope": scope.value,
-                "message": (
-                    f"Saved {', '.join(saved) or 'environment variables'} "
-                    f"for '{tool_name}' at the {prepared_request.scope_label} scope"
-                ),
-            }),
+            output=json.dumps(
+                {
+                    "status": "success",
+                    "saved_variables": saved,
+                    "scope": scope.value,
+                    "message": (
+                        f"Saved {', '.join(saved) or 'environment variables'} "
+                        f"for '{tool_name}' at the {prepared_request.scope_label} scope"
+                    ),
+                }
+            ),
         )
 
     except TimeoutError:
         logger.warning("Env var request for %s timed out", tool_name)
-        requested_text = (
-            ", ".join(prepared_request.requested_names) or "the requested variables"
-        )
-        return ToolResult(
-            output=json.dumps({
+        return _tool_result_payload(
+            {
                 "status": "timeout",
                 "message": (
                     "User did not provide the requested "
-                    f"environment variables in time: {requested_text}"
+                    f"environment variables in time: {_requested_env_var_text(prepared_request)}"
                 ),
-            }),
+            }
         )
 
     except Exception as exc:
         logger.error(
-            "Error in env var request for %s: %s", tool_name, exc,
+            "Error in env var request for %s: %s",
+            tool_name,
+            exc,
         )
-        return ToolResult(
-            output=json.dumps({"status": "error", "message": str(exc)}),
-            is_error=True,
-        )
+        return _tool_result_payload({"status": "error", "message": str(exc)}, is_error=True)
 
 
 def _normalize_hitl_env_values(
@@ -1007,10 +1018,12 @@ def _normalize_hitl_env_values(
     """Validate and normalize HITL-provided env-var values before persistence."""
     if not isinstance(values, dict):
         return ToolResult(
-            output=json.dumps({
-                "status": "error",
-                "message": "Invalid environment variable values returned from HITL",
-            }),
+            output=json.dumps(
+                {
+                    "status": "error",
+                    "message": "Invalid environment variable values returned from HITL",
+                }
+            ),
             is_error=True,
         )
 
@@ -1018,10 +1031,12 @@ def _normalize_hitl_env_values(
     for name, raw_value in values.items():
         if not isinstance(raw_value, str):
             return ToolResult(
-                output=json.dumps({
-                    "status": "error",
-                    "message": "Invalid environment variable values returned from HITL",
-                }),
+                output=json.dumps(
+                    {
+                        "status": "error",
+                        "message": "Invalid environment variable values returned from HITL",
+                    }
+                ),
                 is_error=True,
             )
         normalized_value = raw_value.strip()
@@ -1036,10 +1051,12 @@ def _normalize_hitl_env_values(
     ]
     if unexpected_names:
         return ToolResult(
-            output=json.dumps({
-                "status": "error",
-                "message": "Invalid environment variable names returned from HITL",
-            }),
+            output=json.dumps(
+                {
+                    "status": "error",
+                    "message": "Invalid environment variable names returned from HITL",
+                }
+            ),
             is_error=True,
         )
 
@@ -1050,13 +1067,15 @@ def _normalize_hitl_env_values(
     ]
     if missing_required:
         return ToolResult(
-            output=json.dumps({
-                "status": "error",
-                "message": (
-                    "Missing required environment variables: "
-                    f"{', '.join(sorted(missing_required))}"
-                ),
-            }),
+            output=json.dumps(
+                {
+                    "status": "error",
+                    "message": (
+                        "Missing required environment variables: "
+                        f"{', '.join(sorted(missing_required))}"
+                    ),
+                }
+            ),
             is_error=True,
         )
 
@@ -1079,9 +1098,7 @@ def _normalize_hitl_env_values(
         "properties": {
             "tool_name": {
                 "type": "string",
-                "description": (
-                    "Name of the tool to check environment variables for"
-                ),
+                "description": ("Name of the tool to check environment variables for"),
             },
             "required_vars": {
                 "type": "array",
@@ -1101,34 +1118,39 @@ async def check_env_vars_tool(
     required_vars: list[str],
 ) -> ToolResult:
     """Check if required environment variables are available for a tool."""
-    tenant_id = ctx.tenant_id or _tenant_id_ref
-    project_id = ctx.project_id or _project_id_ref
+    tenant_id, project_id = _resolve_tool_scope(ctx)
     session_factory = _session_factory_ref
     repository = _env_var_repo
     if not tenant_id:
         return ToolResult(
-            output=json.dumps({
-                "status": "error",
-                "message": "Invalid arguments or missing tenant context",
-            }),
+            output=json.dumps(
+                {
+                    "status": "error",
+                    "message": "Invalid arguments or missing tenant context",
+                }
+            ),
             is_error=True,
         )
     normalized_tool_name = _normalize_tool_name(tool_name)
     if not normalized_tool_name:
         return ToolResult(
-            output=json.dumps({
-                "status": "error",
-                "message": "Invalid tool name",
-            }),
+            output=json.dumps(
+                {
+                    "status": "error",
+                    "message": "Invalid tool name",
+                }
+            ),
             is_error=True,
         )
     normalized_required_vars = [_normalize_env_var_name(var) for var in required_vars]
     if not normalized_required_vars or any(not var for var in normalized_required_vars):
         return ToolResult(
-            output=json.dumps({
-                "status": "error",
-                "message": "Invalid environment variable name",
-            }),
+            output=json.dumps(
+                {
+                    "status": "error",
+                    "message": "Invalid environment variable name",
+                }
+            ),
             is_error=True,
         )
 
@@ -1145,26 +1167,30 @@ async def check_env_vars_tool(
         missing = [v for v in normalized_required_vars if v not in configured]
 
         return ToolResult(
-            output=json.dumps({
-                "status": "checked",
-                "tool_name": normalized_tool_name,
-                "available": available,
-                "missing": missing,
-                "all_available": len(missing) == 0,
-                "message": (
-                    "All required environment variables are configured"
-                    if not missing
-                    else (
-                        f"Missing environment variables for '{normalized_tool_name}': "
-                        f"{', '.join(missing)}. Use request_env_var to ask for them."
-                    )
-                ),
-            }),
+            output=json.dumps(
+                {
+                    "status": "checked",
+                    "tool_name": normalized_tool_name,
+                    "available": available,
+                    "missing": missing,
+                    "all_available": len(missing) == 0,
+                    "message": (
+                        "All required environment variables are configured"
+                        if not missing
+                        else (
+                            f"Missing environment variables for '{normalized_tool_name}': "
+                            f"{', '.join(missing)}. Use request_env_var to ask for them."
+                        )
+                    ),
+                }
+            ),
         )
 
     except Exception as exc:
         logger.error(
-            "Error checking env vars for %s: %s", normalized_tool_name, exc,
+            "Error checking env vars for %s: %s",
+            normalized_tool_name,
+            exc,
         )
         return ToolResult(
             output=json.dumps({"status": "error", "message": str(exc)}),

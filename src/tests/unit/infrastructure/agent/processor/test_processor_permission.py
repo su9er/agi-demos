@@ -23,8 +23,10 @@ import pytest
 
 from src.domain.model.agent.hitl_types import HITLType
 from src.infrastructure.agent.core.message import ToolPart, ToolState
+from src.infrastructure.agent.hitl.coordinator import ResolveResult, resolve_by_request_id
 from src.infrastructure.agent.permission.manager import PermissionManager
 from src.infrastructure.agent.permission.rules import PermissionAction, PermissionRule
+from src.infrastructure.agent.processor import processor as processor_mod
 from src.infrastructure.agent.processor.processor import (
     ProcessorConfig,
     SessionProcessor,
@@ -55,6 +57,13 @@ def create_tool_def(
 def create_ask_permission_manager(permission_type: str = "bash") -> PermissionManager:
     """Create a PermissionManager with ASK rule for the given permission type."""
     return PermissionManager(ruleset=[PermissionRule(permission_type, "*", PermissionAction.ASK)])
+
+
+@pytest.fixture(autouse=True)
+def _stub_complete_hitl_request(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    completion_mock = AsyncMock()
+    monkeypatch.setattr(processor_mod, "complete_hitl_request", completion_mock)
+    return completion_mock
 
 
 @pytest.mark.unit
@@ -166,10 +175,6 @@ class TestProcessorPermissionUsesHITLCoordinator:
     @pytest.mark.asyncio
     async def test_permission_response_routes_via_global_registry(self):
         """Permission responses should be resolvable via resolve_by_request_id."""
-        from src.infrastructure.agent.hitl.coordinator import (
-            resolve_by_request_id,
-        )
-
         config = ProcessorConfig(model="test-model")
         permission_manager = create_ask_permission_manager("bash")
 
@@ -222,9 +227,12 @@ class TestProcessorPermissionUsesHITLCoordinator:
             resolved = resolve_by_request_id(
                 request_id,
                 {"action": "allow", "remember": False},
+                tenant_id="tenant-1",
+                project_id="project-1",
+                conversation_id="conv-789",
             )
 
-            assert resolved is True
+            assert resolved is ResolveResult.RESOLVED
 
             with contextlib.suppress(StopAsyncIteration):
                 await execution_task

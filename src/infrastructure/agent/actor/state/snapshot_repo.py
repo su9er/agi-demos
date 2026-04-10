@@ -49,6 +49,16 @@ async def load_hitl_snapshot(request_id: str) -> HITLAgentState | None:
         return HITLAgentState.from_dict(snapshot.snapshot_data or {})
 
 
+async def load_hitl_snapshot_agent_mode(request_id: str) -> str | None:
+    """Load the persisted agent mode for the latest HITL snapshot."""
+    async with async_session_factory() as session:
+        repo = SqlAgentSessionSnapshotRepository(session)
+        snapshot = await repo.get_latest_by_request_id(request_id)
+        if snapshot is None:
+            return None
+        return snapshot.agent_mode
+
+
 async def delete_hitl_snapshot(request_id: str) -> int:
     """Delete HITL snapshots for a request."""
     async with async_session_factory() as session:

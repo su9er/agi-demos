@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -171,6 +171,41 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
 
         return [self._to_domain(r) for r in result.scalars().all()]
 
+    async def get_pending_by_project_for_user(
+        self,
+        tenant_id: str,
+        project_id: str,
+        user_id: str,
+        limit: int = 50,
+    ) -> list[HITLRequest]:
+        """Get pending project HITL requests visible to a specific user."""
+        from src.infrastructure.adapters.secondary.persistence.models import (
+            Conversation,
+            HITLRequest as HITLRequestRecord,
+        )
+
+        result = await self._session.execute(
+            select(HITLRequestRecord)
+            .join(Conversation, Conversation.id == HITLRequestRecord.conversation_id)
+            .where(
+                HITLRequestRecord.tenant_id == tenant_id,
+                HITLRequestRecord.project_id == project_id,
+                HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
+                Conversation.tenant_id == tenant_id,
+                or_(
+                    HITLRequestRecord.user_id == user_id,
+                    and_(
+                        HITLRequestRecord.user_id.is_(None),
+                        Conversation.user_id == user_id,
+                    ),
+                ),
+            )
+            .order_by(HITLRequestRecord.created_at.desc())
+            .limit(limit)
+        )
+
+        return [self._to_domain(r) for r in result.scalars().all()]
+
     async def update_response(
         self,
         request_id: str,
@@ -189,6 +224,7 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
             .where(
                 HITLRequestRecord.id == request_id,
                 HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
+                (HITLRequestRecord.expires_at.is_(None)) | (HITLRequestRecord.expires_at > now),
             )
             .values(
                 status=HITLRequestStatus.ANSWERED.value,
@@ -202,6 +238,34 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         db_record = result.scalar_one_or_none()
         if db_record:
             logger.info(f"Updated HITL request response: {request_id}")
+            return self._to_domain(db_record)
+
+        return None
+
+    async def reopen_pending(self, request_id: str) -> HITLRequest | None:
+        """Reopen an answered HITL request after delivery failure."""
+        from src.infrastructure.adapters.secondary.persistence.models import (
+            HITLRequest as HITLRequestRecord,
+        )
+
+        result = await self._session.execute(
+            update(HITLRequestRecord)
+            .where(
+                HITLRequestRecord.id == request_id,
+                HITLRequestRecord.status == HITLRequestStatus.ANSWERED.value,
+            )
+            .values(
+                status=HITLRequestStatus.PENDING.value,
+                response=None,
+                response_metadata=None,
+                answered_at=None,
+            )
+            .returning(HITLRequestRecord)
+        )
+
+        db_record = result.scalar_one_or_none()
+        if db_record:
+            logger.info(f"Reopened HITL request as pending: {request_id}")
             return self._to_domain(db_record)
 
         return None
@@ -262,22 +326,35 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
 
         return None
 
-    async def mark_completed(self, request_id: str) -> HITLRequest | None:
+    async def mark_completed(
+        self,
+        request_id: str,
+        *,
+        lease_owner: str | None = None,
+    ) -> HITLRequest | None:
         """Mark an HITL request as completed (Agent finished processing)."""
         from src.infrastructure.adapters.secondary.persistence.models import (
             HITLRequest as HITLRequestRecord,
         )
+        from src.infrastructure.agent.hitl.utils import clear_processing_lease_metadata
+
+        owner_expr = HITLRequestRecord.response_metadata["processing_owner"].as_string()
+        processing_condition = HITLRequestRecord.status == HITLRequestStatus.PROCESSING.value
+        completion_condition = or_(
+            HITLRequestRecord.status == HITLRequestStatus.ANSWERED.value,
+            processing_condition,
+        )
+        if lease_owner is not None:
+            completion_condition = and_(
+                processing_condition,
+                owner_expr == lease_owner,
+            )
 
         result = await self._session.execute(
             update(HITLRequestRecord)
             .where(
                 HITLRequestRecord.id == request_id,
-                HITLRequestRecord.status.in_(
-                    [
-                        HITLRequestStatus.ANSWERED.value,
-                        HITLRequestStatus.PROCESSING.value,
-                    ]
-                ),
+                completion_condition,
             )
             .values(status=HITLRequestStatus.COMPLETED.value)
             .returning(HITLRequestRecord)
@@ -285,7 +362,155 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
 
         db_record = result.scalar_one_or_none()
         if db_record:
+            cleared_metadata = clear_processing_lease_metadata(
+                getattr(db_record, "response_metadata", None)
+            )
+            await self._session.execute(
+                update(HITLRequestRecord)
+                .where(HITLRequestRecord.id == request_id)
+                .values(response_metadata=cleared_metadata)
+            )
             logger.info(f"Marked HITL request as completed: {request_id}")
+            return self._to_domain(db_record)
+
+        return None
+
+    async def claim_for_processing(
+        self,
+        request_id: str,
+        *,
+        lease_owner: str | None = None,
+    ) -> HITLRequest | None:
+        """Atomically transition an answered HITL request into processing."""
+        from src.infrastructure.adapters.secondary.persistence.models import (
+            HITLRequest as HITLRequestRecord,
+        )
+        from src.infrastructure.agent.hitl.utils import merge_processing_lease_metadata
+
+        now = datetime.now(UTC)
+        result = await self._session.execute(
+            update(HITLRequestRecord)
+            .where(
+                HITLRequestRecord.id == request_id,
+                HITLRequestRecord.status == HITLRequestStatus.ANSWERED.value,
+            )
+            .values(status=HITLRequestStatus.PROCESSING.value)
+            .returning(HITLRequestRecord)
+        )
+
+        db_record = result.scalar_one_or_none()
+        if db_record:
+            lease_metadata = merge_processing_lease_metadata(
+                getattr(db_record, "response_metadata", None),
+                lease_time=now,
+                lease_owner=lease_owner,
+            )
+            await self._session.execute(
+                update(HITLRequestRecord)
+                .where(HITLRequestRecord.id == request_id)
+                .values(response_metadata=lease_metadata)
+            )
+            logger.info("Claimed HITL request for processing: %s", request_id)
+            return self._to_domain(db_record)
+
+        return None
+
+    async def refresh_processing_lease(
+        self,
+        request_id: str,
+        *,
+        lease_owner: str | None = None,
+    ) -> bool:
+        """Refresh the persisted processing heartbeat for an active claim."""
+        from src.infrastructure.adapters.secondary.persistence.models import (
+            HITLRequest as HITLRequestRecord,
+        )
+        from src.infrastructure.agent.hitl.utils import merge_processing_lease_metadata
+
+        result = await self._session.execute(
+            select(HITLRequestRecord).where(
+                HITLRequestRecord.id == request_id,
+                HITLRequestRecord.status == HITLRequestStatus.PROCESSING.value,
+            )
+        )
+        db_record = result.scalar_one_or_none()
+        if db_record is None:
+            return False
+        current_owner_expr = getattr(db_record, "response_metadata", None)
+        current_owner = None
+        if isinstance(current_owner_expr, dict):
+            owner_value = current_owner_expr.get("processing_owner")
+            current_owner = owner_value if isinstance(owner_value, str) and owner_value else None
+        if lease_owner is not None and current_owner not in {None, lease_owner}:
+            return False
+
+        db_record.response_metadata = merge_processing_lease_metadata(
+            db_record.response_metadata,
+            lease_time=datetime.now(UTC),
+            lease_owner=lease_owner,
+        )
+        await self._session.flush()
+        return True
+
+    async def revert_to_answered(
+        self,
+        request_id: str,
+        *,
+        lease_before: datetime | None = None,
+        lease_owner: str | None = None,
+    ) -> HITLRequest | None:
+        """Revert a processing HITL request back to answered so recovery can retry it."""
+        from src.infrastructure.adapters.secondary.persistence.models import (
+            HITLRequest as HITLRequestRecord,
+        )
+        from src.infrastructure.agent.hitl.utils import clear_processing_lease_metadata
+
+        conditions: list[Any] = [
+            HITLRequestRecord.id == request_id,
+            HITLRequestRecord.status == HITLRequestStatus.PROCESSING.value,
+        ]
+        owner_expr = HITLRequestRecord.response_metadata["processing_owner"].as_string()
+        if lease_owner is not None:
+            conditions.append(
+                or_(
+                    HITLRequestRecord.response_metadata.is_(None),
+                    owner_expr.is_(None),
+                    owner_expr == lease_owner,
+                )
+            )
+        if lease_before is not None:
+            lease_before_iso = lease_before.astimezone(UTC).isoformat()
+            heartbeat_expr = HITLRequestRecord.response_metadata[
+                "processing_heartbeat_at"
+            ].as_string()
+            started_expr = HITLRequestRecord.response_metadata["processing_started_at"].as_string()
+            lease_expr = func.coalesce(heartbeat_expr, started_expr)
+            conditions.append(
+                or_(
+                    HITLRequestRecord.response_metadata.is_(None),
+                    lease_expr.is_(None),
+                    lease_expr < lease_before_iso,
+                )
+            )
+
+        result = await self._session.execute(
+            update(HITLRequestRecord)
+            .where(*conditions)
+            .values(status=HITLRequestStatus.ANSWERED.value)
+            .returning(HITLRequestRecord)
+        )
+
+        db_record = result.scalar_one_or_none()
+        if db_record:
+            cleared_metadata = clear_processing_lease_metadata(
+                getattr(db_record, "response_metadata", None)
+            )
+            await self._session.execute(
+                update(HITLRequestRecord)
+                .where(HITLRequestRecord.id == request_id)
+                .values(response_metadata=cleared_metadata)
+            )
+            logger.info("Reverted HITL request to answered: %s", request_id)
             return self._to_domain(db_record)
 
         return None
@@ -323,6 +548,36 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         requests = [self._to_domain(r) for r in result.scalars().all()]
         if requests:
             logger.info(f"Found {len(requests)} unprocessed answered HITL requests for recovery")
+        return requests
+
+    async def get_stale_processing_requests(
+        self,
+        *,
+        before: datetime,
+        limit: int = 100,
+    ) -> list[HITLRequest]:
+        """Get PROCESSING requests whose claim age is old enough to recover safely."""
+        from src.infrastructure.adapters.secondary.persistence.models import (
+            HITLRequest as HITLRequestRecord,
+        )
+        from src.infrastructure.agent.hitl.utils import is_processing_lease_stale
+
+        result = await self._session.execute(
+            select(HITLRequestRecord)
+            .where(
+                HITLRequestRecord.status == HITLRequestStatus.PROCESSING.value,
+            )
+            .order_by(HITLRequestRecord.answered_at.asc())
+            .limit(limit)
+        )
+
+        requests = [
+            self._to_domain(r)
+            for r in result.scalars().all()
+            if is_processing_lease_stale(self._to_domain(r), before=before)
+        ]
+        if requests:
+            logger.info("Found %d stale processing HITL requests for recovery", len(requests))
         return requests
 
     async def mark_expired_requests(self, before: datetime) -> int:

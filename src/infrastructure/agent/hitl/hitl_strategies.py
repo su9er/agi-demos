@@ -25,7 +25,14 @@ from src.domain.model.agent.hitl_types import (
     create_env_var_request,
     create_permission_request,
 )
-from src.infrastructure.agent.hitl.utils import sanitize_hitl_context, sanitize_hitl_text
+from src.infrastructure.agent.hitl.utils import (
+    build_env_var_request_context,
+    normalize_env_var_name,
+    sanitize_env_var_plain_text,
+    sanitize_env_var_text,
+    sanitize_hitl_context,
+    sanitize_hitl_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +123,9 @@ class ClarificationStrategy(HITLTypeStrategy):
         if not options:
             allow_custom = True
         request_id = request_data.get("_request_id") or self.generate_request_id()
+        sanitized_default_value = sanitize_hitl_text(
+            kwargs.get("default_value", request_data.get("default_value"))
+        )
 
         return create_clarification_request(
             request_id=request_id,
@@ -129,6 +139,7 @@ class ClarificationStrategy(HITLTypeStrategy):
             project_id=kwargs.get("project_id"),
             message_id=kwargs.get("message_id"),
             context=sanitize_hitl_context(request_data.get("context", {})),
+            default_value=sanitized_default_value,
         )
 
     def extract_response_value(self, response_data: dict[str, Any]) -> Any:
@@ -187,7 +198,10 @@ class DecisionStrategy(HITLTypeStrategy):
             if isinstance(opt, dict):
                 risk_level = None
                 if opt.get("risk_level"):
-                    risk_level = RiskLevel(opt["risk_level"])
+                    try:
+                        risk_level = RiskLevel(opt["risk_level"])
+                    except ValueError:
+                        risk_level = None
                 label = sanitize_hitl_text(opt.get("label", ""))
                 if label is None:
                     continue
@@ -288,40 +302,59 @@ class EnvVarStrategy(HITLTypeStrategy):
     ) -> HITLRequest:
         from src.domain.model.agent.hitl_types import EnvVarInputType
 
-        tool_name = sanitize_hitl_text(request_data.get("tool_name", "unknown")) or "unknown"
+        tool_name = sanitize_env_var_text(request_data.get("tool_name", "unknown")) or "unknown"
         fields_data = request_data.get("fields", [])
-        message = sanitize_hitl_text(request_data.get("message"))
+        message = sanitize_env_var_text(request_data.get("message"))
 
         fields = []
+        requested_names: list[str] = []
         for f in fields_data:
             if isinstance(f, dict):
+                is_secret = bool(f.get("secret", False))
                 input_type = EnvVarInputType.TEXT
                 if f.get("input_type"):
                     try:
                         input_type = EnvVarInputType(f["input_type"])
                     except ValueError:
                         input_type = EnvVarInputType.TEXT
-                elif f.get("secret"):
+                if is_secret:
                     input_type = EnvVarInputType.PASSWORD
-
-                name = sanitize_hitl_text(f.get("name", "")) or ""
-                label = sanitize_hitl_text(f.get("label", f.get("name", ""))) or name
+                name = normalize_env_var_name(f.get("name"))
+                if not name:
+                    raise ValueError("Invalid environment variable name")
+                label = sanitize_env_var_text(f.get("label")) or name
+                requested_names.append(sanitize_env_var_plain_text(f.get("label")) or name)
+                description = sanitize_env_var_text(f.get("description"))
+                default_value = sanitize_env_var_text(f.get("default_value"))
+                placeholder = sanitize_env_var_text(f.get("placeholder"))
+                if input_type == EnvVarInputType.PASSWORD or is_secret:
+                    default_value = None
+                    placeholder = None
 
                 fields.append(
                     EnvVarField(
                         name=name,
                         label=label,
-                        description=sanitize_hitl_text(f.get("description")),
+                        description=description,
                         required=bool(f.get("required", True)),
-                        secret=bool(f.get("secret", False)),
+                        secret=is_secret,
                         input_type=input_type,
-                        default_value=sanitize_hitl_text(f.get("default_value")),
-                        placeholder=sanitize_hitl_text(f.get("placeholder")),
-                        pattern=sanitize_hitl_text(f.get("pattern")),
+                        default_value=default_value,
+                        placeholder=placeholder,
+                        pattern=sanitize_env_var_text(f.get("pattern")),
                     )
                 )
 
+        if not fields:
+            raise ValueError("Env-var HITL request requires at least one valid field")
+
         request_id = request_data.get("_request_id") or self.generate_request_id()
+        request_context, _scope_label = build_env_var_request_context(
+            raw_context=request_data.get("context", {}),
+            tool_name=tool_name,
+            requested_variables=requested_names,
+            project_id=kwargs.get("save_project_id"),
+        )
         return create_env_var_request(
             request_id=request_id,
             conversation_id=conversation_id,
@@ -332,14 +365,14 @@ class EnvVarStrategy(HITLTypeStrategy):
             tenant_id=kwargs.get("tenant_id"),
             project_id=kwargs.get("project_id"),
             message_id=kwargs.get("message_id"),
-            context=sanitize_hitl_context(request_data.get("context", {})),
+            context=request_context,
             allow_save=request_data.get("allow_save", True),
         )
 
     def extract_response_value(self, response_data: dict[str, Any]) -> Any:
         if isinstance(response_data, str):
             return response_data
-        return response_data.get("values", {})
+        return response_data.get("values", response_data)
 
     def get_default_response(self, request: HITLRequest) -> Any:
         return {}
@@ -363,7 +396,10 @@ class PermissionStrategy(HITLTypeStrategy):
     ) -> HITLRequest:
         tool_name = sanitize_hitl_text(request_data.get("tool_name", "unknown")) or "unknown"
         action = sanitize_hitl_text(request_data.get("action", "execute")) or "execute"
-        risk_level = RiskLevel(request_data.get("risk_level", "medium"))
+        try:
+            risk_level = RiskLevel(request_data.get("risk_level", "medium"))
+        except ValueError:
+            risk_level = RiskLevel.MEDIUM
 
         default_action = None
         if request_data.get("default_action"):
@@ -391,11 +427,11 @@ class PermissionStrategy(HITLTypeStrategy):
         if isinstance(response_data, str):
             return response_data in ("allow", "allow_always")
         action = response_data.get("action", "deny")
-        if isinstance(action, str) and action in {permission.value for permission in PermissionAction}:
+        if isinstance(action, str) and action in {
+            permission.value for permission in PermissionAction
+        }:
             granted = response_data.get("granted")
-            if isinstance(granted, bool) and granted is not (
-                action in ("allow", "allow_always")
-            ):
+            if isinstance(granted, bool) and granted is not (action in ("allow", "allow_always")):
                 return False
             return action in ("allow", "allow_always")
         granted = response_data.get("granted")

@@ -40,6 +40,14 @@ SURFACE_KEYS = (
     "delete_surface",
 )
 TYPED_SURFACE_TYPES = set(SURFACE_KEYS)
+SUPPORTED_A2UI_COMPONENT_KEYS = frozenset(
+    {"Text", "Button", "Card", "Column", "Row", "TextField", "Divider"}
+)
+INITIAL_A2UI_SURFACE_EXAMPLE = (
+    '{"beginRendering":{"surfaceId":"<id>","root":"<root-component-id>"}}\n'
+    '{"surfaceUpdate":{"surfaceId":"<id>","components":[{"id":"<root-component-id>",'
+    '"component":{"Text":{"text":{"literal":"hello"}}}}]}}'
+)
 
 
 def _normalize_data_path(path_or_alias: str) -> str:
@@ -208,6 +216,298 @@ def _surface_id_from_record(record: dict[str, object]) -> str | None:
         if isinstance(surface_id, str) and surface_id:
             return surface_id
 
+    return None
+
+
+def _extract_envelope_payload(record: dict[str, object], *keys: str) -> dict[str, object] | None:
+    """Return the payload for a direct or typed A2UI envelope."""
+    for key in keys:
+        payload = record.get(key)
+        if isinstance(payload, dict):
+            return payload
+
+    envelope_type = record.get("type")
+    payload = record.get("payload")
+    if isinstance(envelope_type, str) and envelope_type in keys and isinstance(payload, dict):
+        return payload
+    return None
+
+
+def _invalid_a2ui_payload(detail: str) -> str:
+    """Build a correction-focused A2UI validation error message."""
+    return (
+        f"Invalid A2UI payload: {detail} "
+        "Expected A2UI JSONL with beginRendering/surfaceUpdate envelopes, for example: "
+        f"{INITIAL_A2UI_SURFACE_EXAMPLE}"
+    )
+
+
+def _flat_surface_payload_error(parsed_whole: object) -> str | None:
+    """Return a targeted error for plain surface objects without A2UI envelopes."""
+    if not isinstance(parsed_whole, dict):
+        return None
+    flat_surface_id = parsed_whole.get("surfaceId") or parsed_whole.get("surface_id")
+    if not isinstance(flat_surface_id, str) or "components" not in parsed_whole:
+        return None
+    return _invalid_a2ui_payload(
+        'received a plain {"surfaceId":"...","components":[...]} object. '
+        "Wrap it in beginRendering and surfaceUpdate envelopes and include a root id."
+    )
+
+
+def _validate_begin_rendering_payload(payload: dict[str, object]) -> str | None:
+    """Validate a beginRendering envelope payload."""
+    surface_id = payload.get("surfaceId") or payload.get("surface_id")
+    if not isinstance(surface_id, str) or not surface_id.strip():
+        return _invalid_a2ui_payload("beginRendering.surfaceId must be a non-empty string.")
+
+    root = payload.get("root")
+    if not isinstance(root, str) or not root.strip():
+        return _invalid_a2ui_payload("beginRendering.root must be a non-empty string.")
+    return None
+
+
+def _validate_surface_update_component(component: object, index: int) -> str | None:
+    """Validate a single surfaceUpdate component entry."""
+    if not isinstance(component, dict):
+        return _invalid_a2ui_payload(f"surfaceUpdate.components[{index}] must be an object.")
+
+    component_id = component.get("id")
+    if not isinstance(component_id, str) or not component_id.strip():
+        return _invalid_a2ui_payload(
+            f"surfaceUpdate.components[{index}].id must be a non-empty string."
+        )
+
+    component_payload = component.get("component")
+    if isinstance(component_payload, dict):
+        component_keys = [key for key in component_payload if key in SUPPORTED_A2UI_COMPONENT_KEYS]
+        allowed_keys = SUPPORTED_A2UI_COMPONENT_KEYS | {"style"}
+        extra_keys = [key for key in component_payload if key not in allowed_keys]
+        if extra_keys:
+            error = _invalid_a2ui_payload(
+                f"surfaceUpdate.components[{index}] contains unsupported component keys: "
+                f"{sorted(extra_keys)}."
+            )
+        elif len(component_keys) != 1:
+            error = _invalid_a2ui_payload(
+                f"surfaceUpdate.components[{index}] must contain exactly one supported "
+                f"component key: {sorted(SUPPORTED_A2UI_COMPONENT_KEYS)}."
+            )
+        else:
+            error = None
+    else:
+        legacy_type = component.get("type")
+        if isinstance(legacy_type, str) and legacy_type in SUPPORTED_A2UI_COMPONENT_KEYS:
+            error = None
+        else:
+            error = _invalid_a2ui_payload(
+                f"surfaceUpdate.components[{index}] must include a supported 'component' object "
+                f"or legacy 'type' string: {sorted(SUPPORTED_A2UI_COMPONENT_KEYS)}."
+            )
+    return error
+
+
+def _validate_surface_update_payload(
+    payload: dict[str, object],
+    *,
+    require_initial_render: bool,
+) -> str | None:
+    """Validate a surfaceUpdate envelope payload."""
+    if require_initial_render:
+        surface_id = payload.get("surfaceId") or payload.get("surface_id")
+        if not isinstance(surface_id, str) or not surface_id.strip():
+            return _invalid_a2ui_payload(
+                "surfaceUpdate.surfaceId must be a non-empty string for new surfaces."
+            )
+
+    components = payload.get("components")
+    if not isinstance(components, list):
+        return _invalid_a2ui_payload("surfaceUpdate.components must be an array.")
+
+    for index, component in enumerate(components):
+        if error := _validate_surface_update_component(component, index):
+            return error
+    return None
+
+
+def _validate_a2ui_record(
+    record: dict[str, object],
+    *,
+    require_initial_render: bool,
+) -> tuple[bool, bool, bool, str | None]:
+    """Validate a single parsed A2UI record and report which envelopes were seen."""
+    saw_begin_rendering = False
+    saw_surface_update = False
+    saw_supported_envelope = False
+
+    begin_rendering = _extract_envelope_payload(record, "beginRendering", "begin_rendering")
+    if begin_rendering is not None:
+        saw_supported_envelope = True
+        saw_begin_rendering = True
+        if error := _validate_begin_rendering_payload(begin_rendering):
+            return saw_begin_rendering, saw_surface_update, saw_supported_envelope, error
+
+    surface_update = _extract_envelope_payload(record, "surfaceUpdate", "surface_update")
+    if surface_update is not None:
+        saw_supported_envelope = True
+        saw_surface_update = True
+        if error := _validate_surface_update_payload(
+            surface_update,
+            require_initial_render=require_initial_render,
+        ):
+            return saw_begin_rendering, saw_surface_update, saw_supported_envelope, error
+
+    if _extract_envelope_payload(record, "dataModelUpdate", "data_model_update") is not None:
+        saw_supported_envelope = True
+    if _extract_envelope_payload(record, "deleteSurface", "delete_surface") is not None:
+        saw_supported_envelope = True
+
+    return saw_begin_rendering, saw_surface_update, saw_supported_envelope, None
+
+
+def _parse_a2ui_validation_records(messages: str) -> tuple[list[dict[str, object]], str | None]:
+    """Parse raw A2UI messages for validation and detect flat payload misuse."""
+    stripped = _strip_markdown_code_fence(messages)
+    if not stripped:
+        return [], _invalid_a2ui_payload("payload is empty.")
+
+    parsed_whole: object | None = None
+    try:
+        parsed_whole = json.loads(stripped)
+    except json.JSONDecodeError:
+        parsed_whole = None
+
+    if error := _flat_surface_payload_error(parsed_whole):
+        return [], error
+
+    records = _iter_message_dicts(messages)
+    if not records:
+        return [], _invalid_a2ui_payload("could not parse any supported A2UI envelopes.")
+    return records, None
+
+
+def _scan_a2ui_validation_records(
+    records: list[dict[str, object]],
+    *,
+    require_initial_render: bool,
+) -> tuple[bool, bool, bool, str | None]:
+    """Validate parsed A2UI records and report which required envelopes were seen."""
+    saw_begin_rendering = False
+    saw_surface_update = False
+    saw_supported_envelope = False
+
+    for record in records:
+        (
+            record_saw_begin,
+            record_saw_update,
+            record_saw_supported,
+            record_error,
+        ) = _validate_a2ui_record(record, require_initial_render=require_initial_render)
+        if record_error is not None:
+            return saw_begin_rendering, saw_surface_update, saw_supported_envelope, record_error
+        saw_begin_rendering = saw_begin_rendering or record_saw_begin
+        saw_surface_update = saw_surface_update or record_saw_update
+        saw_supported_envelope = saw_supported_envelope or record_saw_supported
+
+    return saw_begin_rendering, saw_surface_update, saw_supported_envelope, None
+
+
+def _finalize_a2ui_validation(
+    messages: str,
+    *,
+    require_initial_render: bool,
+    saw_begin_rendering: bool,
+    saw_surface_update: bool,
+    saw_supported_envelope: bool,
+    error: str | None,
+) -> str | None:
+    """Apply final cross-record A2UI validation rules."""
+    if error is not None:
+        return error
+    if not saw_supported_envelope:
+        return _invalid_a2ui_payload("no supported A2UI envelopes were found.")
+
+    surface_ids = extract_surface_ids(messages)
+    if len(surface_ids) > 1:
+        return _invalid_a2ui_payload(
+            "all envelopes in one interactive surface payload must use the same surfaceId."
+        )
+    if not require_initial_render:
+        return None
+    if not saw_begin_rendering or not saw_surface_update:
+        return _invalid_a2ui_payload(
+            "new interactive surfaces must include both beginRendering and surfaceUpdate envelopes."
+        )
+    return None
+
+
+def _collect_begin_render_roots(records: list[dict[str, object]]) -> set[str]:
+    """Collect root ids declared by beginRendering envelopes."""
+    roots: set[str] = set()
+    for record in records:
+        begin_rendering = _extract_envelope_payload(record, "beginRendering", "begin_rendering")
+        if begin_rendering is None:
+            continue
+        root = begin_rendering.get("root")
+        if isinstance(root, str) and root.strip():
+            roots.add(root)
+    return roots
+
+
+def _collect_surface_component_ids(records: list[dict[str, object]]) -> set[str]:
+    """Collect declared component ids from surfaceUpdate envelopes."""
+    component_ids: set[str] = set()
+    for record in records:
+        surface_update = _extract_envelope_payload(record, "surfaceUpdate", "surface_update")
+        if surface_update is None:
+            continue
+        components = surface_update.get("components")
+        if not isinstance(components, list):
+            continue
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+            component_id = component.get("id")
+            if isinstance(component_id, str) and component_id.strip():
+                component_ids.add(component_id)
+    return component_ids
+
+
+def validate_a2ui_messages(
+    messages: str,
+    *,
+    require_initial_render: bool = True,
+) -> str | None:
+    """Validate A2UI payloads before creating or waiting on a surface."""
+    records, parse_error = _parse_a2ui_validation_records(messages)
+    if parse_error is not None:
+        return parse_error
+
+    (
+        saw_begin_rendering,
+        saw_surface_update,
+        saw_supported_envelope,
+        record_error,
+    ) = _scan_a2ui_validation_records(records, require_initial_render=require_initial_render)
+    error = _finalize_a2ui_validation(
+        messages,
+        require_initial_render=require_initial_render,
+        saw_begin_rendering=saw_begin_rendering,
+        saw_surface_update=saw_surface_update,
+        saw_supported_envelope=saw_supported_envelope,
+        error=record_error,
+    )
+    if error is not None or not require_initial_render:
+        return error
+
+    declared_roots = _collect_begin_render_roots(records)
+    component_ids = _collect_surface_component_ids(records)
+    missing_roots = declared_roots - component_ids
+    if missing_roots:
+        return _invalid_a2ui_payload(
+            f"beginRendering.root must reference a component id present in surfaceUpdate.components. "
+            f"Missing roots: {sorted(missing_roots)}."
+        )
     return None
 
 

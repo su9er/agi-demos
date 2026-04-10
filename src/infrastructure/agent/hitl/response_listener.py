@@ -258,22 +258,39 @@ class HITLResponseListener:
             data = json.loads(raw_data)
 
             request_id = data.get("request_id")
-            response_data_raw = data.get("response_data", {})
-
-            # response_data may be a JSON string (from API serialization)
-            if isinstance(response_data_raw, str):
-                try:
-                    response_data = json.loads(response_data_raw)
-                except json.JSONDecodeError:
-                    # If not valid JSON, treat as plain string
-                    response_data = {"answer": response_data_raw}
-            else:
-                response_data = response_data_raw
-
-            if not request_id:
+            if not isinstance(request_id, str) or not request_id:
                 logger.warning(f"[HITLListener] Message missing request_id: {msg_id}")
                 await self._ack_message(stream_key, msg_id)
                 return
+            from src.infrastructure.agent.hitl.utils import (
+                deserialize_hitl_stream_response,
+                load_persisted_hitl_request,
+                resolve_trusted_hitl_type,
+            )
+
+            hitl_request = await load_persisted_hitl_request(request_id)
+            if hitl_request is None:
+                logger.warning(f"[HITLListener] Request not found: {request_id}")
+                await self._ack_message(stream_key, msg_id)
+                return
+
+            request_status = getattr(
+                getattr(hitl_request, "status", None), "value", None
+            ) or getattr(hitl_request, "status", None)
+            if isinstance(request_status, str) and request_status.lower() == "completed":
+                await self._ack_message(stream_key, msg_id)
+                return
+
+            trusted_hitl_type = resolve_trusted_hitl_type(hitl_request)
+            if trusted_hitl_type is None:
+                logger.warning(f"[HITLListener] Request missing trusted type: {request_id}")
+                await self._ack_message(stream_key, msg_id)
+                return
+
+            response_data = deserialize_hitl_stream_response(
+                data,
+                expected_hitl_type=trusted_hitl_type,
+            )
 
             # Try to deliver to registry
             delivered = await self._registry.deliver_response(

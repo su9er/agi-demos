@@ -370,7 +370,173 @@ class TestRayHITLHandler:
             request_id="env-blank-optional",
         )
 
-        assert result == {"API_KEY": " secret ", "OPTIONAL": "   "}
+        assert result == {"values": {"API_KEY": " secret ", "OPTIONAL": "   "}}
+        persist_mock.assert_not_called()
+        emit_mock.assert_not_called()
+
+    async def test_request_env_vars_redacts_double_encoded_secret_metadata(self, monkeypatch):
+        persist_mock = AsyncMock()
+        emit_mock = AsyncMock()
+
+        monkeypatch.setattr(ray_hitl_handler, "_persist_hitl_request", persist_mock)
+        monkeypatch.setattr(ray_hitl_handler, "_emit_hitl_sse_event", emit_mock)
+
+        handler = RayHITLHandler(
+            conversation_id="conv-3f",
+            tenant_id="tenant-3f",
+            project_id="project-3f",
+            message_id="msg-3f",
+        )
+
+        with pytest.raises(HITLPendingException):
+            await handler.request_env_vars(
+                tool_name="web_search",
+                message="Need credentials",
+                context={
+                    "reason": "Bearer&amp;#32;sk&amp;#45;1234567890abcdefghijklmnop",
+                    "tool_name": "web_search",
+                },
+                fields=[
+                    {
+                        "name": "API_KEY",
+                        "label": "sk&amp;#45;1234567890abcdefghijklmnop",
+                        "description": "Bearer&amp;#32;sk&amp;#45;1234567890abcdefghijklmnop",
+                        "required": True,
+                        "default_value": "sk&amp;#45;1234567890abcdefghijklmnop",
+                        "placeholder": "Paste&amp;#32;sk&amp;#45;1234567890abcdefghijklmnop",
+                    }
+                ],
+                request_id="env-redacted",
+            )
+
+        type_data = persist_mock.call_args.kwargs["type_data"]
+        forwarded_field = type_data["fields"][0]
+        assert forwarded_field["label"] == "API_KEY"
+        assert forwarded_field["description"] is None
+        assert forwarded_field["default_value"] is None
+        assert forwarded_field["placeholder"] is None
+        assert "reason" not in type_data["context"]
+        assert type_data["context"]["tool_name"] == "web_search"
+        persist_mock.assert_awaited_once()
+        emit_mock.assert_awaited_once()
+
+    async def test_request_env_vars_overwrites_reserved_context_metadata(self, monkeypatch):
+        persist_mock = AsyncMock()
+        emit_mock = AsyncMock()
+
+        monkeypatch.setattr(ray_hitl_handler, "_persist_hitl_request", persist_mock)
+        monkeypatch.setattr(ray_hitl_handler, "_emit_hitl_sse_event", emit_mock)
+
+        handler = RayHITLHandler(
+            conversation_id="conv-3f-meta",
+            tenant_id="tenant-3f-meta",
+            project_id="project-3f-meta",
+            message_id="msg-3f-meta",
+        )
+
+        with pytest.raises(HITLPendingException):
+            await handler.request_env_vars(
+                tool_name="web_search",
+                context={
+                    "tool_name": "fake_tool",
+                    "requested_variables": ["WRONG"],
+                    "save_scope": "tenant",
+                    "project_id": "fake-project",
+                },
+                fields=[
+                    {
+                        "name": "API_KEY",
+                        "label": "API Key",
+                        "required": True,
+                    }
+                ],
+                save_project_id="project-3f-meta",
+                request_id="env-metadata-overwrite",
+            )
+
+        type_data = persist_mock.call_args.kwargs["type_data"]
+        assert type_data["context"]["tool_name"] == "web_search"
+        assert type_data["context"]["requested_variables"] == ["API Key"]
+        assert type_data["context"]["save_scope"] == "project"
+        assert type_data["context"]["project_id"] == "project-3f-meta"
+        persist_mock.assert_awaited_once()
+        emit_mock.assert_awaited_once()
+
+    async def test_request_env_vars_keeps_tenant_scope_with_active_project_context(
+        self, monkeypatch
+    ):
+        persist_mock = AsyncMock()
+        emit_mock = AsyncMock()
+
+        monkeypatch.setattr(ray_hitl_handler, "_persist_hitl_request", persist_mock)
+        monkeypatch.setattr(ray_hitl_handler, "_emit_hitl_sse_event", emit_mock)
+
+        handler = RayHITLHandler(
+            conversation_id="conv-3f-tenant",
+            tenant_id="tenant-3f-tenant",
+            project_id="project-3f-tenant",
+            message_id="msg-3f-tenant",
+        )
+
+        with pytest.raises(HITLPendingException):
+            await handler.request_env_vars(
+                tool_name="web_search",
+                context={
+                    "tool_name": "fake_tool",
+                    "requested_variables": ["WRONG"],
+                    "save_scope": "project",
+                    "project_id": "fake-project",
+                },
+                fields=[
+                    {
+                        "name": "API_KEY",
+                        "label": "API Key",
+                        "required": True,
+                    }
+                ],
+                request_id="env-metadata-tenant",
+            )
+
+        type_data = persist_mock.call_args.kwargs["type_data"]
+        assert type_data["context"]["tool_name"] == "web_search"
+        assert type_data["context"]["requested_variables"] == ["API Key"]
+        assert type_data["context"]["save_scope"] == "tenant"
+        assert "project_id" not in type_data["context"]
+        persist_mock.assert_awaited_once()
+        emit_mock.assert_awaited_once()
+
+    async def test_request_env_vars_rejects_mixed_valid_and_invalid_field_names(self, monkeypatch):
+        persist_mock = AsyncMock()
+        emit_mock = AsyncMock()
+
+        monkeypatch.setattr(ray_hitl_handler, "_persist_hitl_request", persist_mock)
+        monkeypatch.setattr(ray_hitl_handler, "_emit_hitl_sse_event", emit_mock)
+
+        handler = RayHITLHandler(
+            conversation_id="conv-3g",
+            tenant_id="tenant-3g",
+            project_id="project-3g",
+            message_id="msg-3g",
+        )
+
+        with pytest.raises(ValueError, match="Invalid environment variable name"):
+            await handler.request_env_vars(
+                tool_name="web_search",
+                fields=[
+                    {
+                        "name": "API_KEY",
+                        "label": "API Key",
+                        "required": True,
+                    },
+                    {
+                        "name": "sk&#45;1234567890abcdefghijklmnop",
+                        "label": "Search API key",
+                        "required": True,
+                    },
+                ],
+                request_id="env-invalid-name",
+            )
+
         persist_mock.assert_not_called()
         emit_mock.assert_not_called()
 

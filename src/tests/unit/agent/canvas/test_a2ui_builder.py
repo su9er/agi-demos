@@ -22,6 +22,7 @@ from src.infrastructure.agent.canvas.a2ui_builder import (
     surface_update,
     text_component,
     text_field_component,
+    validate_a2ui_messages,
 )
 
 # ---------------------------------------------------------------------------
@@ -77,6 +78,100 @@ class TestButtonComponent:
         btn, label_text = result
         assert "id" in btn
         assert "id" in label_text
+
+
+class TestValidateA2UIMessages:
+    """Tests for validate_a2ui_messages()."""
+
+    def test_rejects_flat_surface_object(self) -> None:
+        payload = json.dumps(
+            {
+                "surfaceId": "surface-1",
+                "components": [
+                    {
+                        "id": "root-1",
+                        "component": {"Text": {"text": {"literal": "hello"}}},
+                    }
+                ],
+            }
+        )
+
+        error = validate_a2ui_messages(payload, require_initial_render=True)
+
+        assert error is not None
+        assert 'plain {"surfaceId":"...","components":[...]}' in error
+        assert "beginRendering/surfaceUpdate envelopes" in error
+
+    def test_accepts_incremental_surface_update_for_existing_block(self) -> None:
+        payload = json.dumps(
+            {
+                "surfaceUpdate": {
+                    "components": [
+                        {
+                            "id": "root-1",
+                            "type": "Text",
+                            "text": {"literal": "hello"},
+                        }
+                    ]
+                }
+            }
+        )
+
+        error = validate_a2ui_messages(payload, require_initial_render=False)
+
+        assert error is None
+
+    def test_rejects_unknown_component_type_for_new_surface(self) -> None:
+        payload = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"UnknownWidget":{}}}]}}',
+            ]
+        )
+
+        error = validate_a2ui_messages(payload, require_initial_render=True)
+
+        assert error is not None
+        assert "unsupported component keys" in error
+
+    def test_rejects_supported_component_with_extra_unknown_key(self) -> None:
+        payload = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}},"UnknownWidget":{}}}]}}',
+            ]
+        )
+
+        error = validate_a2ui_messages(payload, require_initial_render=True)
+
+        assert error is not None
+        assert "unsupported component keys" in error
+
+    def test_rejects_mixed_surface_ids_for_new_surface(self) -> None:
+        payload = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-2","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            ]
+        )
+
+        error = validate_a2ui_messages(payload, require_initial_render=True)
+
+        assert error is not None
+        assert "same surfaceId" in error
+
+    def test_rejects_missing_root_component_for_new_surface(self) -> None:
+        payload = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"other-root","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            ]
+        )
+
+        error = validate_a2ui_messages(payload, require_initial_render=True)
+
+        assert error is not None
+        assert "Missing roots" in error
 
     def test_no_legacy_fields(self) -> None:
         btn, _label = button_component("X", "x")

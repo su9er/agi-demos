@@ -331,7 +331,7 @@ export const DecisionAskedItem = memo(
             ) : (
               <div className="text-sm text-slate-600 dark:text-slate-400 bg-white/50 dark:bg-slate-800/50 rounded-lg p-2">
                 <span className="font-medium">{t('agent.hitl.status.completed')}: </span>{' '}
-                {event.decision}
+                {Array.isArray(event.decision) ? event.decision.join(', ') : event.decision}
               </div>
             )}
           </div>

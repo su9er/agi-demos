@@ -448,6 +448,7 @@ export interface ClarificationAskedEventData {
   clarification_type: ClarificationType;
   options: ClarificationOption[];
   allow_custom: boolean;
+  default_value?: string | undefined;
   context: Record<string, unknown>;
 }
 
@@ -497,7 +498,7 @@ export interface DecisionAskedEventData {
  */
 export interface DecisionAnsweredEventData {
   request_id: string;
-  decision: string;
+  decision: string | string[];
 }
 
 /**
@@ -516,6 +517,7 @@ export interface EnvVarField {
   input_type: EnvVarInputType;
   default_value?: string | undefined;
   placeholder?: string | undefined;
+  pattern?: string | undefined;
 }
 
 /**

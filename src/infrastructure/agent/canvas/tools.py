@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 
-from src.infrastructure.agent.canvas.a2ui_builder import extract_surface_id
+from src.infrastructure.agent.canvas.a2ui_builder import extract_surface_id, validate_a2ui_messages
 from src.infrastructure.agent.canvas.events import build_canvas_event_dict
 from src.infrastructure.agent.canvas.manager import CanvasManager
 from src.infrastructure.agent.tools.context import ToolContext
@@ -38,6 +38,16 @@ def _prepare_canvas_metadata(
         if surface_id:
             prepared["surface_id"] = surface_id
     return prepared or None
+
+
+def _validate_a2ui_content(content: str, *, require_initial_render: bool) -> None:
+    """Raise a ValueError when an A2UI payload cannot render safely."""
+    validation_error = validate_a2ui_messages(
+        content,
+        require_initial_render=require_initial_render,
+    )
+    if validation_error is not None:
+        raise ValueError(validation_error)
 
 
 def configure_canvas(manager: CanvasManager) -> None:
@@ -100,6 +110,8 @@ def get_canvas_manager() -> CanvasManager:
                     "For a2ui_surface: A2UI JSONL messages — one JSON object per line. Required messages: "
                     '1) {"beginRendering":{"surfaceId":"<id>","root":"<root-component-id>"}} '
                     '2) {"surfaceUpdate":{"surfaceId":"<id>","components":[...]}} '
+                    'Each component entry MUST use {"id":"<component-id>","component":{"Text|Button|Card|Column|Row|TextField|Divider":{...}}} '
+                    '— do not emit legacy {"id":"...","type":"Text",...} objects. '
                     "Available components: Text, Button, Card, Column, Row, TextField, Divider. "
                     'CRITICAL format: Text text MUST be wrapped: {"Text":{"text":{"literal":"hello"}}}. '
                     'Button uses child (Text component ID ref) + action: {"Button":{"child":"<text-id>","action":{"name":"..."}}}. '
@@ -135,6 +147,8 @@ async def canvas_create(
     manager = get_canvas_manager()
 
     try:
+        if block_type == "a2ui_surface":
+            _validate_a2ui_content(content, require_initial_render=True)
         prepared_metadata = _prepare_canvas_metadata(block_type, content, metadata)
         block = manager.create_block(
             conversation_id=ctx.conversation_id,
@@ -275,15 +289,17 @@ async def canvas_update(
             is_error=True,
         )
 
-    prepared_metadata = metadata
-    if content is not None:
-        prepared_metadata = dict(metadata or {})
-        if existing.block_type.value == "a2ui_surface" and "surface_id" not in prepared_metadata:
-            surface_id = extract_surface_id(content) or existing.metadata.get("surface_id")
-            if surface_id:
-                prepared_metadata["surface_id"] = surface_id
-
     try:
+        prepared_metadata = metadata
+        if content is not None:
+            prepared_metadata = dict(metadata or {})
+            if existing.block_type.value == "a2ui_surface":
+                _validate_a2ui_content(content, require_initial_render=False)
+                if "surface_id" not in prepared_metadata:
+                    surface_id = extract_surface_id(content) or existing.metadata.get("surface_id")
+                    if surface_id:
+                        prepared_metadata["surface_id"] = surface_id
+
         block = manager.update_block(
             conversation_id=ctx.conversation_id,
             block_id=resolved_block_id,
@@ -291,7 +307,7 @@ async def canvas_update(
             title=title,
             metadata=prepared_metadata,
         )
-    except KeyError as exc:
+    except (KeyError, ValueError) as exc:
         return ToolResult(output=json.dumps({"error": str(exc)}), is_error=True)
 
     await ctx.emit(
@@ -417,7 +433,9 @@ async def canvas_delete(
                 "type": "string",
                 "description": (
                     "A2UI JSONL messages describing the interactive surface. "
-                    "Same format as canvas_create a2ui_surface content."
+                    "Same format as canvas_create a2ui_surface content. "
+                    'Every component entry must use {"id":"...","component":{"Text|Button|Card|Column|Row|TextField|Divider":{...}}}. '
+                    'Do not use legacy {"type":"Text",...} component objects.'
                 ),
             },
             "block_id": {
@@ -463,6 +481,7 @@ async def canvas_create_interactive(
         )
 
     try:
+        _validate_a2ui_content(components, require_initial_render=existing_block is None)
         prepared_metadata = _prepare_canvas_metadata(
             "a2ui_surface",
             components,

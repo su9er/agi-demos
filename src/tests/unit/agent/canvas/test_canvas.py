@@ -558,9 +558,7 @@ class TestCanvasTools:
 
         configure_canvas(None)  # reset global
 
-    async def test_canvas_update_a2ui_resets_stale_surface_id_for_invalid_payload(
-        self, ctx: ToolContext
-    ) -> None:
+    async def test_canvas_update_rejects_multiple_surface_ids(self, ctx: ToolContext) -> None:
         mgr = CanvasManager()
         configure_canvas(mgr)
 
@@ -586,11 +584,9 @@ class TestCanvasTools:
             ]
         )
         result = await canvas_update.execute(ctx, block_id=block_id, content=invalid_content)
-        assert not result.is_error
-
-        events = ctx.consume_pending_events()
-        event_block = events[0]["data"]["block"]
-        assert event_block["metadata"]["surface_id"] == "surface-1"
+        assert result.is_error
+        assert "same surfaceId" in result.output
+        assert ctx.consume_pending_events() == []
 
         configure_canvas(None)  # reset global
 
@@ -631,5 +627,76 @@ class TestCanvasTools:
         events = ctx.consume_pending_events()
         assert events[0]["data"]["action"] == "updated"
         assert events[0]["data"]["block_id"] == block_id
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_create_interactive_rejects_flat_surface_object(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        result = await canvas_create_interactive.execute(
+            ctx,
+            title="Invalid Surface",
+            components=json.dumps(
+                {
+                    "surfaceId": "surface-1",
+                    "components": [
+                        {
+                            "id": "root-1",
+                            "component": {"Text": {"text": {"literal": "hello"}}},
+                        }
+                    ],
+                }
+            ),
+        )
+
+        assert result.is_error
+        assert "beginRendering/surfaceUpdate envelopes" in result.output
+        assert ctx.consume_pending_events() == []
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_update_invalid_a2ui_payload_returns_tool_error(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        initial_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            ]
+        )
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=initial_content,
+        )
+        block_id = json.loads(create_result.output)["block_id"]
+        ctx.consume_pending_events()
+
+        result = await canvas_update.execute(
+            ctx,
+            block_id=block_id,
+            content=json.dumps(
+                {
+                    "surfaceId": "surface-1",
+                    "components": [
+                        {
+                            "id": "root-1",
+                            "component": {"Text": {"text": {"literal": "hello"}}},
+                        }
+                    ],
+                }
+            ),
+        )
+
+        assert result.is_error
+        assert "beginRendering/surfaceUpdate envelopes" in result.output
+        assert ctx.consume_pending_events() == []
 
         configure_canvas(None)  # reset global

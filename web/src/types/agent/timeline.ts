@@ -331,7 +331,7 @@ export interface DecisionAskedTimelineEvent extends BaseTimelineEvent {
   selectionMode?: 'single' | 'multiple' | undefined;
   maxSelections?: number | undefined;
   answered?: boolean | undefined;
-  decision?: string | undefined;
+  decision?: string | string[] | undefined;
 }
 
 /**
@@ -340,7 +340,7 @@ export interface DecisionAskedTimelineEvent extends BaseTimelineEvent {
 export interface DecisionAnsweredTimelineEvent extends BaseTimelineEvent {
   type: 'decision_answered';
   requestId: string;
-  decision: string;
+  decision: string | string[];
 }
 
 /**

@@ -10,6 +10,10 @@ import { lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { formatDateTime, formatDistanceToNowCN, formatTimeOnly } from '../../../utils/date';
+import {
+  getOptionDescriptionText,
+  getOptionLabelText,
+} from '../../../utils/hitlOptionDisplay';
 import { safeMarkdownComponents } from '../chat/markdownPlugins';
 
 // Lazy load ReactMarkdown to reduce initial bundle size (bundle-dynamic-imports)
@@ -89,6 +93,8 @@ export function OptionButton({
   disabled?: boolean | undefined;
 }) {
   const { t } = useTranslation();
+  const optionLabel = getOptionLabelText(option.label) ?? option.id;
+  const optionDescription = getOptionDescriptionText(option.description);
 
   return (
     <button
@@ -107,16 +113,16 @@ export function OptionButton({
       `}
     >
       <div className="flex items-center gap-2">
-        <span className="font-medium text-sm">{option.label}</span>
+        <span className="font-medium text-sm">{optionLabel}</span>
         {isRecommended && (
           <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">
             {t('agent.hitl.tag.recommended')}
           </span>
         )}
       </div>
-      {option.description && (
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{option.description}</p>
-      )}
+      {optionDescription ? (
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{optionDescription}</p>
+      ) : null}
     </button>
   );
 }
