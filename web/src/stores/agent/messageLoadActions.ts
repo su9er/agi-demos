@@ -75,10 +75,20 @@ export function createMessageLoadActions(deps: MessageLoadActionDeps) {
       // Only replace timeline/messages if current state is empty
       const currentTimeline = useTimelineStore.getState().agentTimeline;
       const hasExistingData = currentTimeline.length > 0;
+      const existingConversationState = get().conversationStates.get(conversationId);
+      const isFreshConversationShell =
+        !hasExistingData &&
+        !cachedState &&
+        existingConversationState !== undefined &&
+        existingConversationState.timeline.length === 0 &&
+        !existingConversationState.isStreaming;
 
       {
         const tls = useTimelineStore.getState();
-        tls.setAgentIsLoadingHistory(!hasExistingData);
+        // A newly created blank conversation already has a local shell in memory.
+        // Keep the composer interactive while we hydrate server state so automation
+        // and fast user input do not race against a transient disabled window.
+        tls.setAgentIsLoadingHistory(!hasExistingData && !isFreshConversationShell);
         tls.setAgentHasEarlier(cachedState?.hasEarlier || false);
         tls.setAgentEarliestPointers(
           cachedState?.earliestTimeUs || null,

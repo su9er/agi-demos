@@ -26,6 +26,10 @@ from src.infrastructure.agent.processor.hitl_tool_handler import (
     handle_decision_tool,
     handle_env_var_tool,
 )
+from src.tests.unit.agent.canvas.a2ui_contract_fixtures import (
+    contract_case_jsonl,
+    get_a2ui_contract_case,
+)
 
 
 def _make_tool_part(call_id: str, tool_name: str) -> ToolPart:
@@ -796,6 +800,47 @@ async def test_a2ui_tool_infers_surface_id_for_canvas_metadata() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_a2ui_tool_uses_shared_fixture_identity_contract() -> None:
+    case = get_a2ui_contract_case("identity_interactive_request")
+    identity = case["identity"]
+    coordinator = MagicMock()
+    coordinator.conversation_id = "conv-a2ui"
+    coordinator.prepare_request = AsyncMock(return_value=identity["hitlRequestId"])
+    coordinator.wait_for_response = AsyncMock(
+        return_value={
+            "action_name": "approve",
+            "source_component_id": "button-1",
+            "context": {"approved": True},
+        }
+    )
+    tool_part = _make_tool_part("call-a2ui", "canvas_create_interactive")
+    configure_canvas(CanvasManager())
+
+    events = [
+        event
+        async for event in handle_a2ui_action_tool(
+            coordinator=coordinator,
+            call_id="call-a2ui",
+            tool_name="canvas_create_interactive",
+            arguments={"title": "Review", "components": contract_case_jsonl(case)},
+            tool_part=tool_part,
+        )
+    ]
+
+    canvas_event = next(e for e in events if isinstance(e, AgentCanvasUpdatedEvent))
+    asked_event = next(e for e in events if isinstance(e, AgentA2UIActionAskedEvent))
+
+    assert canvas_event.block is not None
+    assert canvas_event.block["metadata"]["surface_id"] == identity["metadataSurfaceId"]
+    assert canvas_event.block["metadata"]["hitl_request_id"] == identity["hitlRequestId"]
+    assert asked_event.request_id == identity["hitlRequestId"]
+    assert asked_event.block_id == canvas_event.block_id
+
+    configure_canvas(None)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_a2ui_tool_reuses_existing_canvas_block() -> None:
     coordinator = MagicMock()
     coordinator.conversation_id = "conv-a2ui"
@@ -1194,7 +1239,7 @@ async def test_a2ui_tool_rejects_malformed_json_before_waiting() -> None:
                 "components": "\n".join(
                     [
                         '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}',
-                        "not json",
+                        '{"broken":',
                         '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
                         '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
                         '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}',

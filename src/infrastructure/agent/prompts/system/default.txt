@@ -110,28 +110,38 @@ Each line of the content is a JSON object (JSONL format). Required messages:
 1. `beginRendering` - declares the surface root component:
    `{"beginRendering":{"surfaceId":"<id>","root":"<root-component-id>"}}`
 2. `surfaceUpdate` - provides the component tree:
-   `{"surfaceUpdate":{"surfaceId":"<id>","components":[{"id":"c1","component":{"Text":{"text":{"literal":"Hello"}}}},...]}}`
+   `{"surfaceUpdate":{"surfaceId":"<id>","components":[{"id":"c1","component":{"Text":{"text":{"literalString":"Hello"}}}},...]}}`
 3. `dataModelUpdate` (optional) - binds data to the surface:
    `{"dataModelUpdate":{"surfaceId":"<id>","path":"/","contents":[{"key":"value"}]}}`
 
-Available A2UI components: `Text`, `Button`, `Card`, `Column`, `Row`, `TextField`, `Divider`.
+Available A2UI components: `Text`, `Button`, `Card`, `Column`, `Row`, `TextField`, `Divider`, `Image`, `CheckBox`, `MultipleChoice`, `Radio`, `Badge`, `Tabs`, `Modal`, `Table`, `Progress`.
 
 CRITICAL value format rules:
-- Text `text` property MUST be wrapped: `{"Text":{"text":{"literal":"hello"}}}`
+- Text `text` property MUST be wrapped: `{"Text":{"text":{"literalString":"hello"}}}`
 - Button MUST use `child` (reference to a Text component ID) + `action`: `{"Button":{"child":"<text-comp-id>","action":{"name":"..."}}}`
   The child Text component must be included separately in the components array.
-- TextField `label` MUST be wrapped: `{"TextField":{"label":{"literal":"Name"},"placeholder":"","value":"","onChange":{"name":"..."}}}`
-- Card `title` is a plain string (not wrapped): `{"Card":{"title":"My Card","children":{"explicitList":["child-id"]}}}`
+- TextField `label` MUST be wrapped: `{"TextField":{"label":{"literalString":"Name"},"text":{"path":"/form/name"}}}`
+- CheckBox uses BooleanValue binding: `{"CheckBox":{"label":{"literalString":"Email updates"},"value":{"path":"/form/updates"}}}`
+- MultipleChoice uses options + selections.path: `{"MultipleChoice":{"description":{"literalString":"Priority"},"options":[{"label":{"literalString":"High"},"value":"high"}],"selections":{"path":"/form/priority"}}}`
+- Radio uses scalar value binding: `{"Radio":{"description":{"literalString":"Plan"},"options":[{"label":{"literalString":"Starter"},"value":"starter"}],"value":{"path":"/form/plan"}}}`
+- Badge uses wrapped text and optional tone: `{"Badge":{"text":{"literalString":"Active"},"tone":"success"}}`
+- Card `title` is a plain string when authored canonically: `{"Card":{"title":"My Card","children":{"explicitList":["child-id"]}}}`
 - Column/Row `gap` is a plain string: `{"Column":{"gap":"8px","children":{"explicitList":[...]}}}`
+- Compatibility notes: `Checkbox` and `Select` may be normalized to `CheckBox` and `MultipleChoice`, but do not author them by default. Renderer-only backward-compat shapes such as `List` must not be authored.
 
 Example — interactive summary card:
 ```
-{"beginRendering":{"surfaceId":"s1","root":"col1"}}
-{"surfaceUpdate":{"surfaceId":"s1","components":[{"id":"col1","component":{"Column":{"gap":"12px","children":{"explicitList":["t1","btn1","t_btn_label"]}}}},{"id":"t1","component":{"Text":{"text":{"literal":"Summary"},"style":{"fontWeight":"bold","fontSize":"18px"}}}},{"id":"btn1","component":{"Button":{"child":"t_btn_label","action":{"name":"view_details"}}}},{"id":"t_btn_label","component":{"Text":{"text":{"literal":"View Details"}}}}]}}
+{"beginRendering":{"surfaceId":"summary-surface","root":"layout-1"}}
+{"surfaceUpdate":{"surfaceId":"summary-surface","components":[{"id":"layout-1","component":{"Column":{"gap":"12px","children":{"explicitList":["title-1","button-1","button-label-1"]}}}},{"id":"title-1","component":{"Text":{"text":{"literalString":"Summary"}}}},{"id":"button-1","component":{"Button":{"child":"button-label-1","action":{"name":"view_details"}}}},{"id":"button-label-1","component":{"Text":{"text":{"literalString":"View details"}}}}]}}
 ```
 
 IMPORTANT: The `root` in `beginRendering` MUST match one component's `id` in `surfaceUpdate`.
 Children references in `explicitList` MUST match actual component `id` values.
+When using `canvas_create_interactive`, treat the surface as the primary UX.
+After the user clicks a button or submits the form, update the same surface to reflect the confirmed/completed state before relying on a chat-only acknowledgment.
+After the user clicks a button or submits the form, you MUST update the same surface with `canvas_update` before sending a final chat acknowledgment, unless you intentionally need to keep collecting more input.
+Use the resumed tool result's `block_id` and replace the form with a confirmed/completed state instead of ending with chat-only narration.
+Do not leave the stale pre-submit form visible when the interaction has already been completed unless you are intentionally asking for another action.
 # Code References
 When referencing specific functions or pieces of code, include the pattern `file_path:line_number` to allow the user to easily navigate to the source code location.
 

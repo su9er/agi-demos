@@ -1,0 +1,627 @@
+{
+  "contractVersion": 1,
+  "generatedAt": "2026-04-13T07:42:35Z",
+  "tiers": {
+    "tier1": {
+      "name": "canonical_authoring",
+      "description": "Canonical A2UI authoring accepted for prompt guidance, canonical persistence, and emitted payloads."
+    },
+    "tier2": {
+      "name": "accepted_legacy",
+      "description": "Accepted legacy or sugar inputs that must canonicalize into Tier 1 before persistence or emission."
+    },
+    "tier3": {
+      "name": "renderer_only_backward_compat",
+      "description": "Renderer-only backward compatibility. These shapes may render but must never be promoted into prompt guidance, canonical persistence, or emitted payloads."
+    }
+  },
+  "promptGuidance": {
+    "requiredEnvelopes": [
+      "beginRendering",
+      "surfaceUpdate"
+    ],
+    "optionalEnvelopes": [
+      "dataModelUpdate",
+      "deleteSurface"
+    ],
+    "supportedComponents": [
+      "Text",
+      "Button",
+      "Card",
+      "Column",
+      "Row",
+      "TextField",
+      "Divider",
+      "Image",
+      "CheckBox",
+      "MultipleChoice",
+      "Radio",
+      "Badge",
+      "Tabs",
+      "Modal",
+      "Table",
+      "Progress"
+    ],
+    "componentAliases": {
+      "Checkbox": "CheckBox",
+      "Select": "MultipleChoice"
+    },
+    "rendererOnlyCompatibility": {
+      "List": "List"
+    },
+    "literalAliases": {
+      "literal": "literalString",
+      "surface_id": "surfaceId"
+    },
+    "exampleCaseId": "tier1_interactive_summary"
+  },
+  "cases": [
+    {
+      "id": "tier1_interactive_summary",
+      "tier": "tier1",
+      "targets": [
+        "backend",
+        "frontend",
+        "prompt"
+      ],
+      "description": "Canonical interactive summary card using canonical envelopes and literalString payloads.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "summary-surface",
+            "root": "layout-1"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "summary-surface",
+            "components": [
+              {
+                "id": "layout-1",
+                "component": {
+                  "Column": {
+                    "gap": "12px",
+                    "children": {
+                      "explicitList": [
+                        "title-1",
+                        "button-1",
+                        "button-label-1"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": "title-1",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literalString": "Summary"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "button-1",
+                "component": {
+                  "Button": {
+                    "child": "button-label-1",
+                    "action": {
+                      "name": "view_details"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "button-label-1",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literalString": "View details"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": "tier1_interactive_summary",
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "summary-surface",
+        "metadataSurfaceId": "summary-surface"
+      }
+    },
+    {
+      "id": "tier1_alias_canonical",
+      "tier": "tier1",
+      "targets": [
+        "backend",
+        "frontend"
+      ],
+      "description": "Canonical alias-resolved component payloads using CheckBox and MultipleChoice.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "form-surface",
+            "root": "layout-1"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "form-surface",
+            "components": [
+              {
+                "id": "layout-1",
+                "component": {
+                  "Column": {
+                    "children": {
+                      "explicitList": [
+                        "image-1",
+                        "checkbox-1",
+                        "select-1",
+                        "badge-1"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": "image-1",
+                "component": {
+                  "Image": {
+                    "url": {
+                      "literalString": "https://example.com/avatar.png"
+                    },
+                    "fit": "cover"
+                  }
+                }
+              },
+              {
+                "id": "checkbox-1",
+                "component": {
+                  "CheckBox": {
+                    "label": {
+                      "literalString": "Email updates"
+                    },
+                    "value": {
+                      "path": "/form/updates"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "select-1",
+                "component": {
+                  "MultipleChoice": {
+                    "description": {
+                      "literalString": "Priority"
+                    },
+                    "options": [
+                      {
+                        "label": {
+                          "literalString": "High"
+                        },
+                        "value": "high"
+                      }
+                    ],
+                    "selections": {
+                      "path": "/form/priority"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "badge-1",
+                "component": {
+                  "Badge": {
+                    "text": {
+                      "literalString": "Active"
+                    },
+                    "tone": "success"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": "tier1_alias_canonical",
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "form-surface",
+        "metadataSurfaceId": "form-surface"
+      }
+    },
+    {
+      "id": "tier2_legacy_aliases",
+      "tier": "tier2",
+      "targets": [
+        "backend",
+        "frontend"
+      ],
+      "description": "Legacy literal and alias sugar that must normalize into canonical CheckBox and MultipleChoice payloads.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "form-surface",
+            "root": "layout-1"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "form-surface",
+            "components": [
+              {
+                "id": "layout-1",
+                "component": {
+                  "Column": {
+                    "children": [
+                      "image-1",
+                      "checkbox-1",
+                      "select-1",
+                      "badge-1"
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "image-1",
+                "component": {
+                  "Image": {
+                    "url": "https://example.com/avatar.png",
+                    "fit": "cover"
+                  }
+                }
+              },
+              {
+                "id": "checkbox-1",
+                "component": {
+                  "Checkbox": {
+                    "label": {
+                      "literal": "Email updates"
+                    },
+                    "value": {
+                      "path": "/form/updates"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "select-1",
+                "component": {
+                  "Select": {
+                    "description": {
+                      "literal": "Priority"
+                    },
+                    "options": [
+                      {
+                        "label": {
+                          "literal": "High"
+                        },
+                        "value": "high"
+                      }
+                    ],
+                    "selections": {
+                      "path": "/form/priority"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "badge-1",
+                "component": {
+                  "Badge": {
+                    "text": {
+                      "literal": "Active"
+                    },
+                    "tone": "success"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": "tier1_alias_canonical",
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "form-surface",
+        "metadataSurfaceId": "form-surface"
+      }
+    },
+    {
+      "id": "tier2_typed_envelopes",
+      "tier": "tier2",
+      "targets": [
+        "backend",
+        "frontend"
+      ],
+      "description": "Typed and snake_case envelope variants that must normalize into canonical camelCase envelopes.",
+      "records": [
+        {
+          "begin_rendering": {
+            "surface_id": "typed-surface",
+            "root": "root-1"
+          }
+        },
+        {
+          "type": "surface_update",
+          "payload": {
+            "surface_id": "typed-surface",
+            "components": [
+              {
+                "id": "root-1",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literal": "Typed hello"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "data_model_update": {
+            "surface_id": "typed-surface",
+            "path": "/",
+            "contents": [
+              {
+                "status": "ok"
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": "tier1_typed_canonical",
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "typed-surface",
+        "metadataSurfaceId": "typed-surface"
+      }
+    },
+    {
+      "id": "tier1_typed_canonical",
+      "tier": "tier1",
+      "targets": [
+        "backend",
+        "frontend"
+      ],
+      "description": "Canonical form of the typed envelope compatibility case.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "typed-surface",
+            "root": "root-1"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "typed-surface",
+            "components": [
+              {
+                "id": "root-1",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literalString": "Typed hello"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "dataModelUpdate": {
+            "surfaceId": "typed-surface",
+            "path": "/",
+            "contents": [
+              {
+                "status": "ok"
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": "tier1_typed_canonical",
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "typed-surface",
+        "metadataSurfaceId": "typed-surface"
+      }
+    },
+    {
+      "id": "tier3_historical_snapshot_object_components",
+      "tier": "tier3",
+      "targets": [
+        "frontend"
+      ],
+      "description": "Historical replay snapshot shape with object-keyed components and legacy literal payloads.",
+      "snapshot": {
+        "surfaceId": "surface-42",
+        "root": "root-1",
+        "components": {
+          "root": {
+            "id": "root-1",
+            "component": {
+              "Text": {
+                "text": {
+                  "literal": "Historical hello"
+                }
+              }
+            }
+          }
+        },
+        "data": {},
+        "dataRecords": []
+      },
+      "canonicalizes_to": null,
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "surface-42"
+      },
+      "historicalSource": "existing replay snapshot object-shape support"
+    },
+    {
+      "id": "tier3_renderer_only_list_component",
+      "tier": "tier3",
+      "targets": [
+        "frontend"
+      ],
+      "description": "Renderer-only List compatibility that must not appear in canonical persistence or prompt guidance.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "list-surface",
+            "root": "list-1"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "list-surface",
+            "components": [
+              {
+                "id": "list-1",
+                "component": {
+                  "List": {
+                    "children": {
+                      "explicitList": []
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": null,
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "list-surface"
+      },
+      "historicalSource": "renderer compatibility only"
+    },
+    {
+      "id": "invalid_legacy_type_components",
+      "tier": "tier2",
+      "targets": [
+        "backend",
+        "frontend"
+      ],
+      "description": "Legacy flat type-based component payloads remain invalid.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "invalid-surface",
+            "root": "root"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "invalid-surface",
+            "components": [
+              {
+                "id": "root",
+                "type": "Column",
+                "children": [
+                  "title"
+                ]
+              },
+              {
+                "id": "title",
+                "type": "Text",
+                "text": {
+                  "literal": "Invalid"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": null,
+      "shouldRender": false,
+      "shouldReject": true,
+      "identity": {
+        "surfaceId": "invalid-surface",
+        "metadataSurfaceId": "invalid-surface"
+      }
+    },
+    {
+      "id": "identity_interactive_request",
+      "tier": "tier1",
+      "targets": [
+        "backend",
+        "frontend"
+      ],
+      "description": "Interactive identity contract linking surface metadata and HITL request ids.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "interactive-surface",
+            "root": "root-1"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "interactive-surface",
+            "components": [
+              {
+                "id": "root-1",
+                "component": {
+                  "Column": {
+                    "children": {
+                      "explicitList": [
+                        "button-1",
+                        "button-label-1"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": "button-1",
+                "component": {
+                  "Button": {
+                    "child": "button-label-1",
+                    "action": {
+                      "name": "approve"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "button-label-1",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literalString": "Approve"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": "identity_interactive_request",
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "interactive-surface",
+        "metadataSurfaceId": "interactive-surface",
+        "hitlRequestId": "a2ui-req-fixture"
+      }
+    }
+  ]
+}

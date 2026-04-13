@@ -30,6 +30,12 @@ import {
 } from '@/stores/agent/a2uiMessages';
 import { useAgentV3Store } from '@/stores/agentV3';
 import { useCanvasStore } from '@/stores/canvasStore';
+import {
+  getA2UIContractCase,
+  getA2UIContractFixtures,
+  getA2UIContractMessages,
+  getA2UIContractSnapshot,
+} from '@/test/fixtures/a2uiContractFixtures';
 
 describe('A2UISurfaceRenderer', () => {
   const components = [
@@ -65,6 +71,30 @@ describe('A2UISurfaceRenderer', () => {
     expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
       root: 'root-1',
       components,
+    });
+  });
+
+  it('renders the shared tier1 canonical contract fixture', () => {
+    const messages = getA2UIContractMessages('tier1_interactive_summary');
+
+    render(<A2UISurfaceRenderer surfaceId="summary-surface" messages={messages} />);
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
+      root: 'layout-1',
+    });
+
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    const buttonComponent = props?.components?.find((entry) => entry.id === 'button-1')?.component
+      ?.Button as { child?: string; action?: { name?: string } } | undefined;
+    expect(buttonComponent).toEqual({
+      child: 'button-label-1',
+      action: { name: 'view_details' },
     });
   });
 
@@ -148,6 +178,25 @@ describe('A2UISurfaceRenderer', () => {
     expect(props?.root).toBe('root-1');
     expect(Array.isArray(props?.components)).toBe(true);
     expect(props?.components?.some((component) => component.id === 'root-1')).toBe(true);
+  });
+
+  it('renders the historical snapshot contract fixture through the snapshot path', () => {
+    const snapshot = getA2UIContractSnapshot('tier3_historical_snapshot_object_components');
+
+    render(<A2UISurfaceRenderer surfaceId="surface-42" messages="not-json" snapshot={snapshot} />);
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          root?: string;
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    expect(props?.root).toBe('root-1');
+    const textComponent = props?.components?.find((entry) => entry.id === 'root-1')?.component
+      ?.Text as { text?: { literalString?: string } } | undefined;
+    expect(textComponent?.text?.literalString).toBe('Historical hello');
   });
 
   it('renders Card payloads with explicit children', () => {
@@ -272,60 +321,9 @@ describe('A2UISurfaceRenderer', () => {
   });
 
   it('normalizes phase1 atomic component aliases for the viewer', () => {
-    const phase1Components = [
-      {
-        id: 'layout-1',
-        component: {
-          Column: {
-            children: ['image-1', 'checkbox-1', 'select-1', 'badge-1'],
-          },
-        },
-      },
-      {
-        id: 'image-1',
-        component: {
-          Image: {
-            src: 'https://example.com/avatar.png',
-            fit: 'cover',
-          },
-        },
-      },
-      {
-        id: 'checkbox-1',
-        component: {
-          Checkbox: {
-            label: 'Email updates',
-            checked: true,
-            path: 'form/updates',
-          },
-        },
-      },
-      {
-        id: 'select-1',
-        component: {
-          Select: {
-            label: 'Priority',
-            options: ['High', { label: 'Low', value: 'low' }],
-            value: 'form/priority',
-          },
-        },
-      },
-      {
-        id: 'badge-1',
-        component: {
-          Badge: {
-            text: 'Active',
-            tone: 'success',
-          },
-        },
-      },
-    ];
-    const messages = [
-      '{"beginRendering":{"surfaceId":"s1","root":"layout-1"}}',
-      `{"surfaceUpdate":{"surfaceId":"s1","components":${JSON.stringify(phase1Components)}}}`,
-    ].join('\n');
+    const messages = getA2UIContractMessages('tier2_legacy_aliases');
 
-    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    render(<A2UISurfaceRenderer surfaceId="form-surface" messages={messages} />);
     expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
     const props = viewerSpy.mock.calls[0]?.[0] as
       | {
@@ -333,17 +331,12 @@ describe('A2UISurfaceRenderer', () => {
         }
       | undefined;
 
-    const imageComponent = props?.components?.find((entry) => entry.id === 'image-1')?.component
-      ?.Image as { url?: { literalString?: string }; fit?: string } | undefined;
-    expect(imageComponent?.url?.literalString).toBe('https://example.com/avatar.png');
-    expect(imageComponent?.fit).toBe('cover');
-
     const checkboxComponent = props?.components?.find((entry) => entry.id === 'checkbox-1')
       ?.component?.CheckBox as
       | { label?: { literalString?: string }; value?: { literalBoolean?: boolean; path?: string } }
       | undefined;
     expect(checkboxComponent?.label?.literalString).toBe('Email updates');
-    expect(checkboxComponent?.value).toEqual({ literalBoolean: true, path: '/form/updates' });
+    expect(checkboxComponent?.value).toEqual({ path: '/form/updates' });
 
     const selectComponent = props?.components?.find((entry) => entry.id === 'select-1')?.component
       ?.MultipleChoice as
@@ -354,10 +347,7 @@ describe('A2UISurfaceRenderer', () => {
         }
       | undefined;
     expect(selectComponent?.description?.literalString).toBe('Priority');
-    expect(selectComponent?.options).toEqual([
-      { label: { literalString: 'High' }, value: 'High' },
-      { label: { literalString: 'Low' }, value: 'low' },
-    ]);
+    expect(selectComponent?.options).toEqual([{ label: { literalString: 'High' }, value: 'high' }]);
     expect(selectComponent?.selections?.path).toBe('/form/priority');
 
     const badgeComponent = props?.components?.find((entry) => entry.id === 'badge-1')?.component
@@ -370,6 +360,56 @@ describe('A2UISurfaceRenderer', () => {
     expect(badgeComponent?.text?.literalString).toBe('Active');
     expect(badgeComponent?.style?.borderRadius).toBe('9999px');
     expect(badgeComponent?.style?.backgroundColor).toBe('#e7f7ed');
+  });
+
+  it('renders the shared typed-envelope contract fixture', () => {
+    const messages = getA2UIContractMessages('tier2_typed_envelopes');
+
+    render(<A2UISurfaceRenderer surfaceId="typed-surface" messages={messages} />);
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          root?: string;
+          data?: Record<string, unknown>;
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    expect(props?.root).toBe('root-1');
+    expect(props?.data).toEqual({ status: 'ok' });
+    const textComponent = props?.components?.find((entry) => entry.id === 'root-1')?.component
+      ?.Text as { text?: { literalString?: string } } | undefined;
+    expect(textComponent?.text?.literalString).toBe('Typed hello');
+  });
+
+  it('renders the renderer-only List fixture without promoting it into canonical guidance', () => {
+    const messages = getA2UIContractMessages('tier3_renderer_only_list_component');
+    const fixtures = getA2UIContractFixtures();
+    const listFixture = getA2UIContractCase('tier3_renderer_only_list_component');
+
+    render(<A2UISurfaceRenderer surfaceId="list-surface" messages={messages} />);
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    expect(listFixture.canonicalizes_to).toBeNull();
+    expect(fixtures.promptGuidance.supportedComponents).not.toContain('List');
+    expect(fixtures.promptGuidance.rendererOnlyCompatibility.List).toBe('List');
+
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    const listComponent = props?.components?.find((entry) => entry.id === 'list-1')?.component;
+    expect(listComponent).toEqual({
+      List: {
+        children: {
+          explicitList: [],
+        },
+      },
+    });
   });
 
   it('normalizes Radio payloads for the custom renderer', () => {
@@ -629,68 +669,74 @@ describe('A2UISurfaceRenderer', () => {
   });
 
   it('shows a parse error for legacy type-based component payloads', () => {
-    const messages = [
-      '{"beginRendering":{"surfaceId":"s1","root":"root"}}',
-      JSON.stringify({
-        surfaceUpdate: {
-          surfaceId: 's1',
-          components: [
-            {
-              id: 'root',
-              type: 'Column',
-              children: ['title', 'input', 'submit', 'submit-label'],
-              gap: 16,
-              alignItems: 'stretch',
-            },
-            {
-              id: 'title',
-              type: 'Text',
-              text: { literal: 'Legacy A2UI payload' },
-              fontSize: 24,
-            },
-            {
-              id: 'input',
-              type: 'TextField',
-              label: { literal: 'Name' },
-              text: { path: '/form/name' },
-            },
-            {
-              id: 'submit',
-              type: 'Button',
-              child: 'submit-label',
-              action: { name: 'submit_form' },
-            },
-            {
-              id: 'submit-label',
-              type: 'Text',
-              text: { literal: 'Submit' },
-            },
-          ],
-        },
-      }),
-    ].join('\n');
+    const messages = getA2UIContractMessages('invalid_legacy_type_components');
 
-    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    render(<A2UISurfaceRenderer surfaceId="invalid-surface" messages={messages} />);
     expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
     expect(viewerSpy).not.toHaveBeenCalled();
   });
 
-  it('shows a parse error for snake_case and typed envelope variants', () => {
-    const messages = [
-      '{"begin_rendering":{"surface_id":"s1","root":"root-1"}}',
-      `{"type":"surface_update","payload":{"surface_id":"s1","components":${JSON.stringify(components)}}}`,
-      '{"data_model_update":{"surface_id":"s1","path":"/","contents":[{"status":"ok"}]}}',
-    ].join('\n');
-
-    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
-    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
-    expect(viewerSpy).not.toHaveBeenCalled();
-  });
-
-  it('shows a parse error for flat single-object payloads with top-level components and dataModel', () => {
+  it('renders compound envelope payloads after splitting them into canonical records', () => {
     const messages = JSON.stringify({
       beginRendering: { surfaceId: 'server-surface', root: 'root' },
-      surfaceUpdate: { surfaceId: 'server-surface' },
+      surfaceUpdate: {
+        surfaceId: 'server-surface',
+        components: [
+          {
+            id: 'root',
+            component: {
+              CheckBox: {
+                label: { literalString: 'Enable alerts' },
+                value: { literalBoolean: false, path: '/form/enabled' },
+              },
+            },
+          },
+        ],
+        dataModelUpdate: {
+          surfaceId: 'server-surface',
+          path: '/',
+          contents: [{ form: { enabled: false } }],
+        },
+      },
+    });
+
+    render(<A2UISurfaceRenderer surfaceId="server-surface" messages={messages} />);
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
+      root: 'root',
+      data: { form: { enabled: false } },
+    });
+  });
+
+  it('renders JSON-like payloads with Python boolean literals', () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"server-surface","root":"root"}}',
+      '{"surfaceUpdate":{"surfaceId":"server-surface","components":[{"id":"root","component":{"CheckBox":{"label":{"literalString":"Enable alerts"},"value":{"literalBoolean":False,"path":"/form/enabled"}}}}]}}',
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="server-surface" messages={messages} />);
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    const checkboxPayload = props?.components?.[0]?.component?.CheckBox as
+      | { value?: { literalBoolean?: boolean; path?: string } }
+      | undefined;
+    expect(checkboxPayload?.value).toMatchObject({
+      literalBoolean: false,
+      path: '/form/enabled',
+    });
+  });
+
+  it('keeps non-envelope flat payloads invalid even with the broader contract shim', () => {
+    const messages = JSON.stringify({
+      surfaceId: 'server-surface',
       dataModel: { form: { selected: 'request_env_var' } },
       components: [
         {
@@ -698,36 +744,6 @@ describe('A2UISurfaceRenderer', () => {
           component: {
             Column: {
               children: ['title', 'button', 'button-text'],
-            },
-          },
-        },
-        {
-          id: 'title',
-          component: {
-            Text: {
-              text: { literal: '选择测试项' },
-            },
-          },
-        },
-        {
-          id: 'button',
-          component: {
-            Button: {
-              child: 'button-text',
-              action: {
-                name: 'select_tool',
-                context: {
-                  tool: 'request_env_var',
-                },
-              },
-            },
-          },
-        },
-        {
-          id: 'button-text',
-          component: {
-            Text: {
-              text: { literal: 'request_env_var' },
             },
           },
         },
@@ -777,6 +793,60 @@ describe('A2UISurfaceRenderer', () => {
     const props = viewerSpy.mock.calls[0]?.[0] as { data?: Record<string, unknown> } | undefined;
     expect(props?.data).toMatchObject({ safe: 'ok' });
     expect((Object.prototype as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('dispatches actions for the shared interactive identity fixture', async () => {
+    const contractCase = getA2UIContractCase('identity_interactive_request');
+    const messages = getA2UIContractMessages(contractCase.id);
+
+    useAgentV3Store.setState({ activeConversationId: 'conv-1' });
+    useCanvasStore.setState({
+      tabs: [
+        {
+          id: 'a2ui-tab-1',
+          title: 'A2UI',
+          type: 'a2ui-surface',
+          content: '',
+          dirty: false,
+          createdAt: Date.now(),
+          history: [],
+          historyIndex: -1,
+          a2uiSurfaceId: contractCase.identity?.metadataSurfaceId ?? 'interactive-surface',
+          a2uiHitlRequestId: contractCase.identity?.hitlRequestId,
+        },
+      ],
+      activeTabId: 'a2ui-tab-1',
+    });
+
+    render(<A2UISurfaceRenderer surfaceId="interactive-surface" messages={messages} />);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          onAction?: (action: {
+            actionName: string;
+            sourceComponentId: string;
+            timestamp: string;
+            context: Record<string, unknown>;
+          }) => void;
+        }
+      | undefined;
+
+    await act(async () => {
+      props?.onAction?.({
+        actionName: 'approve',
+        sourceComponentId: 'button-1',
+        timestamp: new Date().toISOString(),
+        context: { approved: true },
+      });
+    });
+
+    await waitFor(() => {
+      expect(respondToA2UIActionSpy).toHaveBeenCalledWith(
+        'a2ui-req-fixture',
+        'approve',
+        'button-1',
+        { approved: true }
+      );
+    });
   });
 
   it('does not dispatch actions when the payload surfaceId mismatches the target surface', async () => {

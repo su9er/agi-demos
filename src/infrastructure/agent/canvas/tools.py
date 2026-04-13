@@ -160,25 +160,27 @@ def get_canvas_manager() -> CanvasManager:
                     "For a2ui_surface: A2UI JSONL messages — one JSON object per line. Required messages: "
                     '1) {"beginRendering":{"surfaceId":"<id>","root":"<root-component-id>"}} '
                     '2) {"surfaceUpdate":{"surfaceId":"<id>","components":[...]}} '
-                    'Each component entry MUST use {"id":"<component-id>","component":{"Text|Button|Card|Column|Row|TextField|Divider|Image|Checkbox|CheckBox|Select|MultipleChoice|Radio|Badge|Tabs|Modal|Table|Progress":{...}}} '
+                    'Each component entry MUST use {"id":"<component-id>","component":{"Text|Button|Card|Column|Row|TextField|Divider|Image|CheckBox|MultipleChoice|Radio|Badge|Tabs|Modal|Table|Progress":{...}}} '
                     '— do not emit legacy {"id":"...","type":"Text",...} objects. '
-                    "Available components: Text, Button, Card, Column, Row, TextField, Divider, Image, Checkbox, Select, Radio, Badge, Tabs, Modal, Table, Progress. "
+                    "Available canonical components: Text, Button, Card, Column, Row, TextField, Divider, Image, CheckBox, MultipleChoice, Radio, Badge, Tabs, Modal, Table, Progress. "
                     'CRITICAL format: Text text MUST be wrapped: {"Text":{"text":{"literalString":"hello"}}}. '
                     'Button uses child (Text component ID ref) + action: {"Button":{"child":"<text-id>","action":{"name":"..."}}}. '
                     'Authoring sugar: Button may use label instead of child, e.g. {"Button":{"label":{"literalString":"Continue"},"action":{"name":"continue"}}}; it will be hoisted into a synthetic Text child automatically. '
                     'TextField uses data binding: {"TextField":{"label":{"literalString":"Name"},"text":{"path":"/form/name"}}}. '
                     'Image uses a wrapped URL: {"Image":{"url":{"literalString":"https://..."}}}. '
-                    'Checkbox uses BooleanValue binding: {"Checkbox":{"label":{"literalString":"Email updates"},"value":{"path":"/form/updates"}}}. '
-                    'Select uses options + selections.path: {"Select":{"description":{"literalString":"Priority"},"options":[{"label":{"literalString":"High"},"value":"high"}],"selections":{"path":"/form/priority"}}}. '
+                    'CheckBox uses BooleanValue binding: {"CheckBox":{"label":{"literalString":"Email updates"},"value":{"path":"/form/updates"}}}. '
+                    'MultipleChoice uses options + selections.path: {"MultipleChoice":{"description":{"literalString":"Priority"},"options":[{"label":{"literalString":"High"},"value":"high"}],"selections":{"path":"/form/priority"}}}. '
                     'Radio uses scalar value binding: {"Radio":{"description":{"literalString":"Plan"},"options":[{"label":{"literalString":"Starter"},"value":"starter"}],"value":{"path":"/form/plan"}}}. '
                     'Badge uses wrapped text and optional tone: {"Badge":{"text":{"literalString":"Active"},"tone":"success"}}. '
                     'Tabs uses tabItems with title + child ids: {"Tabs":{"tabItems":[{"title":{"literalString":"Overview"},"child":"tab-overview"}]}}. '
                     'Modal uses entryPointChild + contentChild ids: {"Modal":{"entryPointChild":"open-modal","contentChild":"modal-body"}}. '
                     'Table uses columns + rows: {"Table":{"columns":[{"header":{"literalString":"Name"}}],"rows":[{"cells":[{"literalString":"Alice"}]}]}}. '
                     'Progress uses NumberValue bindings: {"Progress":{"label":{"literalString":"Completion"},"value":{"path":"/progress/current"},"max":{"literalNumber":100}}}. '
+                    "Accepted compatibility aliases: Checkbox -> CheckBox and Select -> MultipleChoice. "
+                    "Renderer-only backward-compat payloads such as List may render in history/replay paths but must not be authored. "
                     "Column/Row gap may be a number (treated as px). Card.title may be a string or an inline Text component, which will be hoisted into Card.children. "
                     "TextField default input values can be seeded with a matching dataModelUpdate message. "
-                    "Select writes an array of selected values to selections.path and does not yet hydrate preselected UI state. "
+                    "MultipleChoice writes an array of selected values to selections.path and does not yet hydrate preselected UI state. "
                     "Radio writes a single selected string to value.path and does hydrate preselected data values. "
                     "Modal open/close and Tabs switching are client-side interactions; interactive surfaces still need at least one reachable Button action. "
                     "For code: the source code. For table: JSON array of rows. "
@@ -498,6 +500,14 @@ async def canvas_delete(
         "Unlike canvas_create, this tool PAUSES the agent until the user clicks "
         "a button, submits a form, or otherwise interacts with the surface. "
         "Returns the user's action (action_name, source_component_id, context). "
+        "After the tool resumes with the user's action, update the same surface "
+        "to reflect the completed/confirmed state instead of leaving the stale "
+        "pre-submit form visible to the user. "
+        "After the tool resumes with the user's action, you MUST call "
+        "`canvas_update` on the same block_id before sending a final assistant "
+        "message, unless you intentionally need to keep the interaction open. "
+        "Replace the form with a completed/confirmed state instead of relying "
+        "on chat-only narration. "
         "Use this when you need to collect user input or confirmation via a rich UI. "
         "The rendered surface must include at least one reachable Button; "
         "display-only Card/Text layouts should use canvas_create instead. "
@@ -515,6 +525,13 @@ async def canvas_delete(
                 "description": (
                     "A2UI JSONL messages describing the interactive surface. "
                     "Same format as canvas_create a2ui_surface content. "
+                    "For a new surface, emit JSONL with one envelope per line, in order: "
+                    '1) {"beginRendering":{"surfaceId":"<id>","root":"<root-id>"}} '
+                    '2) {"surfaceUpdate":{"surfaceId":"<id>","components":[...]}}. '
+                    "Do not wrap both envelopes in one markdown block or prose response. "
+                    "Do not nest dataModelUpdate inside surfaceUpdate; if needed, emit it as its own JSON line. "
+                    'Minimal interactive example: {"beginRendering":{"surfaceId":"confirm-surface","root":"button-1"}}\n'
+                    '{"surfaceUpdate":{"surfaceId":"confirm-surface","components":[{"id":"label-1","component":{"Text":{"text":{"literalString":"Confirm"}}}},{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"confirm"}}}}]}} '
                     'Every component entry must use {"id":"...","component":{"Text|Button|Card|Column|Row|TextField|Divider|Image|Checkbox|CheckBox|Select|MultipleChoice|Radio|Badge|Tabs|Modal|Table|Progress":{...}}}. '
                     'Do not use legacy {"type":"Text",...} component objects. '
                     "Button.label, numeric gap, and inline Card title Text sugar are accepted and canonicalized automatically. "

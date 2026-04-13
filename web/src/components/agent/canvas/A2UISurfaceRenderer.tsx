@@ -7,16 +7,21 @@
  */
 import { type ReactNode, Component, memo, useCallback, useMemo, useState } from 'react';
 
-import type { A2UIViewerProps } from '@copilotkit/a2ui-renderer';
-
-import { useAgentV3Store } from '@/stores/agentV3';
+import {
+  normalizeA2UIEnvelopeRecords,
+  normalizeA2UIJsonLikeString,
+} from '@/stores/agent/a2uiEnvelopeContract';
 import type { A2UIMessageStreamSnapshot } from '@/stores/agent/a2uiMessages';
+import { useAgentV3Store } from '@/stores/agentV3';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { applyA2UIDataModelUpdate } from '@/utils/a2uiDataModel';
 
 import { agentService } from '@/services/agentService';
 
+import { applyA2UIDataModelUpdate } from '@/utils/a2uiDataModel';
+
 import { MemStackA2UIViewer } from './MemStackA2UIViewer';
+
+import type { A2UIViewerProps } from '@copilotkit/a2ui-renderer';
 
 // ---------------------------------------------------------------------------
 // Types (aligned with A2UI v0.8 ServerToClientMessage envelopes)
@@ -1082,16 +1087,31 @@ function parseJsonStrict(input: string): JsonValue | typeof PARSE_FAILED {
   try {
     return JSON.parse(input) as JsonValue;
   } catch {
-    return PARSE_FAILED;
+    const jsonLike = normalizeA2UIJsonLikeString(input);
+    if (jsonLike === input) {
+      return PARSE_FAILED;
+    }
+
+    try {
+      return JSON.parse(jsonLike) as JsonValue;
+    } catch {
+      return PARSE_FAILED;
+    }
   }
 }
 
-function extractEnvelopeList(raw: string): unknown[] {
+function normalizeEnvelopeList(rawEnvelopes: unknown[]): EnvelopeRecord[] {
+  return rawEnvelopes.flatMap((rawEnvelope) => normalizeA2UIEnvelopeRecords(rawEnvelope));
+}
+
+function extractEnvelopeList(raw: string): EnvelopeRecord[] {
   const normalized = stripMarkdownCodeFence(raw);
   if (!normalized) return [];
 
   const parsedWhole = parseJsonStrict(normalized);
-  if (parsedWhole !== PARSE_FAILED) return normalizeEnvelopes(parsedWhole);
+  if (parsedWhole !== PARSE_FAILED) {
+    return normalizeEnvelopeList(normalizeEnvelopes(parsedWhole));
+  }
 
   const lines = normalized.split(/\r?\n/);
   if (lines.length > 1) {
@@ -1107,7 +1127,9 @@ function extractEnvelopeList(raw: string): unknown[] {
       }
       lineParsed.push(...normalizeEnvelopes(parsedLine));
     }
-    if (!lineParseFailed && lineParsed.length > 0) return lineParsed;
+    if (!lineParseFailed && lineParsed.length > 0) {
+      return normalizeEnvelopeList(lineParsed);
+    }
   }
 
   const objectParsed: unknown[] = [];
@@ -1121,7 +1143,7 @@ function extractEnvelopeList(raw: string): unknown[] {
     cursor = span.end;
   }
   if (normalized.slice(cursor).trim()) return [];
-  return objectParsed;
+  return normalizeEnvelopeList(objectParsed);
 }
 
 function getSurfaceId(payload: EnvelopeRecord | null): string | null {

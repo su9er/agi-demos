@@ -90,6 +90,35 @@ describe('agentV3 canvas tab cleanup by conversation scope', () => {
     expect(useAgentV3Store.getState().activeConversationId).toBe('conv-new');
   });
 
+  it('marks creation in progress until the new conversation shell is ready', async () => {
+    let resolveCreate:
+      | ((value: Conversation) => void)
+      | undefined;
+
+    vi.mocked(agentService.createConversation).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        })
+    );
+
+    const createPromise = useAgentV3Store.getState().createNewConversation('proj-1');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(useAgentV3Store.getState().isCreatingConversation).toBe(true);
+
+    resolveCreate?.(makeConversation('conv-pending'));
+
+    await act(async () => {
+      await createPromise;
+    });
+
+    expect(useAgentV3Store.getState().isCreatingConversation).toBe(false);
+    expect(useAgentV3Store.getState().activeConversationId).toBe('conv-pending');
+  });
+
   it('clears old tabs then replays only the target conversation canvas timeline', () => {
     useCanvasStore.getState().openTab({
       id: 'old-tab',

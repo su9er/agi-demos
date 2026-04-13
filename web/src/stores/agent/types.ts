@@ -38,6 +38,7 @@ export interface AgentV3State {
   // Conversation State
   conversations: Conversation[];
   activeConversationId: string | null;
+  isCreatingConversation: boolean;
   hasMoreConversations: boolean;
   conversationsTotal: number;
 

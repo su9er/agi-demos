@@ -148,6 +148,7 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
     // component on every streaming token.
     const {
       activeConversationId,
+      isCreatingConversation,
       loadConversations,
       loadMessages,
       loadEarlierMessages,
@@ -159,6 +160,7 @@ export const AgentChatContent: React.FC<AgentChatContentProps> = React.memo(
     } = useAgentV3Store(
       useShallow((state) => ({
         activeConversationId: state.activeConversationId,
+        isCreatingConversation: state.isCreatingConversation,
         loadConversations: state.loadConversations,
         loadMessages: state.loadMessages,
         loadEarlierMessages: state.loadEarlierMessages,
@@ -666,7 +668,7 @@ ${content}`;
             }}
             onAbort={abortStream}
             isStreaming={isStreaming}
-            disabled={isLoadingHistory}
+            disabled={isLoadingHistory || isCreatingConversation}
             projectId={projectId || undefined}
             onTogglePlanMode={() => {
               void handleTogglePlanMode();

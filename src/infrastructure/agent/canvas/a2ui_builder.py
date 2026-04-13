@@ -14,6 +14,7 @@ A2UI message format reference (Google A2UI v0.8):
 
 from __future__ import annotations
 
+import ast
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -90,6 +91,11 @@ def _is_non_empty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _is_string_literal(value: object) -> bool:
+    """Return True when value is a string literal, including empty strings."""
+    return isinstance(value, str)
+
+
 def _is_plain_object(value: object) -> bool:
     """Return True when value is a JSON-like object."""
     return isinstance(value, dict)
@@ -108,9 +114,9 @@ def _validate_string_value(
             allowed = f"{allowed} or path"
         return _invalid_a2ui_payload(f"{field_path} must be an object containing {allowed}.")
 
-    if _is_non_empty_string(value.get("literalString")):
+    if _is_string_literal(value.get("literalString")):
         return None
-    if _is_non_empty_string(value.get("literal")):
+    if _is_string_literal(value.get("literal")):
         return None
     if allow_path and _is_non_empty_string(value.get("path")):
         return None
@@ -205,7 +211,7 @@ def _validate_text_component_payload(
     field_path: str,
 ) -> str | None:
     """Validate a Text component payload."""
-    return _validate_string_value(payload.get("text"), field_path=f"{field_path}.text")
+    return _validate_inline_string_value(payload.get("text"), field_path=f"{field_path}.text")
 
 
 def _validate_button_component_payload(
@@ -286,9 +292,9 @@ def _validate_text_field_component_payload(
     field_path: str,
 ) -> str | None:
     """Validate a TextField component payload."""
-    if error := _validate_string_value(payload.get("label"), field_path=f"{field_path}.label"):
+    if error := _validate_inline_string_value(payload.get("label"), field_path=f"{field_path}.label"):
         return error
-    if error := _validate_string_value(payload.get("text"), field_path=f"{field_path}.text"):
+    if error := _validate_inline_string_value(payload.get("text"), field_path=f"{field_path}.text"):
         return error
     return None
 
@@ -299,7 +305,7 @@ def _validate_image_component_payload(
     field_path: str,
 ) -> str | None:
     """Validate an Image component payload."""
-    if error := _validate_string_value(payload.get("url"), field_path=f"{field_path}.url"):
+    if error := _validate_inline_string_value(payload.get("url"), field_path=f"{field_path}.url"):
         return error
     fit = payload.get("fit")
     if fit is not None and not _is_non_empty_string(fit):
@@ -318,9 +324,9 @@ def _validate_checkbox_component_payload(
     field_path: str,
 ) -> str | None:
     """Validate a CheckBox component payload."""
-    if error := _validate_string_value(payload.get("label"), field_path=f"{field_path}.label"):
+    if error := _validate_inline_string_value(payload.get("label"), field_path=f"{field_path}.label"):
         return error
-    if error := _validate_boolean_value(payload.get("value"), field_path=f"{field_path}.value"):
+    if error := _validate_inline_boolean_value(payload.get("value"), field_path=f"{field_path}.value"):
         return error
     return None
 
@@ -333,7 +339,7 @@ def _validate_multiple_choice_component_payload(
     """Validate a MultipleChoice component payload."""
     description = payload.get("description")
     if description is not None and (
-        error := _validate_string_value(description, field_path=f"{field_path}.description")
+        error := _validate_inline_string_value(description, field_path=f"{field_path}.description")
     ):
         return error
 
@@ -346,7 +352,7 @@ def _validate_multiple_choice_component_payload(
             return _invalid_a2ui_payload(
                 f"{field_path}.options[{option_index}] must be an object with label and value."
             )
-        if error := _validate_string_value(
+        if error := _validate_inline_string_value(
             option.get("label"),
             field_path=f"{field_path}.options[{option_index}].label",
         ):
@@ -370,7 +376,7 @@ def _validate_radio_component_payload(
     """Validate a Radio component payload."""
     description = payload.get("description")
     if description is not None and (
-        error := _validate_string_value(description, field_path=f"{field_path}.description")
+        error := _validate_inline_string_value(description, field_path=f"{field_path}.description")
     ):
         return error
 
@@ -383,7 +389,7 @@ def _validate_radio_component_payload(
             return _invalid_a2ui_payload(
                 f"{field_path}.options[{option_index}] must be an object with label and value."
             )
-        if error := _validate_string_value(
+        if error := _validate_inline_string_value(
             option.get("label"),
             field_path=f"{field_path}.options[{option_index}].label",
         ):
@@ -397,9 +403,9 @@ def _validate_radio_component_payload(
     selection = payload.get("selection")
     selections = payload.get("selections")
     if value is not None:
-        return _validate_string_value(value, field_path=f"{field_path}.value")
+        return _validate_inline_string_value(value, field_path=f"{field_path}.value")
     if selection is not None:
-        return _validate_string_value(selection, field_path=f"{field_path}.selection")
+        return _validate_inline_string_value(selection, field_path=f"{field_path}.selection")
     if _is_plain_object(selections) and _is_non_empty_string(selections.get("path")):
         return None
     return _invalid_a2ui_payload(
@@ -413,7 +419,7 @@ def _validate_badge_component_payload(
     field_path: str,
 ) -> str | None:
     """Validate a Badge component payload."""
-    if error := _validate_string_value(payload.get("text"), field_path=f"{field_path}.text"):
+    if error := _validate_inline_string_value(payload.get("text"), field_path=f"{field_path}.text"):
         return error
     tone = payload.get("tone")
     if tone is not None and not _is_non_empty_string(tone):
@@ -430,7 +436,7 @@ def _validate_component_ref(value: object, *, field_path: str) -> str | None:
 
 def _validate_inline_string_value(value: object, *, field_path: str) -> str | None:
     """Validate a raw string or A2UI StringValue."""
-    if _is_non_empty_string(value):
+    if _is_string_literal(value):
         return None
     return _validate_string_value(value, field_path=field_path)
 
@@ -440,6 +446,13 @@ def _validate_inline_number_value(value: object, *, field_path: str) -> str | No
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return None
     return _validate_number_value(value, field_path=field_path)
+
+
+def _validate_inline_boolean_value(value: object, *, field_path: str) -> str | None:
+    """Validate a raw boolean or A2UI BooleanValue."""
+    if isinstance(value, bool):
+        return None
+    return _validate_boolean_value(value, field_path=field_path)
 
 
 def _validate_scalar_or_path_value(value: object, *, field_path: str) -> str | None:
@@ -757,24 +770,241 @@ def _normalize_data_model_contents(contents: object) -> list[dict[str, object]]:
 
 def _normalize_inline_string_payload(value: object) -> dict[str, object] | None:
     """Normalize a raw string or StringValue-like object into canonical StringValue."""
-    if _is_non_empty_string(value):
+    if _is_string_literal(value):
         return {"literalString": str(value)}
     if not isinstance(value, dict):
         return None
 
     normalized: dict[str, object] = {}
     literal_string = value.get("literalString")
-    if _is_non_empty_string(literal_string):
+    if _is_string_literal(literal_string):
         normalized["literalString"] = str(literal_string)
     else:
         literal = value.get("literal")
-        if _is_non_empty_string(literal):
+        if _is_string_literal(literal):
             normalized["literalString"] = str(literal)
 
     path = value.get("path")
     if _is_non_empty_string(path):
         normalized["path"] = _normalize_data_path(str(path))
     return normalized or None
+
+
+def _normalize_boolean_value_payload(value: object) -> dict[str, object] | None:
+    """Normalize a BooleanValue-like object into canonical literalBoolean/path form."""
+    if isinstance(value, bool):
+        return {"literalBoolean": value}
+    if not isinstance(value, dict):
+        return None
+
+    normalized: dict[str, object] = {}
+    literal_boolean = value.get("literalBoolean")
+    if isinstance(literal_boolean, bool):
+        normalized["literalBoolean"] = literal_boolean
+    else:
+        literal = value.get("literal")
+        if isinstance(literal, bool):
+            normalized["literalBoolean"] = literal
+
+    path = value.get("path")
+    if _is_non_empty_string(path):
+        normalized["path"] = _normalize_data_path(str(path))
+    return normalized or None
+
+
+def _normalize_number_value_payload(value: object) -> dict[str, object] | None:
+    """Normalize a NumberValue-like object into canonical literalNumber/path form."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return {"literalNumber": value}
+    if not isinstance(value, dict):
+        return None
+
+    normalized: dict[str, object] = {}
+    literal_number = value.get("literalNumber")
+    if isinstance(literal_number, (int, float)) and not isinstance(literal_number, bool):
+        normalized["literalNumber"] = literal_number
+    else:
+        literal = value.get("literal")
+        if isinstance(literal, (int, float)) and not isinstance(literal, bool):
+            normalized["literalNumber"] = literal
+
+    path = value.get("path")
+    if _is_non_empty_string(path):
+        normalized["path"] = _normalize_data_path(str(path))
+    return normalized or None
+
+
+def _normalize_component_options(options: object) -> object:
+    """Normalize MultipleChoice/Radio option labels onto canonical StringValues."""
+    if not isinstance(options, list):
+        return options
+
+    normalized_options: list[object] = []
+    for option in options:
+        if not isinstance(option, dict):
+            normalized_options.append(option)
+            continue
+        normalized_option = dict(option)
+        label = _normalize_inline_string_payload(option.get("label"))
+        if label is not None:
+            normalized_option["label"] = label
+        normalized_options.append(normalized_option)
+    return normalized_options
+
+
+def _canonicalize_component_payload_values(
+    component_key: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    """Normalize component payload leaves onto canonical value shapes."""
+    normalized_payload = dict(payload)
+
+    if component_key == "Text":
+        text = _normalize_inline_string_payload(normalized_payload.get("text"))
+        if text is not None:
+            normalized_payload["text"] = text
+        return normalized_payload
+
+    if component_key == "TextField":
+        label = _normalize_inline_string_payload(normalized_payload.get("label"))
+        if label is not None:
+            normalized_payload["label"] = label
+        text = _normalize_inline_string_payload(normalized_payload.get("text"))
+        if text is not None:
+            normalized_payload["text"] = text
+        return normalized_payload
+
+    if component_key == "Image":
+        url = _normalize_inline_string_payload(normalized_payload.get("url"))
+        if url is not None:
+            normalized_payload["url"] = url
+        return normalized_payload
+
+    if component_key == "CheckBox":
+        label = _normalize_inline_string_payload(normalized_payload.get("label"))
+        if label is not None:
+            normalized_payload["label"] = label
+        value = _normalize_boolean_value_payload(normalized_payload.get("value"))
+        if value is not None:
+            normalized_payload["value"] = value
+        return normalized_payload
+
+    if component_key == "MultipleChoice":
+        description = _normalize_inline_string_payload(normalized_payload.get("description"))
+        if description is not None:
+            normalized_payload["description"] = description
+        normalized_payload["options"] = _normalize_component_options(
+            normalized_payload.get("options")
+        )
+        selections = normalized_payload.get("selections")
+        if isinstance(selections, dict) and _is_non_empty_string(selections.get("path")):
+            normalized_payload["selections"] = {
+                **selections,
+                "path": _normalize_data_path(str(selections["path"])),
+            }
+        return normalized_payload
+
+    if component_key == "Radio":
+        description = _normalize_inline_string_payload(normalized_payload.get("description"))
+        if description is not None:
+            normalized_payload["description"] = description
+        normalized_payload["options"] = _normalize_component_options(
+            normalized_payload.get("options")
+        )
+        value = _normalize_inline_string_payload(normalized_payload.get("value"))
+        if value is not None:
+            normalized_payload["value"] = value
+        selection = _normalize_inline_string_payload(normalized_payload.get("selection"))
+        if selection is not None:
+            normalized_payload["selection"] = selection
+        selections = normalized_payload.get("selections")
+        if isinstance(selections, dict) and _is_non_empty_string(selections.get("path")):
+            normalized_payload["selections"] = {
+                **selections,
+                "path": _normalize_data_path(str(selections["path"])),
+            }
+        return normalized_payload
+
+    if component_key == "Badge":
+        text = _normalize_inline_string_payload(normalized_payload.get("text"))
+        if text is not None:
+            normalized_payload["text"] = text
+        return normalized_payload
+
+    if component_key == "Tabs":
+        tab_items = normalized_payload.get("tabItems")
+        if not isinstance(tab_items, list):
+            return normalized_payload
+        normalized_items: list[object] = []
+        for item in tab_items:
+            if not isinstance(item, dict):
+                normalized_items.append(item)
+                continue
+            normalized_item = dict(item)
+            title = _normalize_inline_string_payload(item.get("title"))
+            if title is not None:
+                normalized_item["title"] = title
+            normalized_items.append(normalized_item)
+        normalized_payload["tabItems"] = normalized_items
+        return normalized_payload
+
+    if component_key == "Table":
+        columns = normalized_payload.get("columns")
+        if isinstance(columns, list):
+            normalized_columns: list[object] = []
+            for column in columns:
+                if not isinstance(column, dict):
+                    normalized_columns.append(column)
+                    continue
+                normalized_column = dict(column)
+                header = _normalize_inline_string_payload(column.get("header"))
+                if header is not None:
+                    normalized_column["header"] = header
+                normalized_columns.append(normalized_column)
+            normalized_payload["columns"] = normalized_columns
+        rows = normalized_payload.get("rows")
+        if isinstance(rows, list):
+            normalized_rows: list[object] = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    normalized_rows.append(row)
+                    continue
+                normalized_row = dict(row)
+                cells = row.get("cells")
+                if isinstance(cells, list):
+                    normalized_cells: list[object] = []
+                    for cell in cells:
+                        string_cell = _normalize_inline_string_payload(cell)
+                        if string_cell is not None:
+                            normalized_cells.append(string_cell)
+                            continue
+                        number_cell = _normalize_number_value_payload(cell)
+                        if number_cell is not None:
+                            normalized_cells.append(number_cell)
+                            continue
+                        boolean_cell = _normalize_boolean_value_payload(cell)
+                        if boolean_cell is not None:
+                            normalized_cells.append(boolean_cell)
+                            continue
+                        normalized_cells.append(cell)
+                    normalized_row["cells"] = normalized_cells
+                normalized_rows.append(normalized_row)
+            normalized_payload["rows"] = normalized_rows
+        return normalized_payload
+
+    if component_key == "Progress":
+        label = _normalize_inline_string_payload(normalized_payload.get("label"))
+        if label is not None:
+            normalized_payload["label"] = label
+        value = _normalize_number_value_payload(normalized_payload.get("value"))
+        if value is not None:
+            normalized_payload["value"] = value
+        max_value = _normalize_number_value_payload(normalized_payload.get("max"))
+        if max_value is not None:
+            normalized_payload["max"] = max_value
+        return normalized_payload
+
+    return normalized_payload
 
 
 def _normalize_children_ref_payload(value: object) -> dict[str, list[str]] | None:
@@ -931,7 +1161,7 @@ def _canonicalize_surface_components(
             normalized_components.append(dict(raw_component))
             continue
 
-        normalized_payload = dict(payload)
+        normalized_payload = _canonicalize_component_payload_values(canonical_key, payload)
         synthetic_components: list[dict[str, object]] = []
 
         if canonical_key == "Button":
@@ -1051,6 +1281,7 @@ def canonicalize_a2ui_messages(
     normalized_records = [
         _canonicalize_message_record(record, used_ids=used_ids) for record in records
     ]
+    normalized_records = _canonicalize_begin_rendering_roots(normalized_records)
     serialized = "\n".join(json.dumps(record) for record in normalized_records)
     return serialized or messages
 
@@ -1066,15 +1297,93 @@ def _strip_markdown_code_fence(messages: str) -> str:
     return "\n".join(lines[1:-1]).strip()
 
 
+def _dict_payload_for(
+    record: dict[str, object],
+    canonical: str,
+    alias: str,
+) -> dict[str, object] | None:
+    """Return a shallow-copied direct envelope payload when present."""
+    payload = record.get(canonical)
+    if isinstance(payload, dict):
+        return dict(payload)
+    payload = record.get(alias)
+    if isinstance(payload, dict):
+        return dict(payload)
+    return None
+
+
+def _split_compound_a2ui_record(record: dict[str, object]) -> list[dict[str, object]]:
+    """Split multi-envelope objects into separate JSONL-style records."""
+    begin_rendering = _dict_payload_for(record, "beginRendering", "begin_rendering")
+    surface_update = _dict_payload_for(record, "surfaceUpdate", "surface_update")
+    data_model_update = _dict_payload_for(record, "dataModelUpdate", "data_model_update")
+    delete_surface = _dict_payload_for(record, "deleteSurface", "delete_surface")
+
+    nested_data_model_update: dict[str, object] | None = None
+    if surface_update is not None:
+        nested_data_model_update = _dict_payload_for(
+            surface_update,
+            "dataModelUpdate",
+            "data_model_update",
+        )
+        if nested_data_model_update is not None:
+            inherited_surface_id = surface_update.get("surfaceId")
+            if (
+                isinstance(inherited_surface_id, str)
+                and inherited_surface_id.strip()
+                and not _is_non_empty_string(nested_data_model_update.get("surfaceId"))
+            ):
+                nested_data_model_update["surfaceId"] = inherited_surface_id
+            surface_update.pop("dataModelUpdate", None)
+            surface_update.pop("data_model_update", None)
+
+    direct_envelope_count = sum(
+        payload is not None
+        for payload in (
+            begin_rendering,
+            surface_update,
+            data_model_update,
+            delete_surface,
+        )
+    )
+    if direct_envelope_count == 0:
+        return [record]
+    if direct_envelope_count == 1 and nested_data_model_update is None:
+        return [record]
+
+    split_records: list[dict[str, object]] = []
+    if begin_rendering is not None:
+        split_records.append({"beginRendering": begin_rendering})
+    if surface_update is not None:
+        split_records.append({"surfaceUpdate": surface_update})
+    if data_model_update is not None:
+        split_records.append({"dataModelUpdate": data_model_update})
+    if nested_data_model_update is not None:
+        split_records.append({"dataModelUpdate": nested_data_model_update})
+    if delete_surface is not None:
+        split_records.append({"deleteSurface": delete_surface})
+    return split_records or [record]
+
+
 def _coerce_message_dicts(raw: object) -> list[dict[str, object]]:
     """Coerce parsed JSON payloads into a list of envelope dictionaries."""
     if isinstance(raw, dict):
         messages = raw.get("messages")
         if isinstance(messages, list):
-            return [entry for entry in messages if isinstance(entry, dict)]
-        return [raw]
+            parsed_messages: list[dict[str, object]] = []
+            for entry in messages:
+                if not isinstance(entry, dict):
+                    continue
+                parsed_messages.extend(_split_compound_a2ui_record(entry))
+            return parsed_messages
+        return _split_compound_a2ui_record(raw)
     if isinstance(raw, list):
-        return [entry for entry in raw if isinstance(entry, dict)]
+        parsed_messages: list[dict[str, object]] = []
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            parsed_messages.extend(_split_compound_a2ui_record(entry))
+        return parsed_messages
     return []
 
 
@@ -1114,9 +1423,87 @@ def _extract_json_object_spans(raw: str) -> list[tuple[int, int]]:
     return spans
 
 
+def _contains_json_delimiters(raw: str) -> bool:
+    """Return True when a gap contains JSON-like structural delimiters."""
+    return any(char in raw for char in "{}[]")
+
+
 def _extract_json_objects(raw: str) -> list[str]:
     """Extract brace-balanced JSON objects from a string."""
     return [raw[start:end] for start, end in _extract_json_object_spans(raw)]
+
+
+def _repair_json_bracket_balance(raw: str) -> str | None:
+    """Repair simple missing JSON bracket/brace closers in LLM-authored payloads."""
+    repaired: list[str] = []
+    stack: list[str] = []
+    in_string = False
+    escape_next = False
+    changed = False
+
+    for char in raw:
+        repaired.append(char)
+        if in_string:
+            if escape_next:
+                escape_next = False
+            elif char == "\\":
+                escape_next = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char in "{[":
+            stack.append(char)
+            continue
+        if char not in "}]":
+            continue
+
+        expected_open = "{" if char == "}" else "["
+        if not stack:
+            return None
+
+        while stack and stack[-1] != expected_open:
+            repaired.insert(len(repaired) - 1, "}" if stack[-1] == "{" else "]")
+            stack.pop()
+            changed = True
+
+        if not stack:
+            return None
+        stack.pop()
+
+    if in_string:
+        return None
+
+    while stack:
+        repaired.append("}" if stack.pop() == "{" else "]")
+        changed = True
+
+    if not changed:
+        return None
+    return "".join(repaired)
+
+
+def _parse_json_like(raw: str) -> object | None:
+    """Parse JSON, then fall back to safe Python literal syntax for common LLM slips."""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            return ast.literal_eval(raw)
+        except (ValueError, SyntaxError):
+            repaired = _repair_json_bracket_balance(raw)
+            if repaired is None:
+                return None
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                try:
+                    return ast.literal_eval(repaired)
+                except (ValueError, SyntaxError):
+                    return None
 
 
 def _iter_message_dicts(messages: str) -> list[dict[str, object]]:
@@ -1125,30 +1512,31 @@ def _iter_message_dicts(messages: str) -> list[dict[str, object]]:
     if not stripped:
         return []
 
-    try:
-        return _coerce_message_dicts(json.loads(stripped))
-    except json.JSONDecodeError:
-        parsed_lines: list[dict[str, object]] = []
-        for line in stripped.splitlines():
-            candidate = line.strip()
-            if not candidate or candidate.startswith("```"):
-                continue
-            try:
-                parsed = json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
-            parsed_lines.extend(_coerce_message_dicts(parsed))
-        if parsed_lines:
-            return parsed_lines
+    parsed_whole = _parse_json_like(stripped)
+    if parsed_whole is not None:
+        return _coerce_message_dicts(parsed_whole)
 
-        parsed_objects: list[dict[str, object]] = []
-        for chunk in _extract_json_objects(stripped):
-            try:
-                parsed = json.loads(chunk)
-            except json.JSONDecodeError:
-                continue
-            parsed_objects.extend(_coerce_message_dicts(parsed))
-        return parsed_objects
+    parsed_lines: list[dict[str, object]] = []
+    for line in stripped.splitlines():
+        candidate = line.strip()
+        if not candidate or candidate.startswith("```"):
+            continue
+        if not (candidate.startswith("{") and candidate.endswith("}")):
+            continue
+        parsed = _parse_json_like(candidate)
+        if parsed is None:
+            continue
+        parsed_lines.extend(_coerce_message_dicts(parsed))
+    if parsed_lines:
+        return parsed_lines
+
+    parsed_objects: list[dict[str, object]] = []
+    for chunk in _extract_json_objects(stripped):
+        parsed = _parse_json_like(chunk)
+        if parsed is None:
+            continue
+        parsed_objects.extend(_coerce_message_dicts(parsed))
+    return parsed_objects
 
 
 def _surface_id_from_record(record: dict[str, object]) -> str | None:
@@ -1339,11 +1727,7 @@ def _parse_a2ui_validation_records(messages: str) -> tuple[list[dict[str, object
     if not stripped:
         return [], _invalid_a2ui_payload("payload is empty.")
 
-    parsed_whole: object | None = None
-    try:
-        parsed_whole = json.loads(stripped)
-    except json.JSONDecodeError:
-        parsed_whole = None
+    parsed_whole = _parse_json_like(stripped)
 
     if error := _flat_surface_payload_error(parsed_whole):
         return [], error
@@ -1354,6 +1738,28 @@ def _parse_a2ui_validation_records(messages: str) -> tuple[list[dict[str, object
             return records, None
         return [], _invalid_a2ui_payload("could not parse any supported A2UI envelopes.")
 
+    parsed_jsonl_lines: list[dict[str, object]] = []
+    saw_jsonl_object_line = False
+    saw_non_jsonl_structure = False
+    for line in stripped.splitlines():
+        candidate = line.strip()
+        if not candidate or candidate.startswith("```"):
+            continue
+        if candidate.startswith("{") and candidate.endswith("}"):
+            saw_jsonl_object_line = True
+            parsed = _parse_json_like(candidate)
+            if parsed is None:
+                parsed_jsonl_lines = []
+                saw_jsonl_object_line = False
+                break
+            parsed_jsonl_lines.extend(_coerce_message_dicts(parsed))
+            continue
+        if _contains_json_delimiters(candidate):
+            saw_non_jsonl_structure = True
+            break
+    if saw_jsonl_object_line and parsed_jsonl_lines and not saw_non_jsonl_structure:
+        return parsed_jsonl_lines, None
+
     spans = _extract_json_object_spans(stripped)
     if not spans:
         return [], _invalid_a2ui_payload("could not parse any supported A2UI envelopes.")
@@ -1361,17 +1767,18 @@ def _parse_a2ui_validation_records(messages: str) -> tuple[list[dict[str, object
     cursor = 0
     parsed_records: list[dict[str, object]] = []
     for start, end in spans:
-        if stripped[cursor:start].strip():
+        gap = stripped[cursor:start].strip()
+        if gap and _contains_json_delimiters(gap):
             return [], _invalid_a2ui_payload("payload contains malformed JSON between envelopes.")
         chunk = stripped[start:end]
-        try:
-            parsed = json.loads(chunk)
-        except json.JSONDecodeError:
+        parsed = _parse_json_like(chunk)
+        if parsed is None:
             return [], _invalid_a2ui_payload("payload contains malformed JSON between envelopes.")
         parsed_records.extend(_coerce_message_dicts(parsed))
         cursor = end
 
-    if stripped[cursor:].strip():
+    trailing = stripped[cursor:].strip()
+    if trailing and _contains_json_delimiters(trailing):
         return [], _invalid_a2ui_payload("payload contains malformed JSON between envelopes.")
     if not parsed_records:
         return [], _invalid_a2ui_payload("could not parse any supported A2UI envelopes.")
@@ -1465,6 +1872,16 @@ def _collect_surface_component_ids(records: list[dict[str, object]]) -> set[str]
     return component_ids
 
 
+def _collect_referenced_component_ids(
+    components_by_id: dict[str, dict[str, object]],
+) -> set[str]:
+    """Collect component ids referenced by other components."""
+    referenced_ids: set[str] = set()
+    for component in components_by_id.values():
+        referenced_ids.update(_referenced_component_ids(component))
+    return referenced_ids
+
+
 def _child_component_ids(value: object) -> list[str]:
     """Return referenced child ids from list/explicitList component props."""
     if isinstance(value, list):
@@ -1486,7 +1903,7 @@ def _referenced_component_ids(component: dict[str, object]) -> list[str]:
 
     if component_key == "Button":
         child = payload.get("child")
-        return [child] if _is_non_empty_string(child) else []
+        return [str(child)] if _is_non_empty_string(child) else []
     if component_key in {"Card", "Column", "Row"}:
         return _child_component_ids(payload.get("children"))
     if component_key == "Tabs":
@@ -1532,6 +1949,113 @@ def _reachable_component_ids(
             if child_id not in reachable:
                 stack.append(child_id)
     return reachable
+
+
+def _select_best_render_root(
+    root: str | None,
+    components_by_id: dict[str, dict[str, object]],
+) -> str | None:
+    """Promote an obviously leaf-like root to the best unreferenced container root."""
+    if root is None or root not in components_by_id:
+        return root
+
+    referenced_ids = _collect_referenced_component_ids(components_by_id)
+    if root not in referenced_ids:
+        return root
+
+    current_reachable = _reachable_component_ids(root, components_by_id)
+    best_root = root
+    best_size = len(current_reachable)
+
+    for candidate_id in components_by_id:
+        if candidate_id == root or candidate_id in referenced_ids:
+            continue
+        candidate_reachable = _reachable_component_ids(candidate_id, components_by_id)
+        if len(candidate_reachable) > best_size:
+            best_root = candidate_id
+            best_size = len(candidate_reachable)
+
+    return best_root
+
+
+def _canonicalize_begin_rendering_roots(
+    records: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Retarget beginRendering.root to the top-level container when a leaf root hides siblings."""
+    surface_ids = {
+        surface_id for record in records if (surface_id := _surface_id_from_record(record)) is not None
+    }
+    if len(surface_ids) != 1:
+        return records
+
+    state = _rebuild_stream_state(records)
+    corrected_root = _select_best_render_root(state.root, state.components_by_id)
+    if corrected_root is not None and corrected_root != state.root:
+        normalized_records: list[dict[str, object]] = []
+        for record in records:
+            begin_rendering = _extract_envelope_payload(record, "beginRendering", "begin_rendering")
+            if begin_rendering is None:
+                normalized_records.append(record)
+                continue
+            normalized_payload = _canonicalize_envelope_payload(begin_rendering)
+            normalized_payload["root"] = corrected_root
+            normalized_records.append({"beginRendering": normalized_payload})
+        return normalized_records
+
+    if state.root is None or state.root not in state.components_by_id:
+        return records
+
+    root_component = state.components_by_id[state.root]
+    root_key, _root_payload, root_error = _component_payload_from_entry(root_component, index=-1)
+    if root_error is not None or root_key != "Button":
+        return records
+
+    referenced_ids = _collect_referenced_component_ids(state.components_by_id)
+    top_level_ids = [
+        component_id
+        for component_id in state.components_by_id
+        if component_id not in referenced_ids
+    ]
+    if len(top_level_ids) <= 1:
+        return records
+
+    current_reachable = _reachable_component_ids(state.root, state.components_by_id)
+    if set(top_level_ids).issubset(current_reachable):
+        return records
+
+    wrapper_id = _reserve_component_id(
+        f"{state.surface_id or 'surface'}__root",
+        set(state.components_by_id),
+    )
+    wrapper_component = {
+        "id": wrapper_id,
+        "component": {
+            "Column": {
+                "children": {"explicitList": top_level_ids},
+            }
+        },
+    }
+
+    normalized_records = []
+    for record in records:
+        begin_rendering = _extract_envelope_payload(record, "beginRendering", "begin_rendering")
+        if begin_rendering is not None:
+            normalized_payload = _canonicalize_envelope_payload(begin_rendering)
+            normalized_payload["root"] = wrapper_id
+            normalized_records.append({"beginRendering": normalized_payload})
+            continue
+
+        surface_update = _extract_envelope_payload(record, "surfaceUpdate", "surface_update")
+        if surface_update is not None:
+            normalized_surface_update = _canonicalize_envelope_payload(surface_update)
+            components = normalized_surface_update.get("components")
+            if isinstance(components, list):
+                normalized_surface_update["components"] = [wrapper_component, *components]
+            normalized_records.append({"surfaceUpdate": normalized_surface_update})
+            continue
+
+        normalized_records.append(record)
+    return normalized_records
 
 
 def _rebuild_stream_state(records: list[dict[str, object]]) -> _A2UIMessageStreamState:
@@ -2354,9 +2878,10 @@ def progress_component(
     if label:
         props["label"] = _str_val(label)
     if max_path:
-        props["max"] = {"path": _normalize_data_path(max_path)}
+        max_payload: dict[str, object] = {"path": _normalize_data_path(max_path)}
         if max_value is not None:
-            props["max"]["literalNumber"] = max_value
+            max_payload["literalNumber"] = max_value
+        props["max"] = max_payload
     elif max_value is not None:
         props["max"] = {"literalNumber": max_value}
     if tone:

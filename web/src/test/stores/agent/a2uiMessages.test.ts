@@ -6,6 +6,7 @@ import {
   mergeA2UIMessageStream,
   mergeA2UIMessageStreamWithSnapshot,
 } from '../../../stores/agent/a2uiMessages';
+import { getA2UIContractCase, getA2UIContractMessages } from '../../fixtures/a2uiContractFixtures';
 
 describe('mergeA2UIMessageStream', () => {
   it('rebuilds a merged surface snapshot for incremental surfaceUpdate payloads', () => {
@@ -99,13 +100,13 @@ describe('mergeA2UIMessageStream', () => {
     expect(Array.isArray(merged.snapshot?.components)).toBe(false);
     const components = merged.snapshot?.components as Record<
       string,
-      { id: string; component: { Text?: { text?: { literal?: string } } } }
+      { id: string; component: { Text?: { text?: { literalString?: string } } } }
     >;
     expect(Object.values(components).map((component) => component.id)).toEqual(
       expect.arrayContaining(['root-1', 'child-1'])
     );
     const updatedChild = Object.values(components).find((component) => component.id === 'child-1');
-    expect(updatedChild?.component.Text?.text?.literal).toBe('updated child');
+    expect(updatedChild?.component.Text?.text?.literalString).toBe('updated child');
   });
 
   it('ignores unsafe object-shaped component keys when building snapshots', () => {
@@ -140,14 +141,14 @@ describe('mergeA2UIMessageStream', () => {
     expect(merged).toBe(incoming);
   });
 
-  it('returns the raw incoming payload when incremental surfaceIds drift', () => {
+  it('treats incremental surfaceId drift as a canonicalized full replacement', () => {
     const previous =
       '{"beginRendering":{"surfaceId":"s1","root":"root-1"}}\n' +
       '{"surfaceUpdate":{"surfaceId":"s1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}';
     const incoming =
       '{"surfaceUpdate":{"surfaceId":"s2","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"world"}}}}]}}';
 
-    expect(mergeA2UIMessageStream(previous, incoming)).toBe(incoming);
+    expect(mergeA2UIMessageStream(previous, incoming)).toContain('"literalString":"world"');
   });
 
   it('extracts a single surface id from the message stream', () => {
@@ -213,6 +214,55 @@ describe('mergeA2UIMessageStream', () => {
     expect(extractA2UISurfaceId(messages)).toBe('surface-1');
   });
 
+  it('extracts a surface id from compound envelope records', () => {
+    const messages = JSON.stringify({
+      beginRendering: {
+        surfaceId: 'surface-1',
+        root: 'root-1',
+      },
+      surfaceUpdate: {
+        surfaceId: 'surface-1',
+        components: [
+          {
+            id: 'root-1',
+            component: {
+              CheckBox: {
+                label: { literalString: 'Enable alerts' },
+                value: { literalBoolean: false, path: '/form/enabled' },
+              },
+            },
+          },
+        ],
+        dataModelUpdate: {
+          surfaceId: 'surface-1',
+          path: '/',
+          contents: [{ form: { enabled: false } }],
+        },
+      },
+    });
+
+    expect(extractA2UISurfaceId(messages)).toBe('surface-1');
+    expect(buildA2UIMessageStreamSnapshot(messages)).toMatchObject({
+      surfaceId: 'surface-1',
+      root: 'root-1',
+      data: { form: { enabled: false } },
+    });
+  });
+
+  it('parses JSON-like payloads with Python boolean literals', () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+      '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"CheckBox":{"label":{"literalString":"Enable alerts"},"value":{"literalBoolean":False,"path":"/form/enabled"}}}}]}}',
+    ].join('\n');
+
+    expect(extractA2UISurfaceId(messages)).toBe('surface-1');
+    expect(buildA2UIMessageStreamSnapshot(messages)).toMatchObject({
+      surfaceId: 'surface-1',
+      root: 'root-1',
+    });
+    expect(mergeA2UIMessageStream(undefined, messages)).toContain('"literalBoolean":false');
+  });
+
   it('returns undefined for malformed chunked payloads', () => {
     const messages = [
       '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
@@ -220,5 +270,66 @@ describe('mergeA2UIMessageStream', () => {
     ].join('\n');
 
     expect(extractA2UISurfaceId(messages)).toBeUndefined();
+  });
+
+  it('extracts and snapshots the shared typed-envelope contract fixture', () => {
+    const contractCase = getA2UIContractCase('tier2_typed_envelopes');
+    const messages = getA2UIContractMessages(contractCase.id);
+
+    const snapshot = buildA2UIMessageStreamSnapshot(messages);
+
+    expect(extractA2UISurfaceId(messages)).toBe(contractCase.identity?.surfaceId);
+    expect(snapshot).toMatchObject({
+      surfaceId: contractCase.identity?.surfaceId,
+      root: 'root-1',
+      data: { status: 'ok' },
+    });
+    expect(Array.isArray(snapshot?.components)).toBe(true);
+    expect(snapshot?.components).toEqual([
+      expect.objectContaining({
+        id: 'root-1',
+      }),
+    ]);
+  });
+
+  it('merges typed incremental envelope fixtures into the canonical stream state', () => {
+    const canonicalCase = getA2UIContractCase('tier1_typed_canonical');
+    const typedCase = getA2UIContractCase('tier2_typed_envelopes');
+    const previousMessages =
+      canonicalCase.records
+        ?.slice(0, 2)
+        .map((record) => JSON.stringify(record))
+        .join('\n') ?? '';
+    const incomingMessages = JSON.stringify(typedCase.records?.[2]);
+    const previousSnapshot = buildA2UIMessageStreamSnapshot(previousMessages);
+
+    const merged = mergeA2UIMessageStreamWithSnapshot(
+      previousSnapshot,
+      previousMessages,
+      incomingMessages
+    );
+
+    expect(merged.messages).toContain('"beginRendering"');
+    expect(merged.messages).toContain('"surfaceUpdate"');
+    expect(merged.messages).toContain('"dataModelUpdate"');
+    expect(merged.messages).not.toContain('"data_model_update"');
+    expect(merged.snapshot?.surfaceId).toBe('typed-surface');
+    expect(merged.snapshot?.data).toEqual({ status: 'ok' });
+  });
+
+  it('canonicalizes tier2 legacy alias fixtures before snapshot persistence', () => {
+    const messages = getA2UIContractMessages('tier2_legacy_aliases');
+
+    const snapshot = buildA2UIMessageStreamSnapshot(messages);
+    const merged = mergeA2UIMessageStream(undefined, messages);
+
+    expect(snapshot).toBeDefined();
+    expect(merged).toContain('"CheckBox"');
+    expect(merged).toContain('"MultipleChoice"');
+    expect(merged).toContain('"literalString":"Email updates"');
+    expect(merged).toContain('"literalString":"Priority"');
+    expect(merged).not.toContain('"Checkbox"');
+    expect(merged).not.toContain('"Select"');
+    expect(merged).not.toContain('"literal":"Email updates"');
   });
 });

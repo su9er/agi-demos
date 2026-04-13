@@ -143,6 +143,7 @@ export function createConversationLifecycleActions(deps: ConversationLifecycleDe
     },
 
     createNewConversation: async (projectId: string): Promise<string | null> => {
+      set({ isCreatingConversation: true });
       try {
         const newConv = await useConversationsStore.getState().createConversation(projectId, 'New Conversation');
         resetCanvasForConversationScope();
@@ -181,6 +182,8 @@ export function createConversationLifecycleActions(deps: ConversationLifecycleDe
         console.error('Failed to create conversation', error);
         useStreamingStore.getState().setAgentError('Failed to create conversation');
         return null;
+      } finally {
+        set({ isCreatingConversation: false });
       }
     },
   };

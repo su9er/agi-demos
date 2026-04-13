@@ -15,6 +15,7 @@ import { useAgentV3Store } from '../../stores/agentV3';
 import { useTimelineStore } from '../../stores/agent/timelineStore';
 import { useStreamingStore } from '../../stores/agent/streamingStore';
 import { useExecutionStore } from '../../stores/agent/executionStore';
+import { createDefaultConversationState } from '../../types/conversationState';
 
 import type { TimelineEvent } from '../../types/agent';
 
@@ -206,6 +207,64 @@ describe('agentV3 Store - Timeline Field', () => {
       });
 
       expect(getTimeline()).toEqual([]);
+    });
+
+    it('keeps a fresh blank conversation interactive while history hydrates', async () => {
+      const { result } = renderHook(() => useAgentV3Store());
+      const baseTime = Date.now() * 1000;
+      let resolveMessages:
+        | ((value: {
+            conversationId: string;
+            timeline: TimelineEvent[];
+            total: number;
+            has_more: boolean;
+            first_time_us: number | null;
+            first_counter: number | null;
+            last_time_us: number | null;
+            last_counter: number | null;
+          }) => void)
+        | undefined;
+
+      vi.mocked(
+        (await import('../../services/agentService')).agentService
+      ).getConversationMessages.mockImplementation(
+        () =>
+          new Promise<any>((resolve) => {
+            resolveMessages = resolve;
+          })
+      );
+
+      act(() => {
+        useAgentV3Store.setState({
+          activeConversationId: 'conv-fresh',
+          conversationStates: new Map([['conv-fresh', createDefaultConversationState()]]),
+        });
+      });
+
+      const loadPromise = result.current.loadMessages('conv-fresh', 'proj-123');
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(useTimelineStore.getState().agentIsLoadingHistory).toBe(false);
+
+      resolveMessages?.({
+        conversationId: 'conv-fresh',
+        timeline: [],
+        total: 0,
+        has_more: false,
+        first_time_us: null,
+        first_counter: null,
+        last_time_us: baseTime,
+        last_counter: 0,
+      });
+
+      await act(async () => {
+        await loadPromise;
+      });
+
+      expect(useTimelineStore.getState().agentIsLoadingHistory).toBe(false);
     });
   });
 

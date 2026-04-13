@@ -1,9 +1,11 @@
 import { applyA2UIDataModelUpdate } from '@/utils/a2uiDataModel';
 
-const BEGIN_RENDERING_PATTERN = /"beginRendering"\s*:/;
-const SURFACE_UPDATE_PATTERN = /"surfaceUpdate"\s*:/;
-const DATA_MODEL_UPDATE_PATTERN = /"dataModelUpdate"\s*:/;
-const DELETE_SURFACE_PATTERN = /"deleteSurface"\s*:/;
+import {
+  normalizeA2UIComponents,
+  normalizeA2UIEnvelopeRecords,
+  normalizeA2UIJsonLikeString,
+} from './a2uiEnvelopeContract';
+
 const FORBIDDEN_COMPONENT_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,7 +38,16 @@ function tryParseJson(input: string): unknown {
   try {
     return JSON.parse(input) as unknown;
   } catch {
-    return undefined;
+    const jsonLike = normalizeA2UIJsonLikeString(input);
+    if (jsonLike === input) {
+      return undefined;
+    }
+
+    try {
+      return JSON.parse(jsonLike) as unknown;
+    } catch {
+      return undefined;
+    }
   }
 }
 
@@ -111,13 +122,16 @@ function getEnvelopePayload(
 }
 
 function collectParsedEnvelopeRecords(messages?: string | null): Record<string, unknown>[] {
+  const normalizeRecords = (records: Record<string, unknown>[]): Record<string, unknown>[] =>
+    records.flatMap((record) => normalizeA2UIEnvelopeRecords(record));
+
   if (!messages) return [];
   const normalized = stripMarkdownCodeFence(messages);
   if (!normalized) return [];
 
   const parsedWhole = tryParseJson(normalized);
   if (parsedWhole !== undefined) {
-    return collectEnvelopeRecords(parsedWhole);
+    return normalizeRecords(collectEnvelopeRecords(parsedWhole));
   }
 
   const lines = normalized.split(/\r?\n/);
@@ -134,7 +148,7 @@ function collectParsedEnvelopeRecords(messages?: string | null): Record<string, 
       }
       lineRecords.push(...collectEnvelopeRecords(parsedLine));
     }
-    if (!lineParseFailed && lineRecords.length > 0) return lineRecords;
+    if (!lineParseFailed && lineRecords.length > 0) return normalizeRecords(lineRecords);
   }
 
   const objectRecords: Record<string, unknown>[] = [];
@@ -148,7 +162,7 @@ function collectParsedEnvelopeRecords(messages?: string | null): Record<string, 
     cursor = span.end;
   }
   if (normalized.slice(cursor).trim()) return [];
-  return objectRecords;
+  return normalizeRecords(objectRecords);
 }
 
 type A2UIComponentEntry = Record<string, unknown>;
@@ -241,9 +255,10 @@ function hydrateMessageStreamState(snapshot: A2UIMessageStreamSnapshot): A2UIMes
   state.surfaceId = snapshot.surfaceId;
   state.root = snapshot.root;
   state.styles = snapshot.styles ? cloneValue(snapshot.styles) : undefined;
-  if (Array.isArray(snapshot.components)) {
+  const normalizedComponents = normalizeA2UIComponents(snapshot.components) ?? snapshot.components;
+  if (Array.isArray(normalizedComponents)) {
     state.componentShape = 'array';
-    for (const rawComponent of snapshot.components) {
+    for (const rawComponent of normalizedComponents) {
       if (!isValidComponentEntry(rawComponent)) continue;
       const component = cloneValue(rawComponent);
       state.componentsById.set(component.id, component);
@@ -253,7 +268,7 @@ function hydrateMessageStreamState(snapshot: A2UIMessageStreamSnapshot): A2UIMes
     }
   } else {
     state.componentShape = 'object';
-    for (const [key, rawComponent] of Object.entries(snapshot.components)) {
+    for (const [key, rawComponent] of Object.entries(normalizedComponents)) {
       if (!isSafeComponentKey(key) || !isValidComponentEntry(rawComponent)) continue;
       const component = cloneValue(rawComponent);
       state.componentsById.set(component.id, component);
@@ -329,7 +344,8 @@ function applyEnvelopeToState(
     }
   }
 
-  const componentSource = surfaceUpdate?.components;
+  const componentSource =
+    normalizeA2UIComponents(surfaceUpdate?.components) ?? surfaceUpdate?.components;
   if (Array.isArray(componentSource)) {
     state.componentShape = 'array';
     for (const rawComponent of componentSource) {
@@ -415,10 +431,21 @@ export function mergeA2UIMessageStreamWithSnapshot(
   previousMessages: string | undefined,
   incomingMessages: string
 ): MergedA2UIMessageStream {
-  const buildIncomingResult = (): MergedA2UIMessageStream => ({
-    messages: incomingMessages,
-    snapshot: buildA2UIMessageStreamSnapshot(incomingMessages),
-  });
+  const buildIncomingResult = (): MergedA2UIMessageStream => {
+    const snapshot = buildA2UIMessageStreamSnapshot(incomingMessages);
+    if (!snapshot) {
+      return {
+        messages: incomingMessages,
+        snapshot: undefined,
+      };
+    }
+
+    const canonicalMessages = serializeMessageStreamState(hydrateMessageStreamState(snapshot));
+    return {
+      messages: canonicalMessages || incomingMessages,
+      snapshot,
+    };
+  };
 
   if (!incomingMessages) {
     return {
@@ -430,17 +457,23 @@ export function mergeA2UIMessageStreamWithSnapshot(
     return buildIncomingResult();
   }
 
-  const hasBeginRendering = BEGIN_RENDERING_PATTERN.test(incomingMessages);
-  const hasDeleteSurface = DELETE_SURFACE_PATTERN.test(incomingMessages);
-  const hasIncrementalUpdate =
-    SURFACE_UPDATE_PATTERN.test(incomingMessages) ||
-    DATA_MODEL_UPDATE_PATTERN.test(incomingMessages);
-  if (hasBeginRendering || hasDeleteSurface || !hasIncrementalUpdate) {
+  const incomingRecords = collectParsedEnvelopeRecords(incomingMessages);
+  if (incomingRecords.length === 0) {
     return buildIncomingResult();
   }
 
-  const incomingRecords = collectParsedEnvelopeRecords(incomingMessages);
-  if (incomingRecords.length === 0) {
+  const hasBeginRendering = incomingRecords.some(
+    (record) => getEnvelopePayload(record, 'beginRendering') !== null
+  );
+  const hasDeleteSurface = incomingRecords.some(
+    (record) => getEnvelopePayload(record, 'deleteSurface') !== null
+  );
+  const hasIncrementalUpdate = incomingRecords.some(
+    (record) =>
+      getEnvelopePayload(record, 'surfaceUpdate') !== null ||
+      getEnvelopePayload(record, 'dataModelUpdate') !== null
+  );
+  if (hasBeginRendering || hasDeleteSurface || !hasIncrementalUpdate) {
     return buildIncomingResult();
   }
 

@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from src.infrastructure.agent.canvas.a2ui_builder import (
     badge_component,
     begin_rendering,
     button_component,
+    canonicalize_a2ui_messages,
     card_component,
     checkbox_component,
     column_component,
@@ -36,10 +39,19 @@ from src.infrastructure.agent.canvas.a2ui_builder import (
     validate_a2ui_incremental_surface_id,
     validate_a2ui_messages,
 )
+from src.tests.unit.agent.canvas.a2ui_contract_fixtures import (
+    contract_case_jsonl,
+    get_a2ui_contract_case,
+    iter_backend_contract_cases,
+)
 
 # ---------------------------------------------------------------------------
 # Component helpers — v0.8 format: {id, component: {TypeName: {props}}}
 # ---------------------------------------------------------------------------
+
+
+def _parse_jsonl_records(payload: str) -> list[dict[str, object]]:
+    return [json.loads(line) for line in payload.splitlines() if line.strip()]
 
 
 class TestTextComponent:
@@ -128,6 +140,141 @@ class TestValidateA2UIMessages:
         assert error is not None
         assert "malformed JSON" in error
 
+    def test_accepts_compound_record_and_hoists_nested_data_model_update(self) -> None:
+        payload = json.dumps(
+            {
+                "beginRendering": {
+                    "surfaceId": "surface-1",
+                    "root": "root-1",
+                },
+                "surfaceUpdate": {
+                    "surfaceId": "surface-1",
+                    "dataModelUpdate": {
+                        "surfaceId": "surface-1",
+                        "path": "/",
+                        "contents": [{"key": "status", "valueString": "ok"}],
+                    },
+                    "components": [
+                        {
+                            "id": "root-1",
+                            "component": {"Text": {"text": {"literal": "hello"}}},
+                        }
+                    ],
+                },
+            }
+        )
+
+        assert validate_a2ui_messages(payload, require_initial_render=True) is None
+
+        canonical = canonicalize_a2ui_messages(payload)
+        records = _parse_jsonl_records(canonical)
+        assert len(records) == 3
+        assert "beginRendering" in records[0]
+        assert "surfaceUpdate" in records[1]
+        assert "dataModelUpdate" in records[2]
+        component = records[1]["surfaceUpdate"]["components"][0]
+        assert component["component"]["Text"]["text"] == {"literalString": "hello"}
+
+    def test_accepts_python_bool_literals_in_json_like_payloads(self) -> None:
+        payload = """
+        {
+          "beginRendering": {"surfaceId": "surface-1", "root": "root-1"},
+          "surfaceUpdate": {
+            "surfaceId": "surface-1",
+            "dataModelUpdate": {"surfaceId": "surface-1", "path": "/form", "data": {"alerts": False}},
+            "components": [
+              {"id": "root-1", "component": {"Text": {"text": {"literalString": "hello"}}}}
+            ]
+          }
+        }
+        """
+
+        assert validate_a2ui_messages(payload, require_initial_render=True) is None
+
+    def test_accepts_prose_wrapped_jsonl_payloads(self) -> None:
+        payload = "\n".join(
+            [
+                "Here is the A2UI surface you requested:",
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literalString":"hello"}}}}]}}',
+                "Please wait for the user interaction.",
+            ]
+        )
+
+        assert validate_a2ui_messages(payload, require_initial_render=True) is None
+
+    def test_accepts_checkbox_string_label_and_raw_boolean_value(self) -> None:
+        payload = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"checkbox-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"checkbox-1","component":{"CheckBox":{"label":"Enable alerts","value":false}}}]}}',
+            ]
+        )
+
+        assert validate_a2ui_messages(payload, require_initial_render=True) is None
+
+        canonical = canonicalize_a2ui_messages(payload)
+        records = _parse_jsonl_records(canonical)
+        checkbox = records[1]["surfaceUpdate"]["components"][0]["component"]["CheckBox"]
+        assert checkbox["label"] == {"literalString": "Enable alerts"}
+        assert checkbox["value"] == {"literalBoolean": False}
+
+    def test_accepts_empty_literal_strings_in_inline_component_fields(self) -> None:
+        payload = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"card-1"}}',
+                '{"dataModelUpdate":{"surfaceId":"surface-1","data":{"form":{"enableAlerts":true,"priority":"medium"}}}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"card-1","component":{"Card":{"title":{"literalString":"Alert Settings"},"children":["checkbox-1","text-1","select-1"]}}},{"id":"checkbox-1","component":{"CheckBox":{"label":{"literalString":""},"value":{"path":"/form/enableAlerts"}}}},{"id":"text-1","component":{"Text":{"text":{"literalString":""}}}},{"id":"select-1","component":{"MultipleChoice":{"description":{"literalString":""},"options":[{"label":{"literalString":"High"},"value":"high"},{"label":{"literalString":"Medium"},"value":"medium"},{"label":{"literalString":"Low"},"value":"low"}],"selections":{"path":"/form/priority"}}}}]}}',
+            ]
+        )
+
+        assert validate_a2ui_messages(payload, require_initial_render=True) is None
+
+        canonical = canonicalize_a2ui_messages(payload)
+        records = _parse_jsonl_records(canonical)
+        components = records[2]["surfaceUpdate"]["components"]
+        checkbox = next(
+            component["component"]["CheckBox"]
+            for component in components
+            if "CheckBox" in component["component"]
+        )
+        text = next(
+            component["component"]["Text"]
+            for component in components
+            if component["id"] == "text-1"
+        )
+        select = next(
+            component["component"]["MultipleChoice"]
+            for component in components
+            if "MultipleChoice" in component["component"]
+        )
+
+        assert checkbox["label"] == {"literalString": ""}
+        assert text["text"] == {"literalString": ""}
+        assert select["description"] == {"literalString": ""}
+
+    def test_repairs_missing_component_closure_in_jsonl_line(self) -> None:
+        payload = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"alert-settings","root":"confirm-btn"}}',
+                '{"surfaceUpdate":{"surfaceId":"alert-settings","components":[{"id":"title","component":{"Text":{"text":{"literalString":"Alert Settings"}}}},{"id":"checkbox","component":{"CheckBox":{"label":{"literalString":"Enable alerts"},"value":{"path":"/form/enable"}}}},{"id":"priority-label","component":{"Text":{"text":{"literalString":"Priority"}}}},{"id":"priority","component":{"Select":{"description":{"literalString":""},"options":[{"label":{"literalString":"High"},"value":"high"},{"label":{"literalString":"Medium"},"value":"medium"},{"label":{"literalString":"Low"},"value":"low"}],"selections":{"path":"/form/priority"}}}},{"id":"confirm-btn","component":{"Button":{"label":{"literalString":"Confirm"},"action":{"name":"confirm"}}}]}}',
+            ]
+        )
+
+        assert validate_a2ui_messages(payload, require_initial_render=True) is None
+
+        canonical = canonicalize_a2ui_messages(payload)
+        records = _parse_jsonl_records(canonical)
+        surface_update = records[1]["surfaceUpdate"]
+        components = surface_update["components"]
+        button = next(
+            component["component"]["Button"]
+            for component in components
+            if "Button" in component["component"]
+        )
+        assert surface_update["surfaceId"] == "alert-settings"
+        assert button["action"] == {"name": "confirm"}
+
     def test_rejects_incremental_payload_without_surface_id_for_existing_surface(self) -> None:
         payload = json.dumps(
             {
@@ -172,6 +319,23 @@ class TestValidateA2UIMessages:
 
         assert error is not None
         assert "must use surfaceId 'surface-1'" in error
+
+    def test_accepts_incremental_payload_with_nested_data_model_update_inheriting_surface_id(
+        self,
+    ) -> None:
+        payload = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"success-card"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","dataModelUpdate":{"path":"/status","value":"success"},"components":[{"id":"success-card","component":{"Text":{"text":{"literalString":"Saved"}}}}]}}',
+            ]
+        )
+
+        error = validate_a2ui_incremental_surface_id(
+            payload,
+            expected_surface_id="surface-1",
+        )
+
+        assert error is None
 
     def test_accepts_incremental_surface_update_for_existing_block(self) -> None:
         payload = json.dumps(
@@ -345,6 +509,65 @@ class TestValidateA2UIMessages:
         )
 
         assert error is None
+
+
+@pytest.mark.unit
+class TestSharedA2UIContractFixtures:
+    @pytest.mark.parametrize(
+        "case_id",
+        [
+            case["id"]
+            for case in iter_backend_contract_cases(tier="tier1")
+            if not case.get("shouldReject")
+        ],
+    )
+    def test_tier1_cases_validate_and_remain_canonical(self, case_id: str) -> None:
+        case = get_a2ui_contract_case(case_id)
+        payload = contract_case_jsonl(case)
+        canonical_payload = canonicalize_a2ui_messages(payload)
+        expected_payload = contract_case_jsonl(get_a2ui_contract_case(case["canonicalizes_to"]))
+
+        assert validate_a2ui_messages(payload, require_initial_render=True) is None
+        assert _parse_jsonl_records(canonical_payload) == _parse_jsonl_records(expected_payload)
+
+        identity = case.get("identity", {})
+        if isinstance(identity.get("surfaceId"), str):
+            assert extract_surface_id(canonical_payload) == identity["surfaceId"]
+
+    @pytest.mark.parametrize(
+        "case_id",
+        [
+            case["id"]
+            for case in iter_backend_contract_cases(tier="tier2")
+            if not case.get("shouldReject")
+        ],
+    )
+    def test_tier2_cases_canonicalize_to_referenced_tier1_case(self, case_id: str) -> None:
+        case = get_a2ui_contract_case(case_id)
+        payload = contract_case_jsonl(case)
+        canonical_payload = canonicalize_a2ui_messages(payload)
+        expected_payload = contract_case_jsonl(get_a2ui_contract_case(case["canonicalizes_to"]))
+
+        assert validate_a2ui_messages(payload, require_initial_render=True) is None
+        assert validate_a2ui_messages(canonical_payload, require_initial_render=True) is None
+        assert _parse_jsonl_records(canonical_payload) == _parse_jsonl_records(expected_payload)
+
+        identity = case.get("identity", {})
+        if isinstance(identity.get("surfaceId"), str):
+            assert extract_surface_id(canonical_payload) == identity["surfaceId"]
+
+    @pytest.mark.parametrize(
+        "case_id",
+        [case["id"] for case in iter_backend_contract_cases() if case.get("shouldReject")],
+    )
+    def test_invalid_cases_reject(self, case_id: str) -> None:
+        case = get_a2ui_contract_case(case_id)
+        payload = contract_case_jsonl(case)
+
+        error = validate_a2ui_messages(payload, require_initial_render=True)
+
+        assert error is not None
+        assert "Invalid A2UI payload" in error
 
     def test_accepts_empty_children_lists(self) -> None:
         payload = "\n".join(
@@ -700,7 +923,7 @@ class TestValidateA2UIMessages:
                                 }
                             },
                         },
-                    ]
+                    ],
                 }
             }
         )
@@ -774,7 +997,7 @@ class TestValidateA2UIMessages:
                                 }
                             },
                         }
-                    ]
+                    ],
                 }
             }
         )
@@ -831,7 +1054,7 @@ class TestValidateA2UIMessages:
                                         }
                                     },
                                 }
-                            ]
+                            ],
                         }
                     }
                 ),
@@ -849,7 +1072,7 @@ class TestValidateA2UIMessages:
                                         }
                                     },
                                 }
-                            ]
+                            ],
                         }
                     }
                 ),

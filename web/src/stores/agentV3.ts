@@ -56,6 +56,7 @@ export const useAgentV3Store = create<AgentV3State>()(
     (set, get) => ({
         conversations: [],
         activeConversationId: null,
+        isCreatingConversation: false,
         hasMoreConversations: false,
         conversationsTotal: 0,
 
