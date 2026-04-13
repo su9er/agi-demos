@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -32,6 +33,7 @@ import type {
   TenantAgentConfig,
   UpdateTenantAgentConfigRequest,
 } from '@/types/agent';
+
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -401,7 +403,7 @@ export function TenantAgentConfigEditor({
                     },
                   ]}
                 >
-                  <InputNumber min={1} max={50} style={{ width: '100%' }} />
+                  <InputNumber min={1} max={5000} style={{ width: '100%' }} />
                 </Form.Item>
 
                 <Form.Item

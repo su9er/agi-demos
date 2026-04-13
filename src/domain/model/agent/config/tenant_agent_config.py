@@ -22,6 +22,8 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
+DEFAULT_MAX_WORK_PLAN_STEPS = 5000
+
 
 class ConfigType(Enum):
     """Type of configuration."""
@@ -324,7 +326,7 @@ class TenantAgentConfig:
             llm_temperature=0.7,
             pattern_learning_enabled=True,
             multi_level_thinking_enabled=True,
-            max_work_plan_steps=10,
+            max_work_plan_steps=DEFAULT_MAX_WORK_PLAN_STEPS,
             tool_timeout_seconds=30,
             enabled_tools=[],
             disabled_tools=[],
@@ -342,7 +344,7 @@ class TenantAgentConfig:
             llm_temperature=data.get("llm_temperature", 0.7),
             pattern_learning_enabled=data.get("pattern_learning_enabled", True),
             multi_level_thinking_enabled=data.get("multi_level_thinking_enabled", True),
-            max_work_plan_steps=data.get("max_work_plan_steps", 10),
+            max_work_plan_steps=data.get("max_work_plan_steps", DEFAULT_MAX_WORK_PLAN_STEPS),
             tool_timeout_seconds=data.get("tool_timeout_seconds", 30),
             enabled_tools=data.get("enabled_tools", []),
             disabled_tools=data.get("disabled_tools", []),
@@ -366,6 +368,6 @@ DEFAULT_CONFIG = {
     "llm_temperature": 0.7,
     "pattern_learning_enabled": True,
     "multi_level_thinking_enabled": True,
-    "max_work_plan_steps": 10,
+    "max_work_plan_steps": DEFAULT_MAX_WORK_PLAN_STEPS,
     "tool_timeout_seconds": 30,
 }

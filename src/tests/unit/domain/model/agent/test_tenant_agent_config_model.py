@@ -27,7 +27,7 @@ class TestTenantAgentConfig:
         assert config.config_type == ConfigType.DEFAULT
         assert config.pattern_learning_enabled is True
         assert config.multi_level_thinking_enabled is True
-        assert config.max_work_plan_steps == 10
+        assert config.max_work_plan_steps == 5000
         assert config.tool_timeout_seconds == 30
         assert config.runtime_hooks == []
 
@@ -240,6 +240,25 @@ class TestTenantAgentConfig:
         assert config.max_work_plan_steps == 15
         assert len(config.runtime_hooks) == 1
         assert config.runtime_hooks[0].plugin_name == "sisyphus-runtime"
+
+    def test_from_dict_uses_updated_default_max_steps(self):
+        """Test that missing max_work_plan_steps falls back to the updated default."""
+        data = {
+            "id": "config-1",
+            "tenant_id": "tenant-1",
+            "config_type": "default",
+            "llm_model": "default",
+            "llm_temperature": 0.7,
+            "pattern_learning_enabled": True,
+            "multi_level_thinking_enabled": True,
+            "tool_timeout_seconds": 30,
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+
+        config = TenantAgentConfig.from_dict(data)
+
+        assert config.max_work_plan_steps == 5000
 
     def test_update_runtime_hooks(self):
         """Test replacing runtime hook settings."""

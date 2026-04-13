@@ -1154,7 +1154,7 @@ class TenantAgentConfig(Base):
     multi_level_thinking_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True
     )
-    max_work_plan_steps: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    max_work_plan_steps: Mapped[int] = mapped_column(Integer, nullable=False, default=5000)
     tool_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     enabled_tools: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     disabled_tools: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
