@@ -240,6 +240,12 @@ class SessionProcessor:
             yield event.to_sse_format()
     """
 
+    _TOOL_USAGE_REMINDER = (
+        "[TOOL REMINDER] The goal is still pending. If you need more information, "
+        "verification, or project changes, call the appropriate tool instead of "
+        "producing another text-only reply."
+    )
+
     def __init__(
         self,
         config: ProcessorConfig,
@@ -317,6 +323,7 @@ class SessionProcessor:
         # Runtime hook state
         self._session_instructions: list[str] = []
         self._response_instructions: list[str] = []
+        self._tool_reminder_issued_for_streak = False
 
         # Forced skill context for loop reinforcement
         self._forced_skill_name: str | None = config.forced_skill_name
@@ -409,6 +416,29 @@ class SessionProcessor:
             return None
         content = "[Runtime Guidance]\n" + "\n".join(f"- {item}" for item in instructions)
         return {"role": "system", "content": content}
+
+    def _queue_tool_usage_reminder(self) -> None:
+        """Inject a temporary reminder after repeated no-progress turns."""
+        if self._tool_reminder_issued_for_streak:
+            return
+        if not self.tools:
+            return
+        if self._TOOL_USAGE_REMINDER not in self._response_instructions:
+            self._response_instructions.append(self._TOOL_USAGE_REMINDER)
+        self._tool_reminder_issued_for_streak = True
+
+    def _clear_tool_usage_reminder(self) -> None:
+        """Remove the temporary no-progress reminder once progress resumes."""
+        if not self._response_instructions:
+            return
+        self._response_instructions = [
+            item for item in self._response_instructions if item != self._TOOL_USAGE_REMINDER
+        ]
+
+    def _reset_tool_usage_reminder_streak(self) -> None:
+        """Reset reminder streak state after progress resumes or processing restarts."""
+        self._tool_reminder_issued_for_streak = False
+        self._clear_tool_usage_reminder()
 
     def _get_hitl_coordinator(self) -> HITLCoordinator:
         """Get or create the HITL coordinator for current context."""
@@ -600,6 +630,7 @@ class SessionProcessor:
         self._no_progress_steps = 0
         self._session_instructions = []
         self._response_instructions = []
+        self._tool_reminder_issued_for_streak = False
         self._langfuse_context = effective_langfuse_context
         self._artifact_handler.set_langfuse_context(self._langfuse_context)
 
@@ -867,6 +898,7 @@ class SessionProcessor:
         events: list[ProcessorEvent] = []
         if had_tool_calls:
             self._no_progress_steps = 0
+            self._reset_tool_usage_reminder_streak()
         else:
             async for evt in self._evaluate_no_tool_result(session_id, messages):
                 events.append(evt)
@@ -889,6 +921,7 @@ class SessionProcessor:
         if event_type == AgentEventType.ERROR.value:
             return ProcessorResult.STOP, had_tool_calls
         if event_type == AgentEventType.ACT.value:
+            self._reset_tool_usage_reminder_streak()
             return current_result, True
         if event_type == AgentEventType.COMPACT_NEEDED.value:
             return ProcessorResult.COMPACT, had_tool_calls
@@ -906,11 +939,13 @@ class SessionProcessor:
         goal_check = await self._goal_evaluator.evaluate_goal_completion(session_id, messages)
         if goal_check.achieved:
             self._no_progress_steps = 0
+            self._reset_tool_usage_reminder_streak()
             self._pending_completion_status = f"goal_achieved:{goal_check.source}"
             self._last_process_result = ProcessorResult.COMPLETE
             return
 
         if goal_check.should_stop:
+            self._reset_tool_usage_reminder_streak()
             self._pending_completion_status = None
             yield AgentErrorEvent(
                 message=goal_check.reason or "Goal cannot be completed",
@@ -931,6 +966,7 @@ class SessionProcessor:
             }
             if action == "escalate":
                 tool_input["escalate"] = True
+            self._reset_tool_usage_reminder_streak()
             yield AgentActEvent(
                 tool_name="delegate_to_subagent",
                 tool_input=tool_input,
@@ -955,6 +991,7 @@ class SessionProcessor:
                 )
             else:
                 self._no_progress_steps = 0
+                self._reset_tool_usage_reminder_streak()
                 self._pending_completion_status = "goal_achieved:conversational_response"
                 self._last_process_result = ProcessorResult.COMPLETE
                 return
@@ -964,6 +1001,7 @@ class SessionProcessor:
         self._no_progress_steps += 1
         yield AgentStatusEvent(status=f"goal_pending:{goal_check.source}")
         if self._no_progress_steps > 1:
+            self._queue_tool_usage_reminder()
             yield AgentStatusEvent(status="planning_recheck")
         if self._no_progress_steps >= self.config.max_no_progress_steps:
             yield AgentErrorEvent(
@@ -1321,7 +1359,7 @@ class SessionProcessor:
         self._pending_tool_calls = {}
         self._pending_tool_args = {}
 
-        step_messages = list(messages)
+        base_step_messages = list(messages)
 
         # Inject skill reminder for multi-step forced skill execution
         if self._forced_skill_name and self._step_count > 1:
@@ -1341,9 +1379,9 @@ class SessionProcessor:
                     + skill_tool_msg
                 ),
             }
-            step_messages.append(skill_reminder)
+            base_step_messages.append(skill_reminder)
 
-        before_response_payload = await self._notify_plugin_hook(
+        await self._notify_plugin_hook(
             "before_response",
             {
                 "session_id": session_id,
@@ -1353,14 +1391,6 @@ class SessionProcessor:
                 "response_instructions": list(self._response_instructions),
             },
         )
-        runtime_guidance = self._build_runtime_guidance_message()
-        if runtime_guidance is not None:
-            step_messages.append(runtime_guidance)
-        elif before_response_payload.get("response_instructions"):
-            runtime_guidance = self._build_runtime_guidance_message()
-            if runtime_guidance is not None:
-                step_messages.append(runtime_guidance)
-
         # Prepare tools for LLM
         tools_for_llm = [t.to_openai_format() for t in self.tools.values()]
 
@@ -1391,6 +1421,14 @@ class SessionProcessor:
         attempt = 0
         while True:
             try:
+                step_messages = list(base_step_messages)
+                runtime_guidance = self._build_runtime_guidance_message()
+                reminder_injected = False
+                reminder_consumed = False
+                if runtime_guidance is not None:
+                    step_messages.append(runtime_guidance)
+                    reminder_injected = self._TOOL_USAGE_REMINDER in runtime_guidance["content"]
+
                 # Build step-specific langfuse context
                 step_langfuse_context = None
                 if self._langfuse_context:
@@ -1407,6 +1445,20 @@ class SessionProcessor:
                 async for event in llm_stream.generate(
                     step_messages, langfuse_context=step_langfuse_context
                 ):
+                    if (
+                        reminder_injected
+                        and not reminder_consumed
+                        and event.type
+                        in {
+                            StreamEventType.TEXT_DELTA,
+                            StreamEventType.TEXT_END,
+                            StreamEventType.REASONING_DELTA,
+                            StreamEventType.REASONING_END,
+                        }
+                    ):
+                        self._clear_tool_usage_reminder()
+                        reminder_consumed = True
+
                     # Check abort
                     if self._abort_event and self._abort_event.is_set():
                         raise asyncio.CancelledError("Aborted")
@@ -1639,6 +1691,9 @@ class SessionProcessor:
                         "tool_call_count": len(tool_calls_completed) + len(deferred_tool_calls),
                     },
                 )
+                if reminder_injected and not reminder_consumed:
+                    self._clear_tool_usage_reminder()
+                    reminder_consumed = True
 
                 # Step completed successfully
                 break

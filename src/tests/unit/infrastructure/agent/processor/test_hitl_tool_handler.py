@@ -86,7 +86,9 @@ async def test_clarification_tool_supports_multi_select_answers() -> None:
         )
     ]
 
-    answered_event = next(event for event in events if isinstance(event, AgentClarificationAnsweredEvent))
+    answered_event = next(
+        event for event in events if isinstance(event, AgentClarificationAnsweredEvent)
+    )
     assert answered_event.answer == ["pg", "mysql"]
 
 
@@ -328,7 +330,9 @@ async def test_decision_tool_supports_multi_select_answers() -> None:
         )
     ]
 
-    answered_event = next(event for event in events if isinstance(event, AgentDecisionAnsweredEvent))
+    answered_event = next(
+        event for event in events if isinstance(event, AgentDecisionAnsweredEvent)
+    )
     assert answered_event.decision == ["a", "b"]
 
 
@@ -763,8 +767,8 @@ async def test_a2ui_tool_infers_surface_id_for_canvas_metadata() -> None:
 
     components = "\n".join(
         [
-            '{"beginRendering":{"surfaceId":"surface-99","root":"root-1"}}',
-            '{"surfaceUpdate":{"surfaceId":"surface-99","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            '{"beginRendering":{"surfaceId":"surface-99","root":"button-1"}}',
+            '{"surfaceUpdate":{"surfaceId":"surface-99","components":[{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}',
         ]
     )
 
@@ -808,7 +812,12 @@ async def test_a2ui_tool_reuses_existing_canvas_block() -> None:
         conversation_id="conv-a2ui",
         block_type="a2ui_surface",
         title="Existing",
-        content='{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+        content=(
+            '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}\n'
+            '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+            '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
+            '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}'
+        ),
         metadata={"surface_id": "surface-1"},
     )
     configure_canvas(manager)
@@ -816,8 +825,8 @@ async def test_a2ui_tool_reuses_existing_canvas_block() -> None:
 
     components = "\n".join(
         [
-            '{"beginRendering":{"surfaceId":"surface-1","root":"root-2"}}',
-            '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-2","component":{"Text":{"text":{"literal":"updated"}}}}]}}',
+            '{"beginRendering":{"surfaceId":"surface-1","root":"button-2"}}',
+            '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"label-2","component":{"Text":{"text":{"literalString":"Updated"}}}},{"id":"button-2","component":{"Button":{"child":"label-2","action":{"name":"submit"}}}}]}}',
         ]
     )
 
@@ -845,7 +854,7 @@ async def test_a2ui_tool_reuses_existing_canvas_block() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_a2ui_tool_preserves_existing_surface_id_when_payload_omits_surface() -> None:
+async def test_a2ui_tool_rejects_existing_update_when_payload_omits_surface_id() -> None:
     coordinator = MagicMock()
     coordinator.conversation_id = "conv-a2ui"
     coordinator.prepare_request = AsyncMock(return_value="a2ui-req-3")
@@ -861,7 +870,12 @@ async def test_a2ui_tool_preserves_existing_surface_id_when_payload_omits_surfac
         conversation_id="conv-a2ui",
         block_type="a2ui_surface",
         title="Existing",
-        content='{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+        content=(
+            '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}\n'
+            '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+            '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
+            '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}'
+        ),
         metadata={"surface_id": "surface-1"},
     )
     configure_canvas(manager)
@@ -882,9 +896,13 @@ async def test_a2ui_tool_preserves_existing_surface_id_when_payload_omits_surfac
         )
     ]
 
-    canvas_event = next(e for e in events if isinstance(e, AgentCanvasUpdatedEvent))
-    assert canvas_event.block is not None
-    assert canvas_event.block["metadata"]["surface_id"] == "surface-1"
+    observe_event = next(e for e in events if isinstance(e, AgentObserveEvent))
+    assert "must include surfaceId on every envelope" in (observe_event.error or "")
+    coordinator.prepare_request.assert_not_awaited()
+    assert tool_part.status == ToolState.ERROR
+    assert manager.get_block("conv-a2ui", existing.id).content == existing.content
+    assert not any(isinstance(event, AgentCanvasUpdatedEvent) for event in events)
+    assert not any(isinstance(event, AgentA2UIActionAskedEvent) for event in events)
 
     configure_canvas(None)
 
@@ -902,6 +920,109 @@ class _FailingAttachCoordinator:
     @property
     def pending_request_ids(self) -> list[str]:
         return list(self._pending.keys())
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_a2ui_tool_rejects_non_actionable_existing_update() -> None:
+    coordinator = MagicMock()
+    coordinator.conversation_id = "conv-a2ui"
+    coordinator.prepare_request = AsyncMock(return_value="a2ui-req-invalid-update")
+    coordinator.pending_request_ids = []
+    manager = CanvasManager()
+    existing = manager.create_block(
+        conversation_id="conv-a2ui",
+        block_type="a2ui_surface",
+        title="Existing",
+        content=(
+            '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}\n'
+            '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+            '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
+            '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}'
+        ),
+        metadata={"surface_id": "surface-1"},
+    )
+    configure_canvas(manager)
+    tool_part = _make_tool_part("call-a2ui", "canvas_create_interactive")
+
+    events = [
+        event
+        async for event in handle_a2ui_action_tool(
+            coordinator=coordinator,
+            call_id="call-a2ui",
+            tool_name="canvas_create_interactive",
+            arguments={
+                "title": "Review",
+                "components": (
+                    '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+                    '{"id":"button-1","component":{"Text":{"text":{"literalString":"Updated"}}}}]}}'
+                ),
+                "block_id": existing.id,
+            },
+            tool_part=tool_part,
+        )
+    ]
+
+    observe_event = next(e for e in events if isinstance(e, AgentObserveEvent))
+    assert "interactive updates must still resolve" in (observe_event.error or "")
+    coordinator.prepare_request.assert_not_awaited()
+    assert tool_part.status == ToolState.ERROR
+    assert manager.get_block("conv-a2ui", existing.id).content == existing.content
+    assert not any(isinstance(event, AgentCanvasUpdatedEvent) for event in events)
+    assert not any(isinstance(event, AgentA2UIActionAskedEvent) for event in events)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_a2ui_tool_rejects_existing_update_with_drifted_surface_id() -> None:
+    coordinator = MagicMock()
+    coordinator.conversation_id = "conv-a2ui"
+    coordinator.prepare_request = AsyncMock(return_value="a2ui-req-invalid-surface")
+    coordinator.pending_request_ids = []
+    manager = CanvasManager()
+    existing = manager.create_block(
+        conversation_id="conv-a2ui",
+        block_type="a2ui_surface",
+        title="Existing",
+        content=(
+            '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}\n'
+            '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+            '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
+            '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}'
+        ),
+        metadata={"surface_id": "surface-1"},
+    )
+    configure_canvas(manager)
+    tool_part = _make_tool_part("call-a2ui", "canvas_create_interactive")
+
+    events = [
+        event
+        async for event in handle_a2ui_action_tool(
+            coordinator=coordinator,
+            call_id="call-a2ui",
+            tool_name="canvas_create_interactive",
+            arguments={
+                "title": "Review",
+                "components": (
+                    '{"surfaceUpdate":{"surfaceId":"surface-2","components":['
+                    '{"id":"label-2","component":{"Text":{"text":{"literalString":"Updated"}}}},'
+                    '{"id":"button-2","component":{"Button":{"child":"label-2","action":{"name":"submit"}}}}]}}'
+                ),
+                "block_id": existing.id,
+            },
+            tool_part=tool_part,
+        )
+    ]
+
+    observe_event = next(e for e in events if isinstance(e, AgentObserveEvent))
+    assert "must use surfaceId 'surface-1'" in (observe_event.error or "")
+    coordinator.prepare_request.assert_not_awaited()
+    assert tool_part.status == ToolState.ERROR
+    assert manager.get_block("conv-a2ui", existing.id).content == existing.content
+    assert not any(isinstance(event, AgentCanvasUpdatedEvent) for event in events)
+    assert not any(isinstance(event, AgentA2UIActionAskedEvent) for event in events)
+
+    configure_canvas(None)
 
 
 @pytest.mark.unit
@@ -957,9 +1078,10 @@ async def test_a2ui_tool_cleans_prepared_request_when_metadata_attach_fails(monk
             arguments={
                 "title": "Review",
                 "components": (
-                    '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}\n'
+                    '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}\n'
                     '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
-                    '{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}'
+                    '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
+                    '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}'
                 ),
             },
             tool_part=tool_part,
@@ -1041,6 +1163,50 @@ async def test_a2ui_tool_rejects_flat_surface_object_before_waiting() -> None:
 
     observe_event = next(e for e in events if isinstance(e, AgentObserveEvent))
     assert "beginRendering/surfaceUpdate envelopes" in (observe_event.error or "")
+    coordinator.prepare_request.assert_not_awaited()
+    assert tool_part.status == ToolState.ERROR
+    assert manager.get_blocks("conv-a2ui") == []
+    assert not any(isinstance(event, AgentCanvasUpdatedEvent) for event in events)
+    assert not any(isinstance(event, AgentA2UIActionAskedEvent) for event in events)
+
+    configure_canvas(None)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_a2ui_tool_rejects_malformed_json_before_waiting() -> None:
+    coordinator = MagicMock()
+    coordinator.conversation_id = "conv-a2ui"
+    coordinator.prepare_request = AsyncMock(return_value="a2ui-req-invalid")
+    coordinator.pending_request_ids = []
+    manager = CanvasManager()
+    configure_canvas(manager)
+    tool_part = _make_tool_part("call-a2ui", "canvas_create_interactive")
+
+    events = [
+        event
+        async for event in handle_a2ui_action_tool(
+            coordinator=coordinator,
+            call_id="call-a2ui",
+            tool_name="canvas_create_interactive",
+            arguments={
+                "title": "Review",
+                "components": "\n".join(
+                    [
+                        '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}',
+                        "not json",
+                        '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+                        '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
+                        '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}',
+                    ]
+                ),
+            },
+            tool_part=tool_part,
+        )
+    ]
+
+    observe_event = next(e for e in events if isinstance(e, AgentObserveEvent))
+    assert "malformed JSON" in (observe_event.error or "")
     coordinator.prepare_request.assert_not_awaited()
     assert tool_part.status == ToolState.ERROR
     assert manager.get_blocks("conv-a2ui") == []

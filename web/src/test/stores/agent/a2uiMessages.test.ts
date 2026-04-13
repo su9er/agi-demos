@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { extractA2UISurfaceId, mergeA2UIMessageStream } from '../../../stores/agent/a2uiMessages';
 
 describe('mergeA2UIMessageStream', () => {
-  it('appends incremental surfaceUpdate payloads to preserve previous beginRendering', () => {
+  it('rebuilds a merged surface snapshot for incremental surfaceUpdate payloads', () => {
     const previous =
       '{"beginRendering":{"surfaceId":"s1","root":"root-1"}}\n' +
       '{"surfaceUpdate":{"surfaceId":"s1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}';
@@ -13,7 +13,8 @@ describe('mergeA2UIMessageStream', () => {
     const merged = mergeA2UIMessageStream(previous, incoming);
 
     expect(merged).toContain('"beginRendering"');
-    expect(merged.split('\n')).toHaveLength(3);
+    expect(merged.split('\n')).toHaveLength(2);
+    expect(merged).toContain('"world"');
   });
 
   it('replaces payload when incoming already contains beginRendering', () => {
@@ -52,6 +53,16 @@ describe('mergeA2UIMessageStream', () => {
     const merged = mergeA2UIMessageStream(previous, incoming);
 
     expect(merged).toBe(incoming);
+  });
+
+  it('returns the raw incoming payload when incremental surfaceIds drift', () => {
+    const previous =
+      '{"beginRendering":{"surfaceId":"s1","root":"root-1"}}\n' +
+      '{"surfaceUpdate":{"surfaceId":"s1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}';
+    const incoming =
+      '{"surfaceUpdate":{"surfaceId":"s2","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"world"}}}}]}}';
+
+    expect(mergeA2UIMessageStream(previous, incoming)).toBe(incoming);
   });
 
   it('extracts a single surface id from the message stream', () => {
@@ -115,5 +126,14 @@ describe('mergeA2UIMessageStream', () => {
 `;
 
     expect(extractA2UISurfaceId(messages)).toBe('surface-1');
+  });
+
+  it('returns undefined for malformed chunked payloads', () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+      '{"surfaceUpdate":{"surfaceId":"surface-1","components":[',
+    ].join('\n');
+
+    expect(extractA2UISurfaceId(messages)).toBeUndefined();
   });
 });

@@ -524,7 +524,89 @@ class TestCanvasTools:
 
         configure_canvas(None)  # reset global
 
-    async def test_canvas_update_a2ui_refreshes_surface_id_metadata(self, ctx: ToolContext) -> None:
+    async def test_canvas_create_rejects_mismatched_a2ui_surface_id_metadata(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-42","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-42","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            ]
+        )
+
+        result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=content,
+            metadata={"surface_id": "wrong-surface"},
+        )
+
+        assert result.is_error
+        assert "metadata.surface_id must match" in result.output
+        assert ctx.consume_pending_events() == []
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_create_rejects_malformed_a2ui_payload_even_if_partially_parseable(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-42","root":"root-1"}}',
+                "not json",
+                '{"surfaceUpdate":{"surfaceId":"surface-42","components":[{"id":"root-1","component":{"Text":{"text":{"literalString":"hello"}}}}]}}',
+            ]
+        )
+
+        result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=content,
+        )
+
+        assert result.is_error
+        assert "malformed JSON" in result.output
+        assert ctx.consume_pending_events() == []
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_create_accepts_display_only_card_surface(self, ctx: ToolContext) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-card","root":"card-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-card","components":['
+                '{"id":"text-1","component":{"Text":{"text":{"literalString":"Hello"}}}},'
+                '{"id":"card-1","component":{"Card":{"title":"Card","children":{"explicitList":["text-1"]}}}}]}}',
+            ]
+        )
+
+        result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Card Surface",
+            content=content,
+        )
+        assert not result.is_error
+
+        events = ctx.consume_pending_events()
+        event_block = events[0]["data"]["block"]
+        assert event_block["metadata"]["surface_id"] == "surface-card"
+        assert '"Card"' in event_block["content"]
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_update_rejects_surface_id_retargeting(self, ctx: ToolContext) -> None:
         mgr = CanvasManager()
         configure_canvas(mgr)
 
@@ -550,15 +632,172 @@ class TestCanvasTools:
             ]
         )
         result = await canvas_update.execute(ctx, block_id=block_id, content=updated_content)
+        assert result.is_error
+        assert "must use surfaceId 'surface-1'" in result.output
+        assert ctx.consume_pending_events() == []
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_update_rejects_mismatched_a2ui_surface_id_metadata(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        initial_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            ]
+        )
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=initial_content,
+        )
+        block_id = json.loads(create_result.output)["block_id"]
+        ctx.consume_pending_events()
+
+        result = await canvas_update.execute(
+            ctx,
+            block_id=block_id,
+            metadata={"surface_id": "wrong-surface"},
+        )
+
+        assert result.is_error
+        assert "metadata.surface_id must match" in result.output
+        assert ctx.consume_pending_events() == []
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_update_rejects_malformed_incremental_a2ui_payload(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        initial_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literalString":"hello"}}}}]}}',
+            ]
+        )
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=initial_content,
+        )
+        block_id = json.loads(create_result.output)["block_id"]
+        ctx.consume_pending_events()
+
+        invalid_update = "\n".join(
+            [
+                '{"surfaceUpdate":{"components":[{"id":"root-1","component":{"Text":{"text":{"literalString":"updated"}}}}]}}',
+                "not json",
+            ]
+        )
+        result = await canvas_update.execute(ctx, block_id=block_id, content=invalid_update)
+
+        assert result.is_error
+        assert "malformed JSON" in result.output
+        assert ctx.consume_pending_events() == []
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_update_a2ui_persists_merged_incremental_snapshot(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        initial_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+            ]
+        )
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=initial_content,
+        )
+        block_id = json.loads(create_result.output)["block_id"]
+        ctx.consume_pending_events()
+
+        incremental_content = json.dumps(
+            {
+                "surfaceUpdate": {
+                    "surfaceId": "surface-1",
+                    "components": [
+                        {
+                            "id": "root-1",
+                            "component": {"Text": {"text": {"literalString": "updated"}}},
+                        }
+                    ],
+                }
+            }
+        )
+        result = await canvas_update.execute(ctx, block_id=block_id, content=incremental_content)
         assert not result.is_error
 
         events = ctx.consume_pending_events()
         event_block = events[0]["data"]["block"]
-        assert event_block["metadata"]["surface_id"] == "surface-2"
+        assert '"beginRendering"' in event_block["content"]
+        assert '"surfaceId": "surface-1"' in event_block["content"]
+        assert '"updated"' in event_block["content"]
+        assert event_block["metadata"]["surface_id"] == "surface-1"
 
         configure_canvas(None)  # reset global
 
-    async def test_canvas_update_rejects_multiple_surface_ids(self, ctx: ToolContext) -> None:
+    async def test_canvas_update_rejects_incremental_surface_id_drift(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        initial_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literalString":"hello"}}}}]}}',
+            ]
+        )
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=initial_content,
+        )
+        block_id = json.loads(create_result.output)["block_id"]
+        ctx.consume_pending_events()
+
+        drifted_update = json.dumps(
+            {
+                "surfaceUpdate": {
+                    "surfaceId": "surface-2",
+                    "components": [
+                        {
+                            "id": "root-1",
+                            "component": {"Text": {"text": {"literalString": "updated"}}},
+                        }
+                    ],
+                }
+            }
+        )
+
+        result = await canvas_update.execute(ctx, block_id=block_id, content=drifted_update)
+
+        assert result.is_error
+        assert "must use surfaceId 'surface-1'" in result.output
+        assert ctx.consume_pending_events() == []
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_update_rejects_incremental_surface_id_drift_before_multi_surface_merge(
+        self, ctx: ToolContext
+    ) -> None:
         mgr = CanvasManager()
         configure_canvas(mgr)
 
@@ -585,7 +824,7 @@ class TestCanvasTools:
         )
         result = await canvas_update.execute(ctx, block_id=block_id, content=invalid_content)
         assert result.is_error
-        assert "same surfaceId" in result.output
+        assert "must use surfaceId 'surface-1'" in result.output
         assert ctx.consume_pending_events() == []
 
         configure_canvas(None)  # reset global
@@ -596,8 +835,10 @@ class TestCanvasTools:
 
         initial_content = "\n".join(
             [
-                '{"beginRendering":{"surfaceId":"surface-1","root":"root-1"}}',
-                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+                '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+                '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
+                '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}',
             ]
         )
         create_result = await canvas_create.execute(
@@ -611,8 +852,10 @@ class TestCanvasTools:
 
         updated_content = "\n".join(
             [
-                '{"beginRendering":{"surfaceId":"surface-1","root":"root-2"}}',
-                '{"surfaceUpdate":{"surfaceId":"surface-1","components":[{"id":"root-2","component":{"Text":{"text":{"literal":"updated"}}}}]}}',
+                '{"beginRendering":{"surfaceId":"surface-1","root":"button-2"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+                '{"id":"label-2","component":{"Text":{"text":{"literalString":"Updated"}}}},'
+                '{"id":"button-2","component":{"Button":{"child":"label-2","action":{"name":"submit"}}}}]}}',
             ]
         )
         result = await canvas_create_interactive.execute(
@@ -627,6 +870,258 @@ class TestCanvasTools:
         events = ctx.consume_pending_events()
         assert events[0]["data"]["action"] == "updated"
         assert events[0]["data"]["block_id"] == block_id
+        assert [
+            json.loads(line) for line in events[0]["data"]["block"]["content"].splitlines()
+        ] == [json.loads(line) for line in updated_content.splitlines()]
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_create_interactive_rejects_malformed_payload_even_if_partially_parseable(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}',
+                "not json",
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+                '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
+                '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}',
+            ]
+        )
+
+        result = await canvas_create_interactive.execute(
+            ctx,
+            title="Interactive Surface",
+            components=content,
+        )
+
+        assert result.is_error
+        assert "malformed JSON" in result.output
+        assert ctx.consume_pending_events() == []
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_create_interactive_accepts_card_when_button_is_reachable(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-card","root":"card-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-card","components":['
+                '{"id":"title-1","component":{"Text":{"text":{"literalString":"Card title"}}}},'
+                '{"id":"button-label","component":{"Text":{"text":{"literalString":"Confirm"}}}},'
+                '{"id":"button-1","component":{"Button":{"child":"button-label","action":{"name":"confirm"}}}},'
+                '{"id":"card-1","component":{"Card":{"title":"Card","children":{"explicitList":["title-1","button-1","button-label"]}}}}]}}',
+            ]
+        )
+
+        result = await canvas_create_interactive.execute(
+            ctx,
+            title="Interactive Card",
+            components=content,
+        )
+
+        assert not result.is_error
+        events = ctx.consume_pending_events()
+        assert events[0]["data"]["action"] == "created"
+        assert '"Card"' in events[0]["data"]["block"]["content"]
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_create_interactive_normalizes_phase3_syntax_sugar(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-sugar","root":"root-1"}}',
+                json.dumps(
+                    {
+                        "surfaceUpdate": {
+                            "surfaceId": "surface-sugar",
+                            "components": [
+                                {
+                                    "id": "root-1",
+                                    "component": {
+                                        "Column": {
+                                            "gap": 16,
+                                            "children": {"explicitList": ["card-1", "button-1"]},
+                                        }
+                                    },
+                                },
+                                {
+                                    "id": "card-1",
+                                    "component": {
+                                        "Card": {
+                                            "title": {
+                                                "Text": {
+                                                    "text": {"literal": "Card title"},
+                                                    "style": {"fontWeight": "700"},
+                                                }
+                                            },
+                                            "children": {"explicitList": ["body-1"]},
+                                        }
+                                    },
+                                },
+                                {
+                                    "id": "body-1",
+                                    "component": {"Text": {"text": {"literalString": "Body copy"}}},
+                                },
+                                {
+                                    "id": "button-1",
+                                    "component": {
+                                        "Button": {
+                                            "label": {"literalString": "Submit"},
+                                            "action": {"name": "submit"},
+                                        }
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                ),
+            ]
+        )
+
+        result = await canvas_create_interactive.execute(
+            ctx,
+            title="Interactive Sugar Surface",
+            components=content,
+        )
+
+        assert not result.is_error
+        events = ctx.consume_pending_events()
+        event_block = events[0]["data"]["block"]
+        records = [json.loads(line) for line in event_block["content"].splitlines()]
+        surface_update = records[1]["surfaceUpdate"]
+        components = {
+            component["id"]: component["component"] for component in surface_update["components"]
+        }
+
+        assert event_block["metadata"]["surface_id"] == "surface-sugar"
+        assert components["root-1"]["Column"]["gap"] == "16px"
+        assert components["button-1"]["Button"]["child"] == "button-1__label"
+        assert "label" not in components["button-1"]["Button"]
+        assert components["button-1__label"]["Text"]["text"]["literalString"] == "Submit"
+        assert "title" not in components["card-1"]["Card"]
+        assert components["card-1"]["Card"]["children"]["explicitList"] == [
+            "card-1__title",
+            "body-1",
+        ]
+        assert components["card-1__title"]["Text"]["text"]["literalString"] == "Card title"
+        assert components["card-1__title"]["Text"]["style"]["fontWeight"] == "700"
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_create_interactive_rejects_non_actionable_existing_update(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        initial_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+                '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
+                '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}',
+            ]
+        )
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=initial_content,
+        )
+        block_id = json.loads(create_result.output)["block_id"]
+        ctx.consume_pending_events()
+
+        invalid_update = json.dumps(
+            {
+                "surfaceUpdate": {
+                    "surfaceId": "surface-1",
+                    "components": [
+                        {
+                            "id": "button-1",
+                            "component": {"Text": {"text": {"literalString": "Updated"}}},
+                        }
+                    ],
+                }
+            }
+        )
+        result = await canvas_create_interactive.execute(
+            ctx,
+            title="Interactive Surface",
+            components=invalid_update,
+            block_id=block_id,
+        )
+
+        assert result.is_error
+        assert "interactive updates must still resolve" in result.output
+        assert ctx.consume_pending_events() == []
+
+        configure_canvas(None)  # reset global
+
+    async def test_canvas_create_interactive_rejects_existing_update_with_drifted_surface_id(
+        self, ctx: ToolContext
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+
+        initial_content = "\n".join(
+            [
+                '{"beginRendering":{"surfaceId":"surface-1","root":"button-1"}}',
+                '{"surfaceUpdate":{"surfaceId":"surface-1","components":['
+                '{"id":"label-1","component":{"Text":{"text":{"literalString":"Approve"}}}},'
+                '{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"submit"}}}}]}}',
+            ]
+        )
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type="a2ui_surface",
+            title="Interactive Surface",
+            content=initial_content,
+        )
+        block_id = json.loads(create_result.output)["block_id"]
+        ctx.consume_pending_events()
+
+        drifted_update = json.dumps(
+            {
+                "surfaceUpdate": {
+                    "surfaceId": "surface-2",
+                    "components": [
+                        {
+                            "id": "label-2",
+                            "component": {"Text": {"text": {"literalString": "Updated"}}},
+                        },
+                        {
+                            "id": "button-2",
+                            "component": {
+                                "Button": {"child": "label-2", "action": {"name": "submit"}}
+                            },
+                        },
+                    ],
+                }
+            }
+        )
+        result = await canvas_create_interactive.execute(
+            ctx,
+            title="Interactive Surface",
+            components=drifted_update,
+            block_id=block_id,
+        )
+
+        assert result.is_error
+        assert "must use surfaceId 'surface-1'" in result.output
+        assert ctx.consume_pending_events() == []
 
         configure_canvas(None)  # reset global
 

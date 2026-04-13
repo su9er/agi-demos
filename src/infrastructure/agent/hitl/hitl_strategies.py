@@ -474,8 +474,22 @@ class A2UIActionStrategy(HITLTypeStrategy):
           - block_id: Canvas block ID housing the A2UI surface
           - title: Human-readable surface title
           - components: JSONL component definitions (for persistence/debug)
+          - allowed_actions: validated button id/name pairs accepted for this request
           - context: Arbitrary metadata
         """
+        raw_allowed_actions = request_data.get("allowed_actions", [])
+        allowed_actions = [
+            {
+                "source_component_id": action.get("source_component_id", ""),
+                "action_name": action.get("action_name", ""),
+            }
+            for action in raw_allowed_actions
+            if isinstance(action, dict)
+            and isinstance(action.get("source_component_id"), str)
+            and bool(action.get("source_component_id", "").strip())
+            and isinstance(action.get("action_name"), str)
+            and bool(action.get("action_name", "").strip())
+        ]
         return HITLRequest(
             request_id=self.generate_request_id(),
             hitl_type=HITLType.A2UI_ACTION,
@@ -487,6 +501,7 @@ class A2UIActionStrategy(HITLTypeStrategy):
             a2ui_data=A2UIActionRequestData(
                 title=request_data.get("title", "A2UI interaction required"),
                 block_id=request_data.get("block_id", ""),
+                allowed_actions=allowed_actions,
                 context=request_data.get("context", {}),
             ),
         )

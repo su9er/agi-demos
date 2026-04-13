@@ -1,26 +1,7 @@
-const BEGIN_RENDERING_PATTERNS = [
-  /"beginRendering"\s*:/,
-  /"begin_rendering"\s*:/,
-  /"type"\s*:\s*"beginRendering"/,
-  /"type"\s*:\s*"begin_rendering"/,
-];
-
-const SURFACE_UPDATE_PATTERN =
-  /"surfaceUpdate"\s*:|"surface_update"\s*:|"type"\s*:\s*"surfaceUpdate"|"type"\s*:\s*"surface_update"/;
-const DATA_MODEL_UPDATE_PATTERN =
-  /"dataModelUpdate"\s*:|"data_model_update"\s*:|"type"\s*:\s*"dataModelUpdate"|"type"\s*:\s*"data_model_update"/;
-const DELETE_SURFACE_PATTERN =
-  /"deleteSurface"\s*:|"delete_surface"\s*:|"type"\s*:\s*"deleteSurface"|"type"\s*:\s*"delete_surface"/;
-const SURFACE_OPERATION_TYPES = new Set([
-  'beginRendering',
-  'begin_rendering',
-  'surfaceUpdate',
-  'surface_update',
-  'dataModelUpdate',
-  'data_model_update',
-  'deleteSurface',
-  'delete_surface',
-]);
+const BEGIN_RENDERING_PATTERN = /"beginRendering"\s*:/;
+const SURFACE_UPDATE_PATTERN = /"surfaceUpdate"\s*:/;
+const DATA_MODEL_UPDATE_PATTERN = /"dataModelUpdate"\s*:/;
+const DELETE_SURFACE_PATTERN = /"deleteSurface"\s*:/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -41,14 +22,6 @@ function collectEnvelopeRecords(input: unknown): Record<string, unknown>[] {
     return input.filter((entry): entry is Record<string, unknown> => isRecord(entry));
   }
   if (!isRecord(input)) return [];
-
-  if (Array.isArray(input.messages)) {
-    return input.messages.filter((entry): entry is Record<string, unknown> => isRecord(entry));
-  }
-  const nestedData = isRecord(input.data) ? input.data : null;
-  if (nestedData && Array.isArray(nestedData.messages)) {
-    return nestedData.messages.filter((entry): entry is Record<string, unknown> => isRecord(entry));
-  }
   return [input];
 }
 
@@ -60,22 +33,22 @@ function tryParseJson(input: string): unknown {
   }
 }
 
-function extractJsonObjects(input: string): string[] {
-  const objects: string[] = [];
-  let startIndex = -1;
+function extractJsonObjectSpans(input: string): Array<{ start: number; end: number }> {
+  const spans: Array<{ start: number; end: number }> = [];
   let depth = 0;
+  let start = -1;
   let inString = false;
-  let escapeNext = false;
+  let escaped = false;
 
   for (let index = 0; index < input.length; index += 1) {
     const char = input[index];
     if (!char) continue;
 
     if (inString) {
-      if (escapeNext) {
-        escapeNext = false;
+      if (escaped) {
+        escaped = false;
       } else if (char === '\\') {
-        escapeNext = true;
+        escaped = true;
       } else if (char === '"') {
         inString = false;
       }
@@ -86,50 +59,35 @@ function extractJsonObjects(input: string): string[] {
       inString = true;
       continue;
     }
+
     if (char === '{') {
-      if (depth === 0) {
-        startIndex = index;
-      }
+      if (depth === 0) start = index;
       depth += 1;
       continue;
     }
-    if (char !== '}') continue;
 
-    depth -= 1;
-    if (depth === 0 && startIndex >= 0) {
-      objects.push(input.slice(startIndex, index + 1));
-      startIndex = -1;
+    if (char === '}' && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        spans.push({ start, end: index + 1 });
+        start = -1;
+      }
     }
   }
 
-  return objects;
+  return spans;
 }
 
 function getEnvelopeSurfaceId(envelope: Record<string, unknown>): string | undefined {
   const payloads = [
     envelope.beginRendering,
-    envelope.begin_rendering,
     envelope.surfaceUpdate,
-    envelope.surface_update,
     envelope.dataModelUpdate,
-    envelope.data_model_update,
     envelope.deleteSurface,
-    envelope.delete_surface,
   ];
   for (const payload of payloads) {
     if (!isRecord(payload)) continue;
-    const surfaceId = payload.surfaceId ?? payload.surface_id;
-    if (typeof surfaceId === 'string' && surfaceId) {
-      return surfaceId;
-    }
-  }
-
-  if (
-    typeof envelope.type === 'string' &&
-    SURFACE_OPERATION_TYPES.has(envelope.type) &&
-    isRecord(envelope.payload)
-  ) {
-    const surfaceId = envelope.payload.surfaceId ?? envelope.payload.surface_id;
+    const surfaceId = payload.surfaceId;
     if (typeof surfaceId === 'string' && surfaceId) {
       return surfaceId;
     }
@@ -137,61 +95,166 @@ function getEnvelopeSurfaceId(envelope: Record<string, unknown>): string | undef
   return undefined;
 }
 
-export function extractA2UISurfaceId(messages?: string | null): string | undefined {
-  if (!messages) return undefined;
+function getEnvelopePayload(
+  envelope: Record<string, unknown>,
+  key: 'beginRendering' | 'surfaceUpdate' | 'dataModelUpdate' | 'deleteSurface'
+): Record<string, unknown> | null {
+  const payload = envelope[key];
+  return isRecord(payload) ? payload : null;
+}
+
+function collectParsedEnvelopeRecords(messages?: string | null): Record<string, unknown>[] {
+  if (!messages) return [];
   const normalized = stripMarkdownCodeFence(messages);
-  const surfaceIds = new Set<string>();
+  if (!normalized) return [];
 
   const parsedWhole = tryParseJson(normalized);
   if (parsedWhole !== undefined) {
-    for (const envelope of collectEnvelopeRecords(parsedWhole)) {
-      const surfaceId = getEnvelopeSurfaceId(envelope);
-      if (surfaceId) {
-        surfaceIds.add(surfaceId);
-        if (surfaceIds.size > 1) return undefined;
-      }
-    }
-    return surfaceIds.size === 1 ? [...surfaceIds][0] : undefined;
+    return collectEnvelopeRecords(parsedWhole);
   }
 
-  for (const line of normalized.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('```')) continue;
-    const parsedLine = tryParseJson(trimmed);
-    if (parsedLine === undefined) continue;
-    for (const envelope of collectEnvelopeRecords(parsedLine)) {
-      const surfaceId = getEnvelopeSurfaceId(envelope);
-      if (surfaceId) {
-        surfaceIds.add(surfaceId);
-        if (surfaceIds.size > 1) return undefined;
+  const lines = normalized.split(/\r?\n/);
+  if (lines.length > 1) {
+    const lineRecords: Record<string, unknown>[] = [];
+    let lineParseFailed = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('```')) continue;
+      const parsedLine = tryParseJson(trimmed);
+      if (parsedLine === undefined) {
+        lineParseFailed = true;
+        break;
       }
+      lineRecords.push(...collectEnvelopeRecords(parsedLine));
+    }
+    if (!lineParseFailed && lineRecords.length > 0) return lineRecords;
+  }
+
+  const objectRecords: Record<string, unknown>[] = [];
+  const spans = extractJsonObjectSpans(normalized);
+  let cursor = 0;
+  for (const span of spans) {
+    if (normalized.slice(cursor, span.start).trim()) return [];
+    const parsedChunk = tryParseJson(normalized.slice(span.start, span.end));
+    if (parsedChunk === undefined) return [];
+    objectRecords.push(...collectEnvelopeRecords(parsedChunk));
+    cursor = span.end;
+  }
+  if (normalized.slice(cursor).trim()) return [];
+  return objectRecords;
+}
+
+interface A2UIMessageStreamState {
+  surfaceId: string | undefined;
+  root: string | undefined;
+  styles: Record<string, unknown> | undefined;
+  componentsById: Map<string, Record<string, unknown>>;
+  dataRecords: Array<Record<string, unknown>>;
+}
+
+function createMessageStreamState(): A2UIMessageStreamState {
+  return {
+    surfaceId: undefined,
+    root: undefined,
+    styles: undefined,
+    componentsById: new Map<string, Record<string, unknown>>(),
+    dataRecords: [],
+  };
+}
+
+function buildDataRecord(
+  dataModelUpdate: Record<string, unknown> | null
+): Record<string, unknown> | null {
+  if (!dataModelUpdate) return null;
+  return { dataModelUpdate: { ...dataModelUpdate } };
+}
+
+function applyEnvelopeToState(
+  state: A2UIMessageStreamState,
+  envelope: Record<string, unknown>
+): void {
+  const beginRendering = getEnvelopePayload(envelope, 'beginRendering');
+  const surfaceUpdate = getEnvelopePayload(envelope, 'surfaceUpdate');
+  const dataModelUpdate = getEnvelopePayload(envelope, 'dataModelUpdate');
+  const deleteSurface = getEnvelopePayload(envelope, 'deleteSurface');
+  const envelopeSurfaceId = getEnvelopeSurfaceId(envelope);
+
+  if (envelopeSurfaceId) {
+    state.surfaceId = envelopeSurfaceId;
+  }
+
+  if (deleteSurface) {
+    state.root = undefined;
+    state.styles = undefined;
+    state.componentsById.clear();
+    state.dataRecords = [];
+    return;
+  }
+
+  if (beginRendering) {
+    if (typeof beginRendering.root === 'string' && beginRendering.root) {
+      state.root = beginRendering.root;
+    }
+    if (isRecord(beginRendering.styles)) {
+      state.styles = { ...beginRendering.styles };
     }
   }
 
-  if (surfaceIds.size > 0) {
-    return surfaceIds.size === 1 ? [...surfaceIds][0] : undefined;
+  const componentSource = surfaceUpdate?.components;
+  if (Array.isArray(componentSource)) {
+    for (const rawComponent of componentSource) {
+      if (!isRecord(rawComponent)) continue;
+      if (typeof rawComponent.id !== 'string' || !rawComponent.id) continue;
+      state.componentsById.set(rawComponent.id, rawComponent);
+    }
   }
 
-  for (const chunk of extractJsonObjects(normalized)) {
-    const parsedChunk = tryParseJson(chunk);
-    if (parsedChunk === undefined) continue;
-    for (const envelope of collectEnvelopeRecords(parsedChunk)) {
-      const surfaceId = getEnvelopeSurfaceId(envelope);
-      if (surfaceId) {
-        surfaceIds.add(surfaceId);
-        if (surfaceIds.size > 1) return undefined;
-      }
-    }
+  const dataRecord = buildDataRecord(dataModelUpdate);
+  if (dataRecord) {
+    state.dataRecords.push(dataRecord);
+  }
+}
+
+function serializeMessageStreamState(state: A2UIMessageStreamState): string {
+  const records: Array<Record<string, unknown>> = [];
+  if (state.root) {
+    records.push({
+      beginRendering: {
+        ...(state.surfaceId ? { surfaceId: state.surfaceId } : {}),
+        root: state.root,
+        ...(state.styles ? { styles: state.styles } : {}),
+      },
+    });
+  }
+
+  if (state.componentsById.size > 0) {
+    records.push({
+      surfaceUpdate: {
+        ...(state.surfaceId ? { surfaceId: state.surfaceId } : {}),
+        components: [...state.componentsById.values()],
+      },
+    });
+  }
+
+  records.push(...state.dataRecords);
+  return records.map((record) => JSON.stringify(record)).join('\n');
+}
+
+function extractSingleSurfaceId(records: Record<string, unknown>[]): string | undefined {
+  const surfaceIds = new Set<string>();
+  for (const envelope of records) {
+    const surfaceId = getEnvelopeSurfaceId(envelope);
+    if (!surfaceId) continue;
+    surfaceIds.add(surfaceId);
+    if (surfaceIds.size > 1) return undefined;
   }
   return surfaceIds.size === 1 ? [...surfaceIds][0] : undefined;
 }
 
-/**
- * Merge A2UI incremental update payloads into the prior message stream.
- *
- * Some canvas_update events only contain surfaceUpdate diffs (without beginRendering).
- * Replacing content with such diffs drops the root definition and causes renderer fallback.
- */
+export function extractA2UISurfaceId(messages?: string | null): string | undefined {
+  return extractSingleSurfaceId(collectParsedEnvelopeRecords(messages));
+}
+
 export function mergeA2UIMessageStream(
   previousMessages: string | undefined,
   incomingMessages: string
@@ -199,9 +262,7 @@ export function mergeA2UIMessageStream(
   if (!incomingMessages) return previousMessages ?? '';
   if (!previousMessages) return incomingMessages;
 
-  const hasBeginRendering = BEGIN_RENDERING_PATTERNS.some((pattern) =>
-    pattern.test(incomingMessages)
-  );
+  const hasBeginRendering = BEGIN_RENDERING_PATTERN.test(incomingMessages);
   const hasDeleteSurface = DELETE_SURFACE_PATTERN.test(incomingMessages);
   const hasIncrementalUpdate =
     SURFACE_UPDATE_PATTERN.test(incomingMessages) ||
@@ -210,7 +271,26 @@ export function mergeA2UIMessageStream(
     return incomingMessages;
   }
 
-  return previousMessages.endsWith('\n')
-    ? `${previousMessages}${incomingMessages}`
-    : `${previousMessages}\n${incomingMessages}`;
+  const previousRecords = collectParsedEnvelopeRecords(previousMessages);
+  const incomingRecords = collectParsedEnvelopeRecords(incomingMessages);
+  if (previousRecords.length === 0 || incomingRecords.length === 0) {
+    return incomingMessages;
+  }
+
+  const previousSurfaceId = extractSingleSurfaceId(previousRecords);
+  const incomingSurfaceId = extractSingleSurfaceId(incomingRecords);
+  if (!previousSurfaceId || !incomingSurfaceId || previousSurfaceId !== incomingSurfaceId) {
+    return incomingMessages;
+  }
+
+  const state = createMessageStreamState();
+  for (const record of previousRecords) {
+    applyEnvelopeToState(state, record);
+  }
+  for (const record of incomingRecords) {
+    applyEnvelopeToState(state, record);
+  }
+
+  const serialized = serializeMessageStreamState(state);
+  return serialized || incomingMessages;
 }

@@ -38,7 +38,14 @@ from src.infrastructure.adapters.secondary.persistence.database import async_ses
 from src.infrastructure.adapters.secondary.persistence.sql_hitl_request_repository import (
     SqlHITLRequestRepository,
 )
-from src.infrastructure.agent.canvas.a2ui_builder import extract_surface_id, validate_a2ui_messages
+from src.infrastructure.agent.canvas.a2ui_builder import (
+    extract_actionable_actions,
+    extract_surface_id,
+    merge_a2ui_message_stream,
+    validate_a2ui_incremental_surface_id,
+    validate_a2ui_message_syntax,
+    validate_a2ui_messages,
+)
 from src.infrastructure.agent.canvas.manager import CanvasManager
 from src.infrastructure.agent.canvas.models import CanvasBlock
 from src.infrastructure.agent.hitl.hitl_strategies import (
@@ -119,7 +126,11 @@ def pop_tool_part_hitl_completion_request_ids(tool_part: ToolPart) -> list[str]:
     queued_request_ids = tool_part.metadata.pop(_PENDING_HITL_COMPLETION_REQUEST_IDS_KEY, [])
     if not isinstance(queued_request_ids, list):
         return []
-    return [request_id for request_id in queued_request_ids if isinstance(request_id, str) and request_id]
+    return [
+        request_id
+        for request_id in queued_request_ids
+        if isinstance(request_id, str) and request_id
+    ]
 
 
 def _observe_env_var_result(
@@ -224,7 +235,11 @@ async def handle_clarification_tool(
         default_value = clarification_data.default_value
         clarification_options = [option.to_dict() for option in clarification_data.options]
         valid_option_ids = {option["id"] for option in clarification_options}
-        if clarification_options and default_value is not None and default_value not in valid_option_ids:
+        if (
+            clarification_options
+            and default_value is not None
+            and default_value not in valid_option_ids
+        ):
             if not allow_custom:
                 default_value = None
 
@@ -720,57 +735,6 @@ async def _save_env_vars(
     return saved_variables
 
 
-def _repair_jsonl(raw: str) -> str:
-    """Validate and repair LLM-generated JSONL -- fix missing closing brackets.
-
-    LLMs sometimes emit malformed JSON with missing closing braces/brackets.
-    This tries common suffixes to repair each line.
-    """
-    import json as _json
-
-    # Common suffixes LLMs forget: closing braces, brackets, or combos
-    _suffixes = [
-        "}",
-        "}}",
-        "}}}",
-        "}}}}",
-        "]}",
-        "]}}",
-        "]}}}",
-        "]}]",
-        "]}}]",
-        "]",
-        "]]",
-        "}]",
-        "}}]",
-        "}}}]",
-        "}}]}}",
-        "]}}]}}",
-    ]
-
-    repaired_lines: list[str] = []
-    for line in raw.split("\n"):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        try:
-            _json.loads(stripped)
-            repaired_lines.append(stripped)
-        except _json.JSONDecodeError:
-            fixed = False
-            for suffix in _suffixes:
-                try:
-                    _json.loads(stripped + suffix)
-                    repaired_lines.append(stripped + suffix)
-                    fixed = True
-                    break
-                except _json.JSONDecodeError:
-                    continue
-            if not fixed:
-                repaired_lines.append(stripped)  # pass through as-is
-    return "\n".join(repaired_lines)
-
-
 def _upsert_a2ui_canvas_block(
     canvas_mgr: CanvasManager,
     conversation_id: str,
@@ -793,14 +757,36 @@ def _upsert_a2ui_canvas_block(
         msg = f"Canvas block '{resolved_block_id}' is not an A2UI surface"
         raise ValueError(msg)
 
-    validation_error = validate_a2ui_messages(
+    syntax_error = validate_a2ui_message_syntax(components)
+    if syntax_error is not None:
+        raise ValueError(syntax_error)
+
+    existing_surface_id = (
+        existing_block.metadata.get("surface_id")
+        if existing_block is not None and isinstance(existing_block.metadata, dict)
+        else None
+    ) or (extract_surface_id(existing_block.content) if existing_block is not None else None)
+    if isinstance(existing_surface_id, str) and existing_surface_id:
+        validation_error = validate_a2ui_incremental_surface_id(
+            components,
+            expected_surface_id=existing_surface_id,
+        )
+        if validation_error is not None:
+            raise ValueError(validation_error)
+
+    merged_content = merge_a2ui_message_stream(
+        existing_block.content if existing_block is not None else None,
         components,
+    )
+    validation_error = validate_a2ui_messages(
+        merged_content,
         require_initial_render=existing_block is None,
+        require_user_action=True,
     )
     if validation_error is not None:
         raise ValueError(validation_error)
 
-    surface_id = extract_surface_id(components) or (
+    surface_id = extract_surface_id(merged_content) or (
         existing_block.metadata.get("surface_id") if existing_block is not None else None
     )
 
@@ -809,7 +795,7 @@ def _upsert_a2ui_canvas_block(
         block = canvas_mgr.update_block(
             conversation_id=conversation_id,
             block_id=resolved_block_id,
-            content=components,
+            content=merged_content,
             title=title,
             metadata=canvas_metadata,
         )
@@ -819,7 +805,7 @@ def _upsert_a2ui_canvas_block(
         conversation_id=conversation_id,
         block_type="a2ui_surface",
         title=title,
-        content=components,
+        content=merged_content,
         metadata=canvas_metadata,
     )
     return block, "created", surface_id, None
@@ -1016,9 +1002,6 @@ async def handle_a2ui_action_tool(
     try:
         title = arguments.get("title", "")
         components = arguments.get("components", "")
-        # Repair LLM-generated JSONL with missing closing braces
-        if isinstance(components, str) and components.strip():
-            components = _repair_jsonl(components)
         block_id = arguments.get("block_id", "")
         context = _ensure_dict(arguments.get("context", {}))
         timeout = arguments.get("timeout", 300.0)
@@ -1039,7 +1022,8 @@ async def handle_a2ui_action_tool(
         request_data = {
             "block_id": effective_block_id,
             "title": title,
-            "components": components,
+            "components": block.content,
+            "allowed_actions": extract_actionable_actions(block.content),
             "context": context,
         }
         request_id = await coordinator.prepare_request(

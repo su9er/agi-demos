@@ -33,7 +33,7 @@ describe('A2UISurfaceRenderer', () => {
       id: 'root-1',
       component: {
         Text: {
-          text: { literal: 'hello' },
+          text: { literalString: 'hello' },
         },
       },
     },
@@ -61,6 +61,454 @@ describe('A2UISurfaceRenderer', () => {
     expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
       root: 'root-1',
       components,
+    });
+  });
+
+  it('renders Card payloads with explicit children', () => {
+    const cardComponents = [
+      {
+        id: 'title-1',
+        component: {
+          Text: {
+            text: { literalString: 'Card title' },
+          },
+        },
+      },
+      {
+        id: 'card-1',
+        component: {
+          Card: {
+            title: 'Card',
+            children: { explicitList: ['title-1'] },
+          },
+        },
+      },
+    ];
+    const messages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"card-1"}}',
+      `{"surfaceUpdate":{"surfaceId":"s1","components":${JSON.stringify(cardComponents)}}}`,
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          root?: string;
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    expect(props?.root).toBe('card-1');
+    const cardComponent = props?.components?.find((entry) => entry.id === 'card-1')?.component
+      ?.Card as { children?: { explicitList?: string[] } } | undefined;
+    expect(cardComponent?.children?.explicitList).toEqual(['title-1']);
+  });
+
+  it('normalizes syntax sugar for Button.label, numeric gap, and Card title components', () => {
+    const sugarComponents = [
+      {
+        id: 'root',
+        component: {
+          Column: {
+            gap: 16,
+            children: { explicitList: ['card-1', 'button-1'] },
+          },
+        },
+      },
+      {
+        id: 'card-1',
+        component: {
+          Card: {
+            title: {
+              Text: {
+                text: { literal: 'Card title' },
+                style: { fontWeight: '700' },
+              },
+            },
+            children: { explicitList: ['body-1'] },
+          },
+        },
+      },
+      {
+        id: 'body-1',
+        component: {
+          Text: {
+            text: { literalString: 'Body' },
+          },
+        },
+      },
+      {
+        id: 'button-1',
+        component: {
+          Button: {
+            label: { literalString: 'Submit' },
+            action: { name: 'submit' },
+          },
+        },
+      },
+    ];
+    const messages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"root"}}',
+      `{"surfaceUpdate":{"surfaceId":"s1","components":${JSON.stringify(sugarComponents)}}}`,
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          root?: string;
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    const rootComponent = props?.components?.find((entry) => entry.id === 'root')?.component
+      ?.Column as { gap?: string } | undefined;
+    const cardComponent = props?.components?.find((entry) => entry.id === 'card-1')?.component
+      ?.Card as { title?: unknown; children?: { explicitList?: string[] } } | undefined;
+    const titleComponent = props?.components?.find((entry) => entry.id === 'card-1__title')
+      ?.component?.Text as
+      | { text?: { literalString?: string }; style?: { fontWeight?: string } }
+      | undefined;
+    const buttonComponent = props?.components?.find((entry) => entry.id === 'button-1')?.component
+      ?.Button as { child?: string; label?: unknown } | undefined;
+    const buttonLabelComponent = props?.components?.find((entry) => entry.id === 'button-1__label')
+      ?.component?.Text as { text?: { literalString?: string } } | undefined;
+
+    expect(rootComponent?.gap).toBe('16px');
+    expect(cardComponent?.title).toBeUndefined();
+    expect(cardComponent?.children?.explicitList).toEqual(['card-1__title', 'body-1']);
+    expect(titleComponent?.text?.literalString).toBe('Card title');
+    expect(titleComponent?.style?.fontWeight).toBe('700');
+    expect(buttonComponent?.child).toBe('button-1__label');
+    expect(buttonComponent?.label).toBeUndefined();
+    expect(buttonLabelComponent?.text?.literalString).toBe('Submit');
+  });
+
+  it('normalizes phase1 atomic component aliases for the viewer', () => {
+    const phase1Components = [
+      {
+        id: 'layout-1',
+        component: {
+          Column: {
+            children: ['image-1', 'checkbox-1', 'select-1', 'badge-1'],
+          },
+        },
+      },
+      {
+        id: 'image-1',
+        component: {
+          Image: {
+            src: 'https://example.com/avatar.png',
+            fit: 'cover',
+          },
+        },
+      },
+      {
+        id: 'checkbox-1',
+        component: {
+          Checkbox: {
+            label: 'Email updates',
+            checked: true,
+            path: 'form/updates',
+          },
+        },
+      },
+      {
+        id: 'select-1',
+        component: {
+          Select: {
+            label: 'Priority',
+            options: ['High', { label: 'Low', value: 'low' }],
+            value: 'form/priority',
+          },
+        },
+      },
+      {
+        id: 'badge-1',
+        component: {
+          Badge: {
+            text: 'Active',
+            tone: 'success',
+          },
+        },
+      },
+    ];
+    const messages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"layout-1"}}',
+      `{"surfaceUpdate":{"surfaceId":"s1","components":${JSON.stringify(phase1Components)}}}`,
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+
+    const imageComponent = props?.components?.find((entry) => entry.id === 'image-1')?.component
+      ?.Image as { url?: { literalString?: string }; fit?: string } | undefined;
+    expect(imageComponent?.url?.literalString).toBe('https://example.com/avatar.png');
+    expect(imageComponent?.fit).toBe('cover');
+
+    const checkboxComponent = props?.components?.find((entry) => entry.id === 'checkbox-1')
+      ?.component?.CheckBox as
+      | { label?: { literalString?: string }; value?: { literalBoolean?: boolean; path?: string } }
+      | undefined;
+    expect(checkboxComponent?.label?.literalString).toBe('Email updates');
+    expect(checkboxComponent?.value).toEqual({ literalBoolean: true, path: '/form/updates' });
+
+    const selectComponent = props?.components?.find((entry) => entry.id === 'select-1')?.component
+      ?.MultipleChoice as
+      | {
+          description?: { literalString?: string };
+          options?: Array<{ label?: { literalString?: string }; value?: string }>;
+          selections?: { path?: string };
+        }
+      | undefined;
+    expect(selectComponent?.description?.literalString).toBe('Priority');
+    expect(selectComponent?.options).toEqual([
+      { label: { literalString: 'High' }, value: 'High' },
+      { label: { literalString: 'Low' }, value: 'low' },
+    ]);
+    expect(selectComponent?.selections?.path).toBe('/form/priority');
+
+    const badgeComponent = props?.components?.find((entry) => entry.id === 'badge-1')?.component
+      ?.Text as
+      | {
+          text?: { literalString?: string };
+          style?: { borderRadius?: string; backgroundColor?: string };
+        }
+      | undefined;
+    expect(badgeComponent?.text?.literalString).toBe('Active');
+    expect(badgeComponent?.style?.borderRadius).toBe('9999px');
+    expect(badgeComponent?.style?.backgroundColor).toBe('#e7f7ed');
+  });
+
+  it('normalizes Radio payloads for the custom renderer', () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"radio-1"}}',
+      JSON.stringify({
+        surfaceUpdate: {
+          surfaceId: 's1',
+          components: [
+            {
+              id: 'radio-1',
+              component: {
+                Radio: {
+                  label: 'Plan',
+                  options: ['Starter', { label: 'Pro', value: 'pro' }],
+                  value: { path: '/form/plan', literalString: 'starter' },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    const radioComponent = props?.components?.find((entry) => entry.id === 'radio-1')?.component
+      ?.Radio as
+      | {
+          description?: { literalString?: string };
+          options?: Array<{ label?: { literalString?: string }; value?: string }>;
+          value?: { literalString?: string; path?: string };
+        }
+      | undefined;
+    expect(radioComponent?.description?.literalString).toBe('Plan');
+    expect(radioComponent?.options).toEqual([
+      { label: { literalString: 'Starter' }, value: 'Starter' },
+      { label: { literalString: 'Pro' }, value: 'pro' },
+    ]);
+    expect(radioComponent?.value).toEqual({ literalString: 'starter', path: '/form/plan' });
+  });
+
+  it('preserves combined checkbox default and binding data', () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"checkbox-1"}}',
+      JSON.stringify({
+        surfaceUpdate: {
+          surfaceId: 's1',
+          components: [
+            {
+              id: 'checkbox-1',
+              component: {
+                Checkbox: {
+                  label: 'Email updates',
+                  value: { literalBoolean: true, path: '/form/updates' },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    const checkboxComponent = props?.components?.find((entry) => entry.id === 'checkbox-1')
+      ?.component?.CheckBox as { value?: { literalBoolean?: boolean; path?: string } } | undefined;
+    expect(checkboxComponent?.value).toEqual({ literalBoolean: true, path: '/form/updates' });
+  });
+
+  it('normalizes phase2 container payloads for the viewer', () => {
+    const messages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"layout-1"}}',
+      JSON.stringify({
+        surfaceUpdate: {
+          surfaceId: 's1',
+          components: [
+            {
+              id: 'layout-1',
+              component: {
+                Column: {
+                  children: ['tabs-1', 'modal-1', 'table-1', 'progress-1'],
+                },
+              },
+            },
+            {
+              id: 'tabs-1',
+              component: {
+                Tabs: {
+                  tabItems: [{ title: 'Overview', child: 'tab-content-1' }],
+                },
+              },
+            },
+            {
+              id: 'tab-content-1',
+              component: {
+                Text: {
+                  text: { literalString: 'Tab body' },
+                },
+              },
+            },
+            {
+              id: 'modal-1',
+              component: {
+                Modal: {
+                  entryPointChild: 'modal-trigger-1',
+                  contentChild: 'modal-content-1',
+                },
+              },
+            },
+            {
+              id: 'modal-trigger-1',
+              component: {
+                Text: {
+                  text: { literalString: 'Open' },
+                },
+              },
+            },
+            {
+              id: 'modal-content-1',
+              component: {
+                Text: {
+                  text: { literalString: 'Modal body' },
+                },
+              },
+            },
+            {
+              id: 'table-1',
+              component: {
+                Table: {
+                  caption: 'Members',
+                  columns: ['Name', { header: 'Status', align: 'center' }],
+                  rows: [
+                    ['Alice', true],
+                    { key: 'row-2', cells: ['Bob', { path: '/members/1/status' }] },
+                  ],
+                },
+              },
+            },
+            {
+              id: 'progress-1',
+              component: {
+                Progress: {
+                  label: 'Completion',
+                  value: 42,
+                  max: { path: '/progress/max', literalNumber: 100 },
+                  tone: 'success',
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ].join('\n');
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+
+    const tabsComponent = props?.components?.find((entry) => entry.id === 'tabs-1')?.component
+      ?.Tabs as
+      | {
+          tabItems?: Array<{ title?: { literalString?: string }; child?: string }>;
+        }
+      | undefined;
+    expect(tabsComponent?.tabItems).toEqual([
+      { title: { literalString: 'Overview' }, child: 'tab-content-1' },
+    ]);
+
+    const modalComponent = props?.components?.find((entry) => entry.id === 'modal-1')?.component
+      ?.Modal as { entryPointChild?: string; contentChild?: string } | undefined;
+    expect(modalComponent).toEqual({
+      entryPointChild: 'modal-trigger-1',
+      contentChild: 'modal-content-1',
+    });
+
+    const tableComponent = props?.components?.find((entry) => entry.id === 'table-1')?.component
+      ?.Table as
+      | {
+          caption?: { literalString?: string };
+          columns?: Array<{ header?: { literalString?: string }; align?: string }>;
+          rows?: Array<{ key?: string; cells?: Array<Record<string, unknown>> }>;
+        }
+      | undefined;
+    expect(tableComponent?.caption?.literalString).toBe('Members');
+    expect(tableComponent?.columns).toEqual([
+      { header: { literalString: 'Name' } },
+      { header: { literalString: 'Status' }, align: 'center' },
+    ]);
+    expect(tableComponent?.rows).toEqual([
+      {
+        key: 'row-0',
+        cells: [{ literalString: 'Alice' }, { literalBoolean: true }],
+      },
+      {
+        key: 'row-2',
+        cells: [{ literalString: 'Bob' }, { path: '/members/1/status' }],
+      },
+    ]);
+
+    const progressComponent = props?.components?.find((entry) => entry.id === 'progress-1')
+      ?.component?.Progress as
+      | {
+          label?: { literalString?: string };
+          value?: { literalNumber?: number };
+          max?: { literalNumber?: number; path?: string };
+          tone?: string;
+        }
+      | undefined;
+    expect(progressComponent).toEqual({
+      label: { literalString: 'Completion' },
+      value: { literalNumber: 42 },
+      max: { literalNumber: 100, path: '/progress/max' },
+      tone: 'success',
     });
   });
 
@@ -94,7 +542,7 @@ describe('A2UISurfaceRenderer', () => {
     });
   });
 
-  it('renders legacy type-based component payloads from interactive canvas events', () => {
+  it('shows a parse error for legacy type-based component payloads', () => {
     const messages = [
       '{"beginRendering":{"surfaceId":"s1","root":"root"}}',
       JSON.stringify({
@@ -137,31 +585,11 @@ describe('A2UISurfaceRenderer', () => {
     ].join('\n');
 
     render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
-    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
-    expect(viewerSpy).toHaveBeenCalledTimes(1);
-    const props = viewerSpy.mock.calls[0]?.[0] as
-      | {
-          root?: string;
-          components?: Array<{ id: string; component: Record<string, unknown> }>;
-        }
-      | undefined;
-    expect(props?.root).toBe('root');
-    const rootComponent = props?.components?.find((entry) => entry.id === 'root')?.component?.Column as
-      | { children?: { explicitList?: string[] } }
-      | undefined;
-    const textFieldComponent = props?.components?.find((entry) => entry.id === 'input')?.component
-      ?.TextField as { text?: { path?: string } } | undefined;
-    expect(rootComponent?.children?.explicitList).toEqual([
-      'title',
-      'input',
-      'submit',
-      'submit-label',
-    ]);
-    expect(textFieldComponent?.text?.path).toBe('/form/name');
-    expect(Object.keys(props?.components?.[0] ?? {})).toEqual(['id', 'component']);
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
   });
 
-  it('renders snake_case and typed envelope variants', () => {
+  it('shows a parse error for snake_case and typed envelope variants', () => {
     const messages = [
       '{"begin_rendering":{"surface_id":"s1","root":"root-1"}}',
       `{"type":"surface_update","payload":{"surface_id":"s1","components":${JSON.stringify(components)}}}`,
@@ -169,16 +597,11 @@ describe('A2UISurfaceRenderer', () => {
     ].join('\n');
 
     render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
-    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
-    expect(viewerSpy).toHaveBeenCalledTimes(1);
-    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
-      root: 'root-1',
-      components,
-      data: { status: 'ok' },
-    });
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
   });
 
-  it('renders flat single-object payloads with top-level components and dataModel', async () => {
+  it('shows a parse error for flat single-object payloads with top-level components and dataModel', () => {
     const messages = JSON.stringify({
       beginRendering: { surfaceId: 'server-surface', root: 'root' },
       surfaceUpdate: { surfaceId: 'server-surface' },
@@ -225,84 +648,23 @@ describe('A2UISurfaceRenderer', () => {
       ],
     });
 
-    useAgentV3Store.setState({ activeConversationId: 'conv-1' });
-    useCanvasStore.setState({
-      tabs: [
-        {
-          id: 'a2ui-tab-1',
-          title: 'A2UI',
-          type: 'a2ui-surface',
-          content: '',
-          dirty: false,
-          createdAt: Date.now(),
-          history: [],
-          historyIndex: -1,
-          a2uiSurfaceId: 'server-surface',
-          a2uiHitlRequestId: 'hitl-req-1',
-        },
-      ],
-      activeTabId: 'a2ui-tab-1',
-    });
-
     render(<A2UISurfaceRenderer surfaceId="server-surface" messages={messages} />);
-    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
-    expect(viewerSpy).toHaveBeenCalledTimes(1);
-    const props = viewerSpy.mock.calls[0]?.[0] as
-      | {
-          root?: string;
-          data?: Record<string, unknown>;
-          onAction?: (action: {
-            actionName: string;
-            sourceComponentId: string;
-            timestamp: string;
-            context: Record<string, unknown>;
-          }) => void;
-        }
-      | undefined;
-    expect(props?.root).toBe('root');
-    expect(props?.data).toMatchObject({
-      form: {
-        selected: 'request_env_var',
-      },
-    });
-
-    await act(async () => {
-      props?.onAction?.({
-        actionName: 'select_tool',
-        sourceComponentId: 'button',
-        timestamp: new Date().toISOString(),
-        context: { tool: 'request_env_var' },
-      });
-    });
-
-    await waitFor(() => {
-      expect(respondToA2UIActionSpy).toHaveBeenCalledWith(
-        'hitl-req-1',
-        'select_tool',
-        'button',
-        {
-          tool: 'request_env_var',
-        }
-      );
-    });
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
   });
 
-  it('falls back to the only discovered surfaceId when prop id mismatches', () => {
+  it('shows a parse error when the payload surfaceId mismatches the target surface', () => {
     const messages = [
       '{"beginRendering":{"surfaceId":"server-surface","root":"root-1"}}',
       `{"surfaceUpdate":{"surfaceId":"server-surface","components":${JSON.stringify(components)}}}`,
     ].join('\n');
 
     render(<A2UISurfaceRenderer surfaceId="client-tab-id" messages={messages} />);
-    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
-    expect(viewerSpy).toHaveBeenCalledTimes(1);
-    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
-      root: 'root-1',
-      components,
-    });
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
   });
 
-  it('keeps waiting when multiple mismatched surfaceIds are mixed', () => {
+  it('shows a parse error when multiple mismatched surfaceIds are mixed', () => {
     const messages = [
       '{"beginRendering":{"surfaceId":"s2","root":"root-1"}}',
       `{"surfaceUpdate":{"surfaceId":"s2","components":${JSON.stringify(components)}}}`,
@@ -311,7 +673,7 @@ describe('A2UISurfaceRenderer', () => {
     ].join('\n');
 
     render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
-    expect(screen.getByText(waitingText)).toBeInTheDocument();
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
     expect(viewerSpy).not.toHaveBeenCalled();
   });
 
@@ -331,7 +693,7 @@ describe('A2UISurfaceRenderer', () => {
     expect((Object.prototype as Record<string, unknown>).polluted).toBeUndefined();
   });
 
-  it('dispatches actions with resolved fallback surface context', async () => {
+  it('does not dispatch actions when the payload surfaceId mismatches the target surface', async () => {
     const messages = [
       '{"beginRendering":{"surfaceId":"server-surface","root":"root-1"}}',
       `{"surfaceUpdate":{"surfaceId":"server-surface","components":${JSON.stringify(components)}}}`,
@@ -357,31 +719,9 @@ describe('A2UISurfaceRenderer', () => {
     });
 
     render(<A2UISurfaceRenderer surfaceId="client-tab-id" messages={messages} />);
-    const props = viewerSpy.mock.calls[0]?.[0] as
-      | {
-          onAction?: (action: {
-            actionName: string;
-            sourceComponentId: string;
-            timestamp: string;
-            context: Record<string, unknown>;
-          }) => void;
-        }
-      | undefined;
-
-    await act(async () => {
-      props?.onAction?.({
-        actionName: 'approve',
-        sourceComponentId: 'btn-1',
-        timestamp: new Date().toISOString(),
-        context: { ok: true },
-      });
-    });
-
-    await waitFor(() => {
-      expect(respondToA2UIActionSpy).toHaveBeenCalledWith('hitl-req-1', 'approve', 'btn-1', {
-        ok: true,
-      });
-    });
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
+    expect(respondToA2UIActionSpy).not.toHaveBeenCalled();
   });
 
   it('shows an inline error and skips dispatch when HITL request_id is missing', async () => {
@@ -408,7 +748,7 @@ describe('A2UISurfaceRenderer', () => {
       activeTabId: 'a2ui-tab-1',
     });
 
-    render(<A2UISurfaceRenderer surfaceId="client-tab-id" messages={messages} />);
+    render(<A2UISurfaceRenderer surfaceId="server-surface" messages={messages} />);
     const props = viewerSpy.mock.calls[0]?.[0] as
       | {
           onAction?: (action: {
@@ -433,16 +773,80 @@ describe('A2UISurfaceRenderer', () => {
     ).toBeInTheDocument();
   });
 
-  it('repairs malformed surfaceUpdate-only payloads and infers a synthetic root', () => {
+  it('shows a parse error for malformed surfaceUpdate-only payloads', () => {
     const messages =
       '{"surfaceUpdate":{"components":[{"id":"rev-value","component":{"Text":{"literal":"¥145,230"},"style":{"fontSize":"28px","fontWeight":"bold","color":"#10b981"}}}},{"id":"rev-change","component":{"Text":{"literal":"↑ 15.8%"},"style":{"fontSize":"14px","color":"#10b981"}}}}]}}';
 
     render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
-    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
-    expect(viewerSpy).toHaveBeenCalledTimes(1);
-    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
-      root: '__a2ui_auto_root',
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows a parse error for rootless Tabs payloads', () => {
+    const messages = JSON.stringify({
+      surfaceUpdate: {
+        components: [
+          {
+            id: 'tabs-1',
+            component: {
+              Tabs: {
+                tabItems: [{ title: { literalString: 'Overview' }, child: 'body-1' }],
+              },
+            },
+          },
+          {
+            id: 'body-1',
+            component: {
+              Text: {
+                text: { literalString: 'Tab body' },
+              },
+            },
+          },
+        ],
+      },
     });
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows a parse error for rootless Modal payloads', () => {
+    const messages = JSON.stringify({
+      surfaceUpdate: {
+        components: [
+          {
+            id: 'modal-1',
+            component: {
+              Modal: {
+                entryPointChild: 'trigger-1',
+                contentChild: 'body-1',
+              },
+            },
+          },
+          {
+            id: 'trigger-1',
+            component: {
+              Text: {
+                text: { literalString: 'Open' },
+              },
+            },
+          },
+          {
+            id: 'body-1',
+            component: {
+              Text: {
+                text: { literalString: 'Modal body' },
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
   });
 
   it('normalizes Text literal + sibling style component payloads', () => {
@@ -461,38 +865,32 @@ describe('A2UISurfaceRenderer', () => {
       | undefined;
     const first = props?.components?.[0];
     const textPayload = first?.component?.Text as
-      | { text?: { literal?: string }; style?: { color?: string } }
+      | { text?: { literalString?: string }; style?: { color?: string } }
       | undefined;
-    expect(textPayload?.text?.literal).toBe('hello');
+    expect(textPayload?.text?.literalString).toBe('hello');
     expect(textPayload?.style?.color).toBe('#10b981');
   });
 
-  it('rebuilds root when beginRendering root component is missing after partial updates', () => {
+  it('shows a parse error when beginRendering points at a missing root component', () => {
     const messages = [
       '{"beginRendering":{"surfaceId":"s1","root":"missing-root"}}',
       '{"surfaceUpdate":{"surfaceId":"s1","components":[{"id":"t1","component":{"Text":{"text":{"literal":"hello"}}}},{"id":"t2","component":{"Text":{"text":{"literal":"world"}}}}]}}',
     ].join('\n');
 
     render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
-    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
-    expect(viewerSpy).toHaveBeenCalledTimes(1);
-    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
-      root: '__a2ui_auto_root',
-    });
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
   });
 
-  it('falls back to text-only surface when component schema is invalid', () => {
+  it('shows a parse error panel when component schema is invalid', () => {
     const messages = [
       '{"beginRendering":{"surfaceId":"s1","root":"row-1"}}',
       '{"surfaceUpdate":{"surfaceId":"s1","components":[{"id":"row-1","component":{"Row":{"gap":"8px"}}},{"id":"t1","component":{"Text":{"literal":"hello"}}}]}}',
     ].join('\n');
 
     render(<A2UISurfaceRenderer surfaceId="s1" messages={messages} />);
-    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
-    expect(viewerSpy).toHaveBeenCalledTimes(1);
-    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
-      root: '__a2ui_text_fallback_root',
-    });
+    expect(screen.getByText('Invalid A2UI payload')).toBeInTheDocument();
+    expect(viewerSpy).not.toHaveBeenCalled();
   });
 
   it('normalizes legacy TextField value and onChange payloads into text bindings', () => {
@@ -510,11 +908,11 @@ describe('A2UISurfaceRenderer', () => {
         }
       | undefined;
     const textFieldPayload = props?.components?.[0]?.component?.TextField as
-      | { text?: { path?: string; literal?: string } }
+      | { text?: { path?: string; literalString?: string } }
       | undefined;
     expect(textFieldPayload?.text).toMatchObject({
       path: '/form/name',
-      literal: 'Alice',
+      literalString: 'Alice',
     });
   });
 

@@ -14,9 +14,9 @@ from src.domain.model.agent.tenant_agent_config import (
 from src.infrastructure.adapters.primary.web.routers.agent.access import (
     has_global_admin_access,
     is_global_admin,
+    require_tenant_access as _require_tenant_access,
 )
 from src.infrastructure.adapters.primary.web.routers.agent.config import (
-    _require_tenant_access,
     _validate_runtime_hooks,
     _validate_tool_policy,
     check_config_modify_permission,

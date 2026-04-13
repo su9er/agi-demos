@@ -10,7 +10,14 @@ from __future__ import annotations
 import json
 import logging
 
-from src.infrastructure.agent.canvas.a2ui_builder import extract_surface_id, validate_a2ui_messages
+from src.infrastructure.agent.canvas.a2ui_builder import (
+    canonicalize_a2ui_messages,
+    extract_surface_id,
+    merge_a2ui_message_stream,
+    validate_a2ui_incremental_surface_id,
+    validate_a2ui_message_syntax,
+    validate_a2ui_messages,
+)
 from src.infrastructure.agent.canvas.events import build_canvas_event_dict
 from src.infrastructure.agent.canvas.manager import CanvasManager
 from src.infrastructure.agent.tools.context import ToolContext
@@ -31,23 +38,66 @@ def _prepare_canvas_metadata(
     content: str,
     metadata: dict[str, str] | None,
 ) -> dict[str, str] | None:
-    """Attach derived A2UI metadata without overwriting explicit caller values."""
+    """Attach canonical A2UI metadata and reject drift from the payload."""
     prepared = dict(metadata or {})
-    if block_type == "a2ui_surface" and "surface_id" not in prepared:
+    if block_type == "a2ui_surface":
         surface_id = extract_surface_id(content)
+        provided_surface_id = prepared.get("surface_id")
+        if (
+            isinstance(provided_surface_id, str)
+            and provided_surface_id.strip()
+            and surface_id
+            and provided_surface_id != surface_id
+        ):
+            msg = "metadata.surface_id must match the A2UI content surfaceId"
+            raise ValueError(msg)
         if surface_id:
             prepared["surface_id"] = surface_id
     return prepared or None
 
 
-def _validate_a2ui_content(content: str, *, require_initial_render: bool) -> None:
-    """Raise a ValueError when an A2UI payload cannot render safely."""
+def _validate_a2ui_content(content: str, *, require_initial_render: bool) -> str:
+    """Return canonical A2UI content or raise when it cannot render safely."""
     validation_error = validate_a2ui_messages(
-        content,
-        require_initial_render=require_initial_render,
+        content, require_initial_render=require_initial_render
     )
     if validation_error is not None:
         raise ValueError(validation_error)
+    return canonicalize_a2ui_messages(content)
+
+
+def _validate_a2ui_syntax(content: str) -> None:
+    """Raise when raw A2UI input contains malformed JSON or missing envelopes."""
+    validation_error = validate_a2ui_message_syntax(content)
+    if validation_error is not None:
+        raise ValueError(validation_error)
+
+
+def _validate_interactive_a2ui_content(
+    content: str,
+    *,
+    require_initial_render: bool,
+    previous_content: str | None = None,
+) -> str:
+    """Return merged content or raise when an interactive surface cannot accept user action."""
+    _validate_a2ui_syntax(content)
+    previous_surface_id = extract_surface_id(previous_content) if previous_content else None
+    if previous_surface_id is not None:
+        validation_error = validate_a2ui_incremental_surface_id(
+            content,
+            expected_surface_id=previous_surface_id,
+        )
+        if validation_error is not None:
+            raise ValueError(validation_error)
+    merged_content = merge_a2ui_message_stream(previous_content, content)
+    validation_error = validate_a2ui_messages(
+        merged_content,
+        require_initial_render=require_initial_render,
+        require_user_action=True,
+    )
+    if validation_error is not None:
+        raise ValueError(validation_error)
+    return merged_content
 
 
 def configure_canvas(manager: CanvasManager) -> None:
@@ -110,14 +160,27 @@ def get_canvas_manager() -> CanvasManager:
                     "For a2ui_surface: A2UI JSONL messages — one JSON object per line. Required messages: "
                     '1) {"beginRendering":{"surfaceId":"<id>","root":"<root-component-id>"}} '
                     '2) {"surfaceUpdate":{"surfaceId":"<id>","components":[...]}} '
-                    'Each component entry MUST use {"id":"<component-id>","component":{"Text|Button|Card|Column|Row|TextField|Divider":{...}}} '
+                    'Each component entry MUST use {"id":"<component-id>","component":{"Text|Button|Card|Column|Row|TextField|Divider|Image|Checkbox|CheckBox|Select|MultipleChoice|Radio|Badge|Tabs|Modal|Table|Progress":{...}}} '
                     '— do not emit legacy {"id":"...","type":"Text",...} objects. '
-                    "Available components: Text, Button, Card, Column, Row, TextField, Divider. "
-                    'CRITICAL format: Text text MUST be wrapped: {"Text":{"text":{"literal":"hello"}}}. '
+                    "Available components: Text, Button, Card, Column, Row, TextField, Divider, Image, Checkbox, Select, Radio, Badge, Tabs, Modal, Table, Progress. "
+                    'CRITICAL format: Text text MUST be wrapped: {"Text":{"text":{"literalString":"hello"}}}. '
                     'Button uses child (Text component ID ref) + action: {"Button":{"child":"<text-id>","action":{"name":"..."}}}. '
-                    'TextField uses data binding: {"TextField":{"label":{"literal":"Name"},"text":{"path":"/form/name"}}}. '
-                    "Seed default input values with a matching dataModelUpdate message. "
-                    "Card title and Column/Row gap are plain strings (not wrapped). "
+                    'Authoring sugar: Button may use label instead of child, e.g. {"Button":{"label":{"literalString":"Continue"},"action":{"name":"continue"}}}; it will be hoisted into a synthetic Text child automatically. '
+                    'TextField uses data binding: {"TextField":{"label":{"literalString":"Name"},"text":{"path":"/form/name"}}}. '
+                    'Image uses a wrapped URL: {"Image":{"url":{"literalString":"https://..."}}}. '
+                    'Checkbox uses BooleanValue binding: {"Checkbox":{"label":{"literalString":"Email updates"},"value":{"path":"/form/updates"}}}. '
+                    'Select uses options + selections.path: {"Select":{"description":{"literalString":"Priority"},"options":[{"label":{"literalString":"High"},"value":"high"}],"selections":{"path":"/form/priority"}}}. '
+                    'Radio uses scalar value binding: {"Radio":{"description":{"literalString":"Plan"},"options":[{"label":{"literalString":"Starter"},"value":"starter"}],"value":{"path":"/form/plan"}}}. '
+                    'Badge uses wrapped text and optional tone: {"Badge":{"text":{"literalString":"Active"},"tone":"success"}}. '
+                    'Tabs uses tabItems with title + child ids: {"Tabs":{"tabItems":[{"title":{"literalString":"Overview"},"child":"tab-overview"}]}}. '
+                    'Modal uses entryPointChild + contentChild ids: {"Modal":{"entryPointChild":"open-modal","contentChild":"modal-body"}}. '
+                    'Table uses columns + rows: {"Table":{"columns":[{"header":{"literalString":"Name"}}],"rows":[{"cells":[{"literalString":"Alice"}]}]}}. '
+                    'Progress uses NumberValue bindings: {"Progress":{"label":{"literalString":"Completion"},"value":{"path":"/progress/current"},"max":{"literalNumber":100}}}. '
+                    "Column/Row gap may be a number (treated as px). Card.title may be a string or an inline Text component, which will be hoisted into Card.children. "
+                    "TextField default input values can be seeded with a matching dataModelUpdate message. "
+                    "Select writes an array of selected values to selections.path and does not yet hydrate preselected UI state. "
+                    "Radio writes a single selected string to value.path and does hydrate preselected data values. "
+                    "Modal open/close and Tabs switching are client-side interactions; interactive surfaces still need at least one reachable Button action. "
                     "For code: the source code. For table: JSON array of rows. "
                     "For markdown: the markdown text. For chart: JSON chart specification."
                 ),
@@ -148,7 +211,7 @@ async def canvas_create(
 
     try:
         if block_type == "a2ui_surface":
-            _validate_a2ui_content(content, require_initial_render=True)
+            content = _validate_a2ui_content(content, require_initial_render=True)
         prepared_metadata = _prepare_canvas_metadata(block_type, content, metadata)
         block = manager.create_block(
             conversation_id=ctx.conversation_id,
@@ -292,13 +355,29 @@ async def canvas_update(
     try:
         prepared_metadata = metadata
         if content is not None:
-            prepared_metadata = dict(metadata or {})
             if existing.block_type.value == "a2ui_surface":
-                _validate_a2ui_content(content, require_initial_render=False)
-                if "surface_id" not in prepared_metadata:
-                    surface_id = extract_surface_id(content) or existing.metadata.get("surface_id")
-                    if surface_id:
-                        prepared_metadata["surface_id"] = surface_id
+                _validate_a2ui_syntax(content)
+                existing_surface_id = (
+                    existing.metadata.get("surface_id")
+                    if isinstance(existing.metadata, dict)
+                    else None
+                ) or extract_surface_id(existing.content)
+                if isinstance(existing_surface_id, str) and existing_surface_id:
+                    validation_error = validate_a2ui_incremental_surface_id(
+                        content,
+                        expected_surface_id=existing_surface_id,
+                    )
+                    if validation_error is not None:
+                        raise ValueError(validation_error)
+                content = merge_a2ui_message_stream(existing.content, content)
+                content = _validate_a2ui_content(content, require_initial_render=False)
+        if existing.block_type.value == "a2ui_surface":
+            effective_content = content if content is not None else existing.content
+            prepared_metadata = _prepare_canvas_metadata(
+                existing.block_type.value,
+                effective_content,
+                metadata,
+            )
 
         block = manager.update_block(
             conversation_id=ctx.conversation_id,
@@ -420,6 +499,8 @@ async def canvas_delete(
         "a button, submits a form, or otherwise interacts with the surface. "
         "Returns the user's action (action_name, source_component_id, context). "
         "Use this when you need to collect user input or confirmation via a rich UI. "
+        "The rendered surface must include at least one reachable Button; "
+        "display-only Card/Text layouts should use canvas_create instead. "
         "Content format: A2UI JSONL — same format as canvas_create with block_type='a2ui_surface'."
     ),
     parameters={
@@ -434,8 +515,10 @@ async def canvas_delete(
                 "description": (
                     "A2UI JSONL messages describing the interactive surface. "
                     "Same format as canvas_create a2ui_surface content. "
-                    'Every component entry must use {"id":"...","component":{"Text|Button|Card|Column|Row|TextField|Divider":{...}}}. '
-                    'Do not use legacy {"type":"Text",...} component objects.'
+                    'Every component entry must use {"id":"...","component":{"Text|Button|Card|Column|Row|TextField|Divider|Image|Checkbox|CheckBox|Select|MultipleChoice|Radio|Badge|Tabs|Modal|Table|Progress":{...}}}. '
+                    'Do not use legacy {"type":"Text",...} component objects. '
+                    "Button.label, numeric gap, and inline Card title Text sugar are accepted and canonicalized automatically. "
+                    "Interactive surfaces must include at least one reachable Button with action.name."
                 ),
             },
             "block_id": {
@@ -481,10 +564,14 @@ async def canvas_create_interactive(
         )
 
     try:
-        _validate_a2ui_content(components, require_initial_render=existing_block is None)
+        persisted_content = _validate_interactive_a2ui_content(
+            components,
+            require_initial_render=existing_block is None,
+            previous_content=existing_block.content if existing_block is not None else None,
+        )
         prepared_metadata = _prepare_canvas_metadata(
             "a2ui_surface",
-            components,
+            persisted_content,
             existing_block.metadata if existing_block is not None else None,
         )
         action = "created"
@@ -493,7 +580,7 @@ async def canvas_create_interactive(
                 conversation_id=ctx.conversation_id,
                 block_id=resolved_block_id,
                 title=title,
-                content=components,
+                content=persisted_content,
                 metadata=prepared_metadata,
             )
             action = "updated"
@@ -502,7 +589,7 @@ async def canvas_create_interactive(
                 conversation_id=ctx.conversation_id,
                 block_type="a2ui_surface",
                 title=title,
-                content=components,
+                content=persisted_content,
                 metadata=prepared_metadata,
             )
     except ValueError as exc:

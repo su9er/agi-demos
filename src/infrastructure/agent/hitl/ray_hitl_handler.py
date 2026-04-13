@@ -321,12 +321,21 @@ class RayHITLHandler:
             action_name = response_data.get("action_name")
             source_component_id = response_data.get("source_component_id", "")
             action_context = response_data.get("context", {})
-            is_valid = (
+            basic_shape_is_valid = (
                 isinstance(action_name, str)
                 and bool(action_name.strip())
                 and isinstance(source_component_id, str)
+                and bool(source_component_id.strip())
                 and isinstance(action_context, dict)
             )
+            if basic_shape_is_valid and request.a2ui_data.allowed_actions:
+                allowed_pairs = {
+                    (entry.get("source_component_id", ""), entry.get("action_name", ""))
+                    for entry in request.a2ui_data.allowed_actions
+                }
+                is_valid = (source_component_id, action_name) in allowed_pairs
+            else:
+                is_valid = basic_shape_is_valid
         else:
             is_valid = True
         return is_valid

@@ -294,6 +294,7 @@ class A2UIActionRequestData:
 
     title: str = "A2UI interaction required"
     block_id: str = ""
+    allowed_actions: list[dict[str, str]] = field(default_factory=list)
     context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -301,6 +302,7 @@ class A2UIActionRequestData:
             "question": self.title,
             "title": self.title,
             "block_id": self.block_id,
+            "allowed_actions": self.allowed_actions,
             "context": self.context,
         }
 

@@ -114,6 +114,72 @@ async def test_resolve_by_request_id_rejects_invalid_env_var_semantics(monkeypat
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_resolve_by_request_id_rejects_invalid_a2ui_action_semantics(monkeypatch) -> None:
+    monkeypatch.setattr(coordinator_mod, "_persist_hitl_request", AsyncMock())
+    coordinator = coordinator_mod.HITLCoordinator(
+        conversation_id="conv-a2ui",
+        tenant_id="tenant-1",
+        project_id="project-1",
+        message_id="msg-a2ui",
+    )
+    request_id = await coordinator.prepare_request(
+        HITLType.A2UI_ACTION,
+        request_data={
+            "title": "Review",
+            "block_id": "block-1",
+            "allowed_actions": [
+                {
+                    "source_component_id": "button-1",
+                    "action_name": "submit",
+                }
+            ],
+        },
+    )
+
+    resolved = coordinator_mod.resolve_by_request_id(
+        request_id,
+        {
+            "action_name": "approve",
+            "source_component_id": "button-1",
+            "context": {},
+        },
+        tenant_id="tenant-1",
+        project_id="project-1",
+        conversation_id="conv-a2ui",
+        message_id="msg-a2ui",
+    )
+
+    assert resolved is ResolveResult.REJECTED
+    assert coordinator.pending_count == 1
+
+    resolved = coordinator_mod.resolve_by_request_id(
+        request_id,
+        {
+            "action_name": "submit",
+            "source_component_id": "button-1",
+            "context": {},
+        },
+        tenant_id="tenant-1",
+        project_id="project-1",
+        conversation_id="conv-a2ui",
+        message_id="msg-a2ui",
+    )
+
+    assert resolved is ResolveResult.RESOLVED
+    result = await coordinator.wait_for_response(
+        request_id,
+        HITLType.A2UI_ACTION,
+        timeout_seconds=0.1,
+    )
+    assert result == {
+        "action_name": "submit",
+        "source_component_id": "button-1",
+        "context": {},
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_resolve_by_request_id_rejects_optional_non_string_env_var_value(monkeypatch) -> None:
     monkeypatch.setattr(coordinator_mod, "_persist_hitl_request", AsyncMock())
     coordinator = coordinator_mod.HITLCoordinator(
