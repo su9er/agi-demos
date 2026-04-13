@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.domain.events.agent_events import AgentActEvent, AgentStatusEvent
+from src.infrastructure.agent.core.llm_stream import StreamEventType
 from src.infrastructure.agent.processor.processor import (
+    ProcessorConfig,
     ProcessorResult,
     SessionProcessor,
 )
@@ -170,6 +172,10 @@ class TestEvaluateNoToolResultDelegation:
 
         proc._no_progress_steps = 0
         proc._last_process_result = ProcessorResult.CONTINUE
+        proc._response_instructions = []
+        proc._tool_reminder_issued_for_streak = False
+        proc.tools = {"read": MagicMock()}
+        proc._is_conversational_response = MagicMock(return_value=False)  # type: ignore[method-assign]
 
         mock_config = MagicMock()
         mock_config.max_no_progress_steps = 5
@@ -262,8 +268,8 @@ class TestEvaluateNoToolResultDelegation:
 
         act_events = [e for e in events if isinstance(e, AgentActEvent)]
         assert len(act_events) == 0
-        status_events = [e for e in events if isinstance(e, AgentStatusEvent)]
-        assert any("goal_achieved" in e.status for e in status_events)
+        assert proc._pending_completion_status == "goal_achieved:tasks"
+        assert proc._last_process_result == ProcessorResult.COMPLETE
 
     @pytest.mark.asyncio
     async def test_no_delegate_pattern_falls_through(self) -> None:
@@ -278,8 +284,8 @@ class TestEvaluateNoToolResultDelegation:
 
         act_events = [e for e in events if isinstance(e, AgentActEvent)]
         assert len(act_events) == 0
-        status_events = [e for e in events if isinstance(e, AgentStatusEvent)]
-        assert any("conversational_response" in e.status for e in status_events)
+        assert proc._pending_completion_status == "goal_achieved:conversational_response"
+        assert proc._last_process_result == ProcessorResult.COMPLETE
 
     @pytest.mark.asyncio
     async def test_conversational_response_gated_by_llm_self_check(self) -> None:
@@ -297,3 +303,263 @@ class TestEvaluateNoToolResultDelegation:
         status_events = [e for e in events if isinstance(e, AgentStatusEvent)]
         assert not any("conversational_response" in e.status for e in status_events)
         assert any("goal_pending" in e.status for e in status_events)
+
+    @pytest.mark.asyncio
+    async def test_second_no_progress_turn_injects_tool_reminder(self) -> None:
+        proc = self._build_processor_for_eval("Need to inspect more state before finishing.")
+
+        first_events: list[Any] = []
+        async for ev in proc._evaluate_no_tool_result("session-1", []):
+            first_events.append(ev)
+
+        assert proc._no_progress_steps == 1
+        assert SessionProcessor._TOOL_USAGE_REMINDER not in proc._response_instructions
+        first_statuses = [e.status for e in first_events if isinstance(e, AgentStatusEvent)]
+        assert "planning_recheck" not in first_statuses
+
+        second_events: list[Any] = []
+        async for ev in proc._evaluate_no_tool_result("session-1", []):
+            second_events.append(ev)
+
+        assert proc._no_progress_steps == 2
+        assert SessionProcessor._TOOL_USAGE_REMINDER in proc._response_instructions
+        second_statuses = [e.status for e in second_events if isinstance(e, AgentStatusEvent)]
+        assert "planning_recheck" in second_statuses
+
+    @pytest.mark.asyncio
+    async def test_tool_call_clears_tool_reminder(self) -> None:
+        proc = self._build_processor_for_eval("Need to inspect more state before finishing.")
+        proc._no_progress_steps = 2
+        proc._response_instructions = [SessionProcessor._TOOL_USAGE_REMINDER, "keep me"]
+
+        result, events = await proc._evaluate_goal_progress(
+            ProcessorResult.CONTINUE,
+            True,
+            "session-1",
+            [],
+        )
+
+        assert result == ProcessorResult.CONTINUE
+        assert events == []
+        assert proc._no_progress_steps == 0
+        assert SessionProcessor._TOOL_USAGE_REMINDER not in proc._response_instructions
+        assert proc._response_instructions == ["keep me"]
+
+    @pytest.mark.asyncio
+    async def test_delegate_clears_tool_reminder(self) -> None:
+        proc = self._build_processor_for_eval("delegate:Planner inspect the workspace state")
+        proc._response_instructions = [SessionProcessor._TOOL_USAGE_REMINDER, "keep me"]
+
+        events: list[Any] = []
+        async for ev in proc._evaluate_no_tool_result("session-1", []):
+            events.append(ev)
+
+        act_events = [e for e in events if isinstance(e, AgentActEvent)]
+        assert len(act_events) == 1
+        assert proc._no_progress_steps == 0
+        assert SessionProcessor._TOOL_USAGE_REMINDER not in proc._response_instructions
+        assert proc._response_instructions == ["keep me"]
+
+    @pytest.mark.asyncio
+    async def test_process_step_consumes_tool_reminder_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured_messages: list[dict[str, Any]] = []
+
+        async def fake_generate(_self: Any, messages: list[dict[str, Any]], **_kwargs: Any):
+            captured_messages.extend(messages)
+
+            text_end = MagicMock()
+            text_end.type = StreamEventType.TEXT_END
+            text_end.data = {"full_text": "Still working on it."}
+            yield text_end
+
+            finish = MagicMock()
+            finish.type = StreamEventType.FINISH
+            finish.data = {"reason": "stop"}
+            yield finish
+
+        monkeypatch.setattr(
+            "src.infrastructure.agent.processor.processor.LLMStream.generate",
+            fake_generate,
+        )
+
+        proc = SessionProcessor(config=ProcessorConfig(model="test-model"), tools=[])
+        proc._step_count = 2
+        proc._response_instructions = [SessionProcessor._TOOL_USAGE_REMINDER, "keep me"]
+
+        events = [ev async for ev in proc._process_step("session-1", [{"role": "user", "content": "hi"}])]
+
+        assert events
+        assert any(
+            message["role"] == "system"
+            and SessionProcessor._TOOL_USAGE_REMINDER in message["content"]
+            and "keep me" in message["content"]
+            for message in captured_messages
+        )
+        assert SessionProcessor._TOOL_USAGE_REMINDER not in proc._response_instructions
+        assert proc._response_instructions == ["keep me"]
+
+    @pytest.mark.asyncio
+    async def test_process_step_keeps_tool_reminder_when_stream_fails_before_first_event(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def fake_generate(_self: Any, _messages: list[dict[str, Any]], **_kwargs: Any):
+            raise RuntimeError("boom")
+            yield
+
+        monkeypatch.setattr(
+            "src.infrastructure.agent.processor.processor.LLMStream.generate",
+            fake_generate,
+        )
+
+        proc = SessionProcessor(config=ProcessorConfig(model="test-model", max_attempts=0), tools=[])
+        proc._step_count = 2
+        proc._response_instructions = [SessionProcessor._TOOL_USAGE_REMINDER, "keep me"]
+
+        with pytest.raises(RuntimeError, match="boom"):
+            async for _ in proc._process_step("session-1", [{"role": "user", "content": "hi"}]):
+                pass
+
+        assert SessionProcessor._TOOL_USAGE_REMINDER in proc._response_instructions
+        assert proc._response_instructions == [SessionProcessor._TOOL_USAGE_REMINDER, "keep me"]
+
+    @pytest.mark.asyncio
+    async def test_process_step_keeps_tool_reminder_when_first_stream_event_is_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def fake_generate(_self: Any, _messages: list[dict[str, Any]], **_kwargs: Any):
+            error_event = MagicMock()
+            error_event.type = StreamEventType.ERROR
+            error_event.data = {"message": "boom"}
+            yield error_event
+
+        monkeypatch.setattr(
+            "src.infrastructure.agent.processor.processor.LLMStream.generate",
+            fake_generate,
+        )
+
+        proc = SessionProcessor(config=ProcessorConfig(model="test-model", max_attempts=0), tools=[])
+        proc._step_count = 2
+        proc._response_instructions = [SessionProcessor._TOOL_USAGE_REMINDER, "keep me"]
+
+        with pytest.raises(Exception, match="boom"):
+            async for _ in proc._process_step("session-1", [{"role": "user", "content": "hi"}]):
+                pass
+
+        assert SessionProcessor._TOOL_USAGE_REMINDER in proc._response_instructions
+        assert proc._response_instructions == [SessionProcessor._TOOL_USAGE_REMINDER, "keep me"]
+
+    @pytest.mark.asyncio
+    async def test_process_step_retry_does_not_reinject_consumed_tool_reminder(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured_calls: list[list[dict[str, Any]]] = []
+        attempt_state = {"count": 0}
+
+        async def fake_generate(_self: Any, messages: list[dict[str, Any]], **_kwargs: Any):
+            captured_calls.append(list(messages))
+            attempt_state["count"] += 1
+
+            text_end = MagicMock()
+            text_end.type = StreamEventType.TEXT_END
+            text_end.data = {"full_text": f"Attempt {attempt_state['count']}"}
+            yield text_end
+
+            if attempt_state["count"] == 1:
+                raise RuntimeError("retryable")
+
+            finish = MagicMock()
+            finish.type = StreamEventType.FINISH
+            finish.data = {"reason": "stop"}
+            yield finish
+
+        monkeypatch.setattr(
+            "src.infrastructure.agent.processor.processor.LLMStream.generate",
+            fake_generate,
+        )
+
+        proc = SessionProcessor(config=ProcessorConfig(model="test-model", max_attempts=1), tools=[])
+        proc.retry_policy.is_retryable = MagicMock(return_value=True)
+        proc.retry_policy.calculate_delay = MagicMock(return_value=0)
+        proc._step_count = 2
+        proc._response_instructions = [SessionProcessor._TOOL_USAGE_REMINDER, "keep me"]
+
+        events = [ev async for ev in proc._process_step("session-1", [{"role": "user", "content": "hi"}])]
+
+        assert events
+        assert len(captured_calls) == 2
+        assert any(
+            message["role"] == "system"
+            and SessionProcessor._TOOL_USAGE_REMINDER in message["content"]
+            for message in captured_calls[0]
+        )
+        assert not any(
+            message["role"] == "system"
+            and SessionProcessor._TOOL_USAGE_REMINDER in message["content"]
+            for message in captured_calls[1]
+        )
+        assert SessionProcessor._TOOL_USAGE_REMINDER not in proc._response_instructions
+
+    @pytest.mark.asyncio
+    async def test_no_progress_streak_does_not_requeue_consumed_reminder(self) -> None:
+        proc = self._build_processor_for_eval("Need to inspect more state before finishing.")
+
+        async for _ in proc._evaluate_no_tool_result("session-1", []):
+            pass
+        async for _ in proc._evaluate_no_tool_result("session-1", []):
+            pass
+
+        assert proc._tool_reminder_issued_for_streak is True
+        assert SessionProcessor._TOOL_USAGE_REMINDER in proc._response_instructions
+
+        proc._clear_tool_usage_reminder()
+        assert SessionProcessor._TOOL_USAGE_REMINDER not in proc._response_instructions
+
+        async for _ in proc._evaluate_no_tool_result("session-1", []):
+            pass
+
+        assert proc._no_progress_steps == 3
+        assert proc._tool_reminder_issued_for_streak is True
+        assert SessionProcessor._TOOL_USAGE_REMINDER not in proc._response_instructions
+
+    @pytest.mark.asyncio
+    async def test_progress_reset_allows_tool_reminder_to_be_queued_for_new_streak(self) -> None:
+        proc = self._build_processor_for_eval("Need to inspect more state before finishing.")
+
+        async for _ in proc._evaluate_no_tool_result("session-1", []):
+            pass
+        async for _ in proc._evaluate_no_tool_result("session-1", []):
+            pass
+        proc._clear_tool_usage_reminder()
+
+        result, events = await proc._evaluate_goal_progress(
+            ProcessorResult.CONTINUE,
+            True,
+            "session-1",
+            [],
+        )
+        assert result == ProcessorResult.CONTINUE
+        assert events == []
+        assert proc._tool_reminder_issued_for_streak is False
+
+        async for _ in proc._evaluate_no_tool_result("session-1", []):
+            pass
+        async for _ in proc._evaluate_no_tool_result("session-1", []):
+            pass
+
+        assert proc._tool_reminder_issued_for_streak is True
+        assert SessionProcessor._TOOL_USAGE_REMINDER in proc._response_instructions
+
+    def test_act_event_clears_tool_reminder_even_on_non_continue_result(self) -> None:
+        proc = self._build_processor_for_eval("Need to inspect more state before finishing.")
+        proc._response_instructions = [SessionProcessor._TOOL_USAGE_REMINDER, "keep me"]
+
+        result, had_tool_calls = proc._classify_step_event(
+            AgentActEvent(tool_name="read", tool_input={"path": "x"}, status="running"),
+            ProcessorResult.COMPACT,
+            False,
+        )
+
+        assert result == ProcessorResult.COMPACT
+        assert had_tool_calls is True
+        assert SessionProcessor._TOOL_USAGE_REMINDER not in proc._response_instructions
+        assert proc._response_instructions == ["keep me"]
