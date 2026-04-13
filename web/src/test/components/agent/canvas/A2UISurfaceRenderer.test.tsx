@@ -7,8 +7,8 @@ const { viewerSpy, respondToA2UIActionSpy, viewerThrowState } = vi.hoisted(() =>
   viewerThrowState: { enabled: false },
 }));
 
-vi.mock('@copilotkit/a2ui-renderer', () => ({
-  A2UIViewer: (props: unknown) => {
+vi.mock('@/components/agent/canvas/MemStackA2UIViewer', () => ({
+  MemStackA2UIViewer: (props: unknown) => {
     viewerSpy(props);
     if (viewerThrowState.enabled) {
       throw new Error('mock a2ui viewer failure');

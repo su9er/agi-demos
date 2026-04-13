@@ -7,7 +7,7 @@
  */
 import { type ReactNode, Component, memo, useCallback, useMemo, useState } from 'react';
 
-import { A2UIViewer, type A2UIViewerProps } from '@copilotkit/a2ui-renderer';
+import type { A2UIViewerProps } from '@copilotkit/a2ui-renderer';
 
 import { useAgentV3Store } from '@/stores/agentV3';
 import type { A2UIMessageStreamSnapshot } from '@/stores/agent/a2uiMessages';
@@ -16,7 +16,7 @@ import { applyA2UIDataModelUpdate } from '@/utils/a2uiDataModel';
 
 import { agentService } from '@/services/agentService';
 
-import { ensureMemStackA2UIRegistry } from './A2UIMemStackRegistry';
+import { MemStackA2UIViewer } from './MemStackA2UIViewer';
 
 // ---------------------------------------------------------------------------
 // Types (aligned with A2UI v0.8 ServerToClientMessage envelopes)
@@ -75,6 +75,7 @@ const A2UI_COMPONENT_KEYS = new Set([
   'Button',
   'Card',
   'Column',
+  'List',
   'Row',
   'TextField',
   'Divider',
@@ -777,7 +778,12 @@ function normalizeComponentEntry(rawEntry: unknown): EnvelopeRecord | null {
     }
   }
 
-  if (componentName === 'Card' || componentName === 'Column' || componentName === 'Row') {
+  if (
+    componentName === 'Card' ||
+    componentName === 'Column' ||
+    componentName === 'List' ||
+    componentName === 'Row'
+  ) {
     const children = normalizedPayload.children;
     if (Array.isArray(children)) {
       normalizedPayload.children = {
@@ -839,12 +845,19 @@ function normalizeViewerComponents(
       delete expandedPayload.label;
     }
 
-    if (componentName === 'Card' || componentName === 'Column' || componentName === 'Row') {
+    if (
+      componentName === 'Card' ||
+      componentName === 'Column' ||
+      componentName === 'List' ||
+      componentName === 'Row'
+    ) {
       const normalizedChildren = normalizeChildrenRef(expandedPayload.children);
       if (normalizedChildren) {
         expandedPayload.children = normalizedChildren;
       }
+    }
 
+    if (componentName === 'Card' || componentName === 'Column' || componentName === 'Row') {
       const normalizedGap = normalizeGapValue(expandedPayload.gap);
       if (normalizedGap) {
         expandedPayload.gap = normalizedGap;
@@ -924,7 +937,12 @@ function hasLikelyInvalidComponentShape(components: A2UIViewerProps['components'
         (action !== null &&
           (typeof action.name === 'string' || typeof action.actionId === 'string'));
       if (typeof payload.child !== 'string' || !hasValidAction) return true;
-    } else if (componentName === 'Card' || componentName === 'Column' || componentName === 'Row') {
+    } else if (
+      componentName === 'Card' ||
+      componentName === 'Column' ||
+      componentName === 'List' ||
+      componentName === 'Row'
+    ) {
       if (!hasValidExplicitChildren(payload.children)) return true;
     } else if (componentName === 'Image') {
       if (!normalizeStringValue(payload.url ?? payload.src)) return true;
@@ -1552,7 +1570,6 @@ interface ActionErrorState {
 
 export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(
   ({ surfaceId, messages, snapshot }) => {
-    ensureMemStackA2UIRegistry();
     const { parsed, resolvedSurfaceId, errorMessage } = useMemo(() => {
       if (snapshot && isUsableA2UISnapshot(snapshot)) {
         const snapshotResult = parseA2UISnapshot(snapshot, surfaceId);
@@ -1662,7 +1679,7 @@ export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(
         <div className={`${SURFACE_CARD_CLASS} overflow-hidden p-2 sm:p-4`}>
           <A2UIErrorBoundary fallback={<A2UIRenderFallback messages={messages} />}>
             <div className="min-w-0 bg-transparent p-2 sm:p-4">
-              <A2UIViewer
+              <MemStackA2UIViewer
                 root={parsed.root}
                 components={parsed.components}
                 className={A2UI_VIEWER_CLASS}
