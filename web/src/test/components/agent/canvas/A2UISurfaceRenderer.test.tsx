@@ -24,6 +24,10 @@ vi.mock('@/services/agentService', () => ({
 }));
 
 import { A2UISurfaceRenderer } from '@/components/agent/canvas/A2UISurfaceRenderer';
+import {
+  buildA2UIMessageStreamSnapshot,
+  type A2UIMessageStreamSnapshot,
+} from '@/stores/agent/a2uiMessages';
 import { useAgentV3Store } from '@/stores/agentV3';
 import { useCanvasStore } from '@/stores/canvasStore';
 
@@ -62,6 +66,88 @@ describe('A2UISurfaceRenderer', () => {
       root: 'root-1',
       components,
     });
+  });
+
+  it('renders from a structured snapshot without reparsing the message string', () => {
+    const validMessages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"root-1"}}',
+      `{"surfaceUpdate":{"surfaceId":"s1","components":${JSON.stringify(components)}}}`,
+    ].join('\n');
+    const snapshot = buildA2UIMessageStreamSnapshot(validMessages);
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages="not-json" snapshot={snapshot} />);
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
+      root: 'root-1',
+      components,
+    });
+  });
+
+  it('falls back to parsing messages when the persisted snapshot is malformed', () => {
+    const validMessages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"root-1"}}',
+      `{"surfaceUpdate":{"surfaceId":"s1","components":${JSON.stringify(components)}}}`,
+    ].join('\n');
+    const malformedSnapshot = {
+      surfaceId: 's1',
+      root: 'root-1',
+      components: null,
+      data: {},
+      dataRecords: [],
+    } as unknown as A2UIMessageStreamSnapshot;
+
+    render(
+      <A2UISurfaceRenderer surfaceId="s1" messages={validMessages} snapshot={malformedSnapshot} />
+    );
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
+      root: 'root-1',
+      components,
+    });
+  });
+
+  it('keeps object-shaped component payloads renderable through the snapshot path', () => {
+    const objectMessages = [
+      '{"beginRendering":{"surfaceId":"s1","root":"root-1"}}',
+      JSON.stringify({
+        surfaceUpdate: {
+          surfaceId: 's1',
+          components: {
+            root: {
+              id: 'root-1',
+              component: {
+                Text: {
+                  text: { literalString: 'hello' },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ].join('\n');
+    const snapshot = buildA2UIMessageStreamSnapshot(objectMessages);
+
+    expect(snapshot?.components).toEqual({
+      root: expect.objectContaining({ id: 'root-1' }),
+    });
+
+    render(<A2UISurfaceRenderer surfaceId="s1" messages="not-json" snapshot={snapshot} />);
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          root?: string;
+          components?: Array<{ id: string }>;
+        }
+      | undefined;
+    expect(props?.root).toBe('root-1');
+    expect(Array.isArray(props?.components)).toBe(true);
+    expect(props?.components?.some((component) => component.id === 'root-1')).toBe(true);
   });
 
   it('renders Card payloads with explicit children', () => {
@@ -760,11 +846,13 @@ describe('A2UISurfaceRenderer', () => {
         }
       | undefined;
 
-    props?.onAction?.({
-      actionName: 'approve',
-      sourceComponentId: 'btn-1',
-      timestamp: new Date().toISOString(),
-      context: { ok: true },
+    await act(async () => {
+      props?.onAction?.({
+        actionName: 'approve',
+        sourceComponentId: 'btn-1',
+        timestamp: new Date().toISOString(),
+        context: { ok: true },
+      });
     });
 
     expect(respondToA2UIActionSpy).not.toHaveBeenCalled();

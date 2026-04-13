@@ -10,7 +10,9 @@ import { type ReactNode, Component, memo, useCallback, useMemo, useState } from 
 import { A2UIViewer, type A2UIViewerProps } from '@copilotkit/a2ui-renderer';
 
 import { useAgentV3Store } from '@/stores/agentV3';
+import type { A2UIMessageStreamSnapshot } from '@/stores/agent/a2uiMessages';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { applyA2UIDataModelUpdate } from '@/utils/a2uiDataModel';
 
 import { agentService } from '@/services/agentService';
 
@@ -67,11 +69,6 @@ interface ParsedSurfaceResult {
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 type EnvelopeRecord = Record<string, unknown>;
-interface ParsedValueMapEntry {
-  key: string;
-  value: unknown;
-}
-const FORBIDDEN_DATA_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const PARSE_FAILED = Symbol('a2ui-parse-failed');
 const A2UI_COMPONENT_KEYS = new Set([
   'Text',
@@ -133,10 +130,6 @@ const BADGE_TONE_STYLES: Record<string, EnvelopeRecord> = {
     border: '1px solid #b6d4fe',
   },
 };
-
-function isSafeDataKey(key: string): boolean {
-  return !FORBIDDEN_DATA_KEYS.has(key);
-}
 
 function normalizeEnvelopePayload(payload: unknown): EnvelopeRecord | null {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
@@ -527,143 +520,6 @@ function resolveBadgeStyle(tone: unknown, style: EnvelopeRecord | null): Envelop
   };
 }
 
-function getPathSegments(path: string): string[] {
-  if (!path || path === '/') return [];
-  const normalized = path.startsWith('/') ? path.slice(1) : path;
-  if (!normalized) return [];
-  return normalized
-    .split('/')
-    .filter(Boolean)
-    .map((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~'));
-}
-
-function setNestedDataValue(target: Record<string, unknown>, path: string, value: unknown): void {
-  const segments = getPathSegments(path);
-  if (segments.length === 0) {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-        if (!isSafeDataKey(key)) continue;
-        target[key] = nestedValue;
-      }
-    }
-    return;
-  }
-
-  let cursor: Record<string, unknown> = target;
-  for (const segment of segments.slice(0, -1)) {
-    if (!isSafeDataKey(segment)) return;
-    const existing = cursor[segment];
-    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
-      cursor[segment] = Object.create(null) as Record<string, unknown>;
-    }
-    cursor = cursor[segment] as Record<string, unknown>;
-  }
-
-  const leaf = segments[segments.length - 1];
-  if (!leaf || !isSafeDataKey(leaf)) return;
-  cursor[leaf] = value;
-}
-
-function parseValueMapEntry(rawEntry: unknown): ParsedValueMapEntry | null {
-  const entry = normalizeEnvelopePayload(rawEntry);
-  if (!entry || typeof entry.key !== 'string' || !entry.key) return null;
-
-  if (Array.isArray(entry.valueMap)) {
-    const nested = valueMapEntriesToData(entry.valueMap);
-    return { key: entry.key, value: nested ?? [] };
-  }
-  if (typeof entry.valueString === 'string') {
-    return { key: entry.key, value: entry.valueString };
-  }
-  if (typeof entry.valueNumber === 'number') {
-    return { key: entry.key, value: entry.valueNumber };
-  }
-  if (typeof entry.valueBoolean === 'boolean') {
-    return { key: entry.key, value: entry.valueBoolean };
-  }
-  return { key: entry.key, value: null };
-}
-
-function valueMapEntriesToData(entries: unknown[]): Record<string, unknown> | unknown[] | null {
-  const parsedEntries = entries
-    .map((entry) => parseValueMapEntry(entry))
-    .filter((entry): entry is ParsedValueMapEntry => entry !== null);
-  if (parsedEntries.length === 0) return null;
-
-  const allNumericKeys = parsedEntries.every((entry) => /^\d+$/.test(entry.key));
-  if (allNumericKeys) {
-    const orderedEntries = [...parsedEntries].sort(
-      (left, right) => Number(left.key) - Number(right.key)
-    );
-    const maxIndex = Number(orderedEntries[orderedEntries.length - 1]?.key ?? -1);
-    const values = Array.from({ length: maxIndex + 1 }, () => null) as Array<unknown>;
-    for (const entry of orderedEntries) {
-      values[Number(entry.key)] = entry.value;
-    }
-    return values;
-  }
-
-  const result = Object.create(null) as Record<string, unknown>;
-  for (const entry of parsedEntries) {
-    if (entry.key === '.') {
-      if (entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value)) {
-        for (const [key, value] of Object.entries(entry.value as Record<string, unknown>)) {
-          if (!isSafeDataKey(key)) continue;
-          result[key] = value;
-        }
-      } else {
-        result['.'] = entry.value;
-      }
-      continue;
-    }
-    setNestedDataValue(result, entry.key, entry.value);
-  }
-  return result;
-}
-
-function applyDataModelUpdate(
-  target: Record<string, unknown>,
-  path: string,
-  contents: unknown[]
-): void {
-  const normalizedValueMap = valueMapEntriesToData(contents);
-  if (normalizedValueMap) {
-    if (path === '/' || path === '') {
-      if (Array.isArray(normalizedValueMap)) {
-        return;
-      }
-      for (const [key, value] of Object.entries(normalizedValueMap)) {
-        if (!isSafeDataKey(key) || key === '.') continue;
-        target[key] = value;
-      }
-      return;
-    }
-    if (!Array.isArray(normalizedValueMap)) {
-      const directValue = normalizedValueMap['.'];
-      if (directValue !== undefined) {
-        setNestedDataValue(target, path, directValue);
-        return;
-      }
-    }
-    setNestedDataValue(target, path, normalizedValueMap);
-    return;
-  }
-
-  if (path === '/' || path === '') {
-    for (const item of contents) {
-      if (item && typeof item === 'object' && !Array.isArray(item)) {
-        for (const [key, value] of Object.entries(item as Record<string, unknown>)) {
-          if (!isSafeDataKey(key)) continue;
-          target[key] = value;
-        }
-      }
-    }
-    return;
-  }
-
-  setNestedDataValue(target, path, contents);
-}
-
 function normalizeComponentEntry(rawEntry: unknown): EnvelopeRecord | null {
   const entry = normalizeEnvelopePayload(rawEntry);
   if (!entry) return null;
@@ -674,7 +530,7 @@ function normalizeComponentEntry(rawEntry: unknown): EnvelopeRecord | null {
   if (componentKeys.length === 0) return null;
   let componentName: string | undefined = componentKeys[0];
   if (!componentName) return null;
-  let payload: EnvelopeRecord = normalizeEnvelopePayload(component[componentName]) ?? {};
+  const payload: EnvelopeRecord = normalizeEnvelopePayload(component[componentName]) ?? {};
   const siblingStyle = normalizeEnvelopePayload(component.style);
 
   if (!componentName) return null;
@@ -941,16 +797,16 @@ function normalizeComponentEntry(rawEntry: unknown): EnvelopeRecord | null {
 function normalizeViewerComponents(
   components: A2UIViewerProps['components']
 ): A2UIViewerProps['components'] {
-  if (!Array.isArray(components)) return components;
+  const componentList = Array.isArray(components) ? components : Object.values(components);
   const normalized: EnvelopeRecord[] = [];
   const usedIds = new Set<string>();
-  for (const entry of components) {
+  for (const entry of componentList) {
     const record = normalizeEnvelopePayload(entry);
     if (record && typeof record.id === 'string' && record.id) {
       usedIds.add(record.id);
     }
   }
-  for (const entry of components) {
+  for (const entry of componentList) {
     const normalizedEntry = normalizeComponentEntry(entry);
     if (!normalizedEntry) continue;
 
@@ -1269,6 +1125,15 @@ function hasRenderableRoot(parsed: ParsedSurface): boolean {
   return parsed.components.some((entry) => normalizeEnvelopePayload(entry)?.id === parsed.root);
 }
 
+function buildEmptyParsedSurface(): ParsedSurface {
+  return {
+    root: '',
+    components: [],
+    data: Object.create(null) as Record<string, unknown>,
+    styles: {},
+  };
+}
+
 function ensureRenderableRoot(parsed: ParsedSurface): ParsedSurface {
   return parsed;
 }
@@ -1334,20 +1199,114 @@ function consumeEnvelope(result: ParsedSurface, rawEnvelope: unknown): void {
   if (dataUpdate) {
     const path = typeof dataUpdate.path === 'string' ? dataUpdate.path : '/';
     const contents = Array.isArray(dataUpdate.contents) ? dataUpdate.contents : [];
-    applyDataModelUpdate(result.data, path, contents);
+    applyA2UIDataModelUpdate(result.data, path, contents);
     return;
   }
 }
 
+function parseA2UISnapshot(
+  snapshot: A2UIMessageStreamSnapshot,
+  targetSurfaceId?: string
+): ParsedSurfaceResult {
+  const parsed = buildEmptyParsedSurface();
+  const hasSnapshotComponents = Array.isArray(snapshot.components)
+    ? snapshot.components.length > 0
+    : Object.keys(snapshot.components).length > 0;
+  const discoveredSurfaceId = snapshot.surfaceId;
+  if (!discoveredSurfaceId) {
+    return {
+      parsed,
+      resolvedSurfaceId: targetSurfaceId,
+      errorMessage: 'This A2UI payload did not declare exactly one surfaceId.',
+    };
+  }
+  if (targetSurfaceId && discoveredSurfaceId !== targetSurfaceId) {
+    return {
+      parsed,
+      resolvedSurfaceId: targetSurfaceId,
+      errorMessage: 'This A2UI payload targets a different surfaceId than the current canvas tab.',
+    };
+  }
+
+  parsed.root = snapshot.root ?? '';
+  if (snapshot.styles && typeof snapshot.styles === 'object' && !Array.isArray(snapshot.styles)) {
+    parsed.styles = snapshot.styles as Record<string, string>;
+  }
+  if (hasSnapshotComponents) {
+    parsed.components = normalizeViewerComponents(
+      snapshot.components as unknown as A2UIViewerProps['components']
+    );
+  }
+  if (Object.keys(snapshot.data).length > 0) {
+    parsed.data = structuredClone(snapshot.data);
+  }
+
+  const hasDeleteSurface =
+    !snapshot.root && !hasSnapshotComponents && snapshot.dataRecords.length === 0;
+  if (hasLikelyInvalidComponentShape(parsed.components)) {
+    return {
+      parsed: buildEmptyParsedSurface(),
+      resolvedSurfaceId: targetSurfaceId ?? discoveredSurfaceId,
+      errorMessage:
+        'This A2UI payload includes one or more invalid component definitions for the current renderer.',
+    };
+  }
+  if (!targetSurfaceId || (hasRenderableRoot(parsed) && hasParsedComponents(parsed))) {
+    return {
+      parsed,
+      resolvedSurfaceId: targetSurfaceId ?? discoveredSurfaceId,
+      ...(hasRenderableRoot(parsed) || !hasParsedComponents(parsed) || hasDeleteSurface
+        ? {}
+        : {
+            errorMessage:
+              'This A2UI payload is missing a renderable root component or surfaceUpdate snapshot.',
+          }),
+    };
+  }
+
+  return {
+    parsed,
+    resolvedSurfaceId: targetSurfaceId ?? discoveredSurfaceId,
+    ...(hasDeleteSurface
+      ? {}
+      : {
+          errorMessage:
+            'This A2UI payload did not produce a renderable surface for the expected surfaceId.',
+        }),
+  };
+}
+
+function isUsableA2UISnapshot(snapshot: unknown): snapshot is A2UIMessageStreamSnapshot {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return false;
+  }
+
+  const candidate = snapshot as Partial<A2UIMessageStreamSnapshot>;
+  const components = candidate.components;
+  const data = candidate.data;
+  const dataRecords = candidate.dataRecords;
+  const styles = candidate.styles;
+
+  const hasValidComponents =
+    Array.isArray(components) || (components !== null && typeof components === 'object');
+  const hasValidData = data !== null && typeof data === 'object' && !Array.isArray(data);
+  const hasValidStyles =
+    styles === undefined ||
+    (styles !== null && typeof styles === 'object' && !Array.isArray(styles));
+
+  return (
+    (candidate.surfaceId === undefined || typeof candidate.surfaceId === 'string') &&
+    (candidate.root === undefined || typeof candidate.root === 'string') &&
+    hasValidComponents &&
+    hasValidData &&
+    Array.isArray(dataRecords) &&
+    hasValidStyles
+  );
+}
+
 function parseA2UIMessages(jsonl: string, targetSurfaceId?: string): ParsedSurfaceResult {
-  const buildEmptyResult = (): ParsedSurface => ({
-    root: '',
-    components: [],
-    data: Object.create(null) as Record<string, unknown>,
-    styles: {},
-  });
   const parseEnvelopes = (envelopes: unknown[]): ParsedSurface => {
-    const parsed = buildEmptyResult();
+    const parsed = buildEmptyParsedSurface();
     for (const envelope of envelopes) {
       consumeEnvelope(parsed, envelope as A2UIEnvelope);
     }
@@ -1355,7 +1314,7 @@ function parseA2UIMessages(jsonl: string, targetSurfaceId?: string): ParsedSurfa
   };
   if (!jsonl) {
     return {
-      parsed: buildEmptyResult(),
+      parsed: buildEmptyParsedSurface(),
       resolvedSurfaceId: targetSurfaceId,
     };
   }
@@ -1368,7 +1327,7 @@ function parseA2UIMessages(jsonl: string, targetSurfaceId?: string): ParsedSurfa
   });
   if (envelopes.length === 0) {
     return {
-      parsed: buildEmptyResult(),
+      parsed: buildEmptyParsedSurface(),
       resolvedSurfaceId: targetSurfaceId,
       errorMessage: 'Could not parse any A2UI envelopes from this payload.',
     };
@@ -1381,7 +1340,7 @@ function parseA2UIMessages(jsonl: string, targetSurfaceId?: string): ParsedSurfa
   }
   if (discoveredSurfaceIds.size !== 1) {
     return {
-      parsed: buildEmptyResult(),
+      parsed: buildEmptyParsedSurface(),
       resolvedSurfaceId: targetSurfaceId,
       errorMessage:
         discoveredSurfaceIds.size === 0
@@ -1393,7 +1352,7 @@ function parseA2UIMessages(jsonl: string, targetSurfaceId?: string): ParsedSurfa
   const [discoveredSurfaceId] = [...discoveredSurfaceIds];
   if (targetSurfaceId && discoveredSurfaceId !== targetSurfaceId) {
     return {
-      parsed: buildEmptyResult(),
+      parsed: buildEmptyParsedSurface(),
       resolvedSurfaceId: targetSurfaceId,
       errorMessage: 'This A2UI payload targets a different surfaceId than the current canvas tab.',
     };
@@ -1402,7 +1361,7 @@ function parseA2UIMessages(jsonl: string, targetSurfaceId?: string): ParsedSurfa
   const parsed = parseEnvelopes(envelopes);
   if (hasLikelyInvalidComponentShape(parsed.components)) {
     return {
-      parsed: buildEmptyResult(),
+      parsed: buildEmptyParsedSurface(),
       resolvedSurfaceId: targetSurfaceId ?? discoveredSurfaceId,
       errorMessage:
         'This A2UI payload includes one or more invalid component definitions for the current renderer.',
@@ -1489,9 +1448,9 @@ interface A2UIParseErrorProps {
 }
 
 const SURFACE_SHELL_CLASS =
-  'h-full overflow-auto rounded-b-lg bg-gradient-to-br from-indigo-50/80 via-white to-fuchsia-50/80 px-4 py-6 sm:py-8 sm:px-6 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/30';
+  'h-full overflow-auto rounded-b-lg bg-white px-4 py-6 sm:px-6 sm:py-8 dark:bg-black';
 const SURFACE_CARD_CLASS =
-  'mx-auto w-full max-w-5xl rounded-2xl border border-white/60 bg-white/70 shadow-[0_8px_30px_rgb(0,0,0,0.06)] ring-1 ring-slate-900/5 backdrop-blur-xl transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-500 hover:shadow-[0_8px_30px_rgb(0,0,0,0.1)] hover:bg-white/90 dark:border-white/10 dark:bg-slate-900/60 dark:ring-white/10 dark:hover:bg-slate-900/80 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out';
+  'mx-auto w-full max-w-5xl rounded-[6px] border border-black/10 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.08)] dark:border-white/10 dark:bg-[#111111]';
 const A2UI_VIEWER_CLASS = 'a2ui-surface-theme';
 
 const A2UIRenderFallback = memo<A2UIRenderFallbackProps>(({ messages }) => {
@@ -1580,6 +1539,8 @@ export interface A2UISurfaceRendererProps {
   surfaceId: string;
   /** JSONL string containing A2UI v0.8 message envelopes */
   messages: string;
+  /** Structured stream snapshot used for incremental runtime rendering */
+  snapshot?: A2UIMessageStreamSnapshot | undefined;
 }
 
 interface ActionErrorState {
@@ -1589,129 +1550,137 @@ interface ActionErrorState {
   messages: string;
 }
 
-export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(({ surfaceId, messages }) => {
-  ensureMemStackA2UIRegistry();
-  const { parsed, resolvedSurfaceId, errorMessage } = useMemo(
-    () => parseA2UIMessages(messages, surfaceId),
-    [messages, surfaceId]
-  );
-  const effectiveSurfaceId = resolvedSurfaceId ?? surfaceId;
-  const hasComponents = useMemo(() => {
-    if (Array.isArray(parsed.components)) {
-      return parsed.components.length > 0;
+export const A2UISurfaceRenderer = memo<A2UISurfaceRendererProps>(
+  ({ surfaceId, messages, snapshot }) => {
+    ensureMemStackA2UIRegistry();
+    const { parsed, resolvedSurfaceId, errorMessage } = useMemo(() => {
+      if (snapshot && isUsableA2UISnapshot(snapshot)) {
+        const snapshotResult = parseA2UISnapshot(snapshot, surfaceId);
+        if (!snapshotResult.errorMessage) {
+          return snapshotResult;
+        }
+      }
+
+      return parseA2UIMessages(messages, surfaceId);
+    }, [messages, snapshot, surfaceId]);
+    const effectiveSurfaceId = resolvedSurfaceId ?? surfaceId;
+    const hasComponents = useMemo(() => {
+      if (Array.isArray(parsed.components)) {
+        return parsed.components.length > 0;
+      }
+      return Object.keys(parsed.components as Record<string, unknown>).length > 0;
+    }, [parsed.components]);
+
+    // Resolve conversationId from the agent store (same pattern as other agent components)
+    const conversationId = useAgentV3Store((s) => s.activeConversationId);
+
+    // Read the server-assigned HITL request_id from the canvas tab (set by
+    // onA2UIActionAsked handler when the agent emits an interactive A2UI surface).
+    const hitlRequestId = useCanvasStore((s) => {
+      const tab = s.tabs.find((t) => t.a2uiSurfaceId === effectiveSurfaceId);
+      return tab?.a2uiHitlRequestId;
+    });
+    const [actionError, setActionError] = useState<ActionErrorState | null>(null);
+    const visibleActionError =
+      actionError &&
+      actionError.requestId === (hitlRequestId ?? null) &&
+      actionError.surfaceId === effectiveSurfaceId &&
+      actionError.messages === messages
+        ? actionError.message
+        : null;
+
+    const handleAction = useCallback(
+      (action: {
+        actionName: string;
+        sourceComponentId: string;
+        timestamp: string;
+        context: Record<string, unknown>;
+      }) => {
+        const setScopedError = (message: string) => {
+          setActionError({
+            message,
+            requestId: hitlRequestId ?? null,
+            surfaceId: effectiveSurfaceId,
+            messages,
+          });
+        };
+        if (!conversationId) {
+          setScopedError('This canvas action is no longer connected to an active conversation.');
+          console.warn('[A2UI] No active conversation -- cannot dispatch action');
+          return;
+        }
+        if (!hitlRequestId) {
+          setScopedError('This interactive surface is no longer awaiting input.');
+          console.warn('[A2UI] Missing HITL request_id -- refusing to dispatch action');
+          return;
+        }
+        setActionError(null);
+        agentService
+          .respondToA2UIAction(
+            hitlRequestId,
+            action.actionName ||
+              ((action as Record<string, unknown>).actionId as string) ||
+              'unknown',
+            action.sourceComponentId,
+            action.context
+          )
+          .catch((err: unknown) => {
+            setScopedError('Failed to send the canvas action. Please try again.');
+            console.error('[A2UI] Failed to dispatch action:', err);
+          });
+      },
+      [conversationId, effectiveSurfaceId, hitlRequestId, messages]
+    );
+
+    if (errorMessage) {
+      return <A2UIParseError message={errorMessage} messages={messages} />;
     }
-    return Object.keys(parsed.components as Record<string, unknown>).length > 0;
-  }, [parsed.components]);
 
-  // Resolve conversationId from the agent store (same pattern as other agent components)
-  const conversationId = useAgentV3Store((s) => s.activeConversationId);
+    // Guard: need at least a root and components to render
+    if (!parsed.root || !hasComponents) {
+      return (
+        <div className={SURFACE_SHELL_CLASS}>
+          <div
+            className={`${SURFACE_CARD_CLASS} overflow-hidden flex min-h-[280px] items-center justify-center px-6 py-8`}
+            aria-live="polite"
+          >
+            <div className="text-center">
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Waiting for A2UI surface data...
+              </p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                The agent is still preparing this canvas panel.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
-  // Read the server-assigned HITL request_id from the canvas tab (set by
-  // onA2UIActionAsked handler when the agent emits an interactive A2UI surface).
-  const hitlRequestId = useCanvasStore((s) => {
-    const tab = s.tabs.find((t) => t.a2uiSurfaceId === effectiveSurfaceId);
-    return tab?.a2uiHitlRequestId;
-  });
-  const [actionError, setActionError] = useState<ActionErrorState | null>(null);
-  const visibleActionError =
-    actionError &&
-    actionError.requestId === (hitlRequestId ?? null) &&
-    actionError.surfaceId === effectiveSurfaceId &&
-    actionError.messages === messages
-      ? actionError.message
-      : null;
-
-  const handleAction = useCallback(
-    (action: {
-      actionName: string;
-      sourceComponentId: string;
-      timestamp: string;
-      context: Record<string, unknown>;
-    }) => {
-      const setScopedError = (message: string) => {
-        setActionError({
-          message,
-          requestId: hitlRequestId ?? null,
-          surfaceId: effectiveSurfaceId,
-          messages,
-        });
-      };
-      if (!conversationId) {
-        setScopedError('This canvas action is no longer connected to an active conversation.');
-        console.warn('[A2UI] No active conversation -- cannot dispatch action');
-        return;
-      }
-      if (!hitlRequestId) {
-        setScopedError('This interactive surface is no longer awaiting input.');
-        console.warn('[A2UI] Missing HITL request_id -- refusing to dispatch action');
-        return;
-      }
-      setActionError(null);
-      agentService
-        .respondToA2UIAction(
-          hitlRequestId,
-          action.actionName ||
-            ((action as Record<string, unknown>).actionId as string) ||
-            'unknown',
-          action.sourceComponentId,
-          action.context
-        )
-        .catch((err: unknown) => {
-          setScopedError('Failed to send the canvas action. Please try again.');
-          console.error('[A2UI] Failed to dispatch action:', err);
-        });
-    },
-    [conversationId, effectiveSurfaceId, hitlRequestId, messages]
-  );
-
-  if (errorMessage) {
-    return <A2UIParseError message={errorMessage} messages={messages} />;
-  }
-
-  // Guard: need at least a root and components to render
-  if (!parsed.root || !hasComponents) {
     return (
       <div className={SURFACE_SHELL_CLASS}>
-        <div
-          className={`${SURFACE_CARD_CLASS} overflow-hidden flex min-h-[280px] items-center justify-center px-6 py-8`}
-          aria-live="polite"
-        >
-          <div className="text-center">
-            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-              Waiting for A2UI surface data...
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              The agent is still preparing this canvas panel.
-            </p>
-          </div>
+        <div className={`${SURFACE_CARD_CLASS} overflow-hidden p-2 sm:p-4`}>
+          <A2UIErrorBoundary fallback={<A2UIRenderFallback messages={messages} />}>
+            <div className="min-w-0 bg-transparent p-2 sm:p-4">
+              <A2UIViewer
+                root={parsed.root}
+                components={parsed.components}
+                className={A2UI_VIEWER_CLASS}
+                {...(Object.keys(parsed.data).length > 0 ? { data: parsed.data } : {})}
+                onAction={handleAction}
+                {...(Object.keys(parsed.styles).length > 0 ? { styles: parsed.styles } : {})}
+              />
+              {visibleActionError ? (
+                <p className="mt-3 text-sm text-amber-700 dark:text-amber-300" role="alert">
+                  {visibleActionError}
+                </p>
+              ) : null}
+            </div>
+          </A2UIErrorBoundary>
         </div>
       </div>
     );
   }
-
-  return (
-    <div className={SURFACE_SHELL_CLASS}>
-      <div className={`${SURFACE_CARD_CLASS} overflow-hidden p-2 sm:p-4`}>
-        <A2UIErrorBoundary fallback={<A2UIRenderFallback messages={messages} />}>
-          <div className="min-w-0 bg-transparent p-2 sm:p-4">
-            <A2UIViewer
-              root={parsed.root}
-              components={parsed.components}
-              className={A2UI_VIEWER_CLASS}
-              {...(Object.keys(parsed.data).length > 0 ? { data: parsed.data } : {})}
-              onAction={handleAction}
-              {...(Object.keys(parsed.styles).length > 0 ? { styles: parsed.styles } : {})}
-            />
-            {visibleActionError ? (
-              <p className="mt-3 text-sm text-amber-700 dark:text-amber-300" role="alert">
-                {visibleActionError}
-              </p>
-            ) : null}
-          </div>
-        </A2UIErrorBoundary>
-      </div>
-    </div>
-  );
-});
+);
 
 A2UISurfaceRenderer.displayName = 'A2UISurfaceRenderer';

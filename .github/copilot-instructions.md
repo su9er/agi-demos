@@ -176,7 +176,7 @@ Vercel-inspired aesthetic: black/white/gray palette, function-first, zero visual
 2. **Zero Visual Noise**: 1px borders, 0.08 alpha shadows, solid backgrounds. Every element must convey information
 3. **Pill-Shape CTAs**: Primary buttons use pill shape (radius: 100px, height: 48px). Secondary: white bg, dark text, same shape
 4. **Progressive Disclosure**: Essential info first. Status badges: 11px/500 pill shape. Complex details on demand
-5. **Consistent Component Language**: 6px default radius, 8px marketing radius, 4px spacing base, border-only shadows
+5. **Consistent Component Language**: 4px default control radius, 6px structural surface radius, 4px spacing base, border-only shadows, and a 36px default app-button/form-control height. Reserve pill shapes for explicit CTA moments only.
 
 ### Component Patterns
 
@@ -186,11 +186,17 @@ Vercel-inspired aesthetic: black/white/gray palette, function-first, zero visual
 #### Secondary Button
 - bg `#fff`, text `#171717` 16px/500, radius 100px, height 48px
 
+#### Default App Button
+- theme-driven monochrome colors
+- radius 4px
+- height 36px
+- use across the main product UI and canvas actions
+
 #### Ghost Button (Nav)
 - transparent bg, text `#4d4d4d` 14px/400, radius 9999px, height 30px
 
 #### Input Field
-- bg `#fff`, no border (container provides it), radius 6px, height 40px, font 14px
+- bg `#fff`, 1px border, radius 4px, height 36px, font 14px
 
 #### Badge/Tag
 - bg `#ebebeb`, text `#171717` 11px/500, radius 9999px, padding 0 8px

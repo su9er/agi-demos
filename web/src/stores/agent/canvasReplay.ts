@@ -9,7 +9,11 @@
 import { useCanvasStore } from '../canvasStore';
 import { useLayoutModeStore } from '../layoutMode';
 
-import { extractA2UISurfaceId, mergeA2UIMessageStream } from './a2uiMessages';
+import {
+  buildA2UIMessageStreamSnapshot,
+  extractA2UISurfaceId,
+  mergeA2UIMessageStreamWithSnapshot,
+} from './a2uiMessages';
 
 import type { CanvasUpdatedTimelineEvent, TimelineEvent } from '../../types/agent';
 import type { CanvasContentType } from '../canvasStore';
@@ -43,7 +47,9 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
   if (action === 'created' && block) {
     const tabType = BLOCK_TYPE_MAP[block.block_type] ?? 'code';
 
-    const derivedSurfaceId = extractA2UISurfaceId(block.content);
+    const a2uiSnapshot =
+      tabType === 'a2ui-surface' ? buildA2UIMessageStreamSnapshot(block.content) : undefined;
+    const derivedSurfaceId = a2uiSnapshot?.surfaceId ?? extractA2UISurfaceId(block.content);
     const metadataSurfaceId =
       typeof block.metadata?.surface_id === 'string' && block.metadata.surface_id.length > 0
         ? block.metadata.surface_id
@@ -65,6 +71,7 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
             a2uiSurfaceId: metadataSurfaceId ?? derivedSurfaceId ?? block.id,
             a2uiHitlRequestId: metadataHitlRequestId,
             a2uiMessages: block.content,
+            a2uiSnapshot,
           }
         : {}),
     });
@@ -72,11 +79,13 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
     const existingTab = canvasStore.tabs.find((t) => t.id === blockId);
     if (existingTab) {
       if (existingTab.type === 'a2ui-surface') {
-        const mergedA2UI = mergeA2UIMessageStream(
+        const mergedA2UI = mergeA2UIMessageStreamWithSnapshot(
+          existingTab.a2uiSnapshot,
           existingTab.a2uiMessages ?? existingTab.content,
           block.content
         );
-        const derivedSurfaceId = extractA2UISurfaceId(mergedA2UI);
+        const derivedSurfaceId =
+          mergedA2UI.snapshot?.surfaceId ?? extractA2UISurfaceId(mergedA2UI.messages);
         const metadataSurfaceId =
           typeof block.metadata?.surface_id === 'string' && block.metadata.surface_id.length > 0
             ? block.metadata.surface_id
@@ -89,9 +98,10 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
           block.metadata.hitl_request_id.length > 0
             ? block.metadata.hitl_request_id
             : undefined;
-        canvasStore.updateContent(blockId, mergedA2UI);
+        canvasStore.updateContent(blockId, mergedA2UI.messages);
         canvasStore.updateTab(blockId, {
-          a2uiMessages: mergedA2UI,
+          a2uiMessages: mergedA2UI.messages,
+          a2uiSnapshot: mergedA2UI.snapshot,
           a2uiSurfaceId:
             metadataSurfaceId ?? derivedSurfaceId ?? existingTab.a2uiSurfaceId ?? block.id,
           ...(hasHitlRequestId ? { a2uiHitlRequestId: metadataHitlRequestId } : {}),
@@ -105,7 +115,11 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
     } else {
       // Tab not open yet -- open it
       const fallbackTabType = BLOCK_TYPE_MAP[block.block_type] ?? 'code';
-      const derivedSurfaceId = extractA2UISurfaceId(block.content);
+      const a2uiSnapshot =
+        fallbackTabType === 'a2ui-surface'
+          ? buildA2UIMessageStreamSnapshot(block.content)
+          : undefined;
+      const derivedSurfaceId = a2uiSnapshot?.surfaceId ?? extractA2UISurfaceId(block.content);
       const metadataSurfaceId =
         typeof block.metadata?.surface_id === 'string' && block.metadata.surface_id.length > 0
           ? block.metadata.surface_id
@@ -127,6 +141,7 @@ function replayCanvasEvent(event: CanvasUpdatedTimelineEvent): void {
               a2uiSurfaceId: metadataSurfaceId ?? derivedSurfaceId ?? block.id,
               a2uiHitlRequestId: metadataHitlRequestId,
               a2uiMessages: block.content,
+              a2uiSnapshot,
             }
           : {}),
       });

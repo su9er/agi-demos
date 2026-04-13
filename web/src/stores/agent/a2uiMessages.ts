@@ -1,10 +1,17 @@
+import { applyA2UIDataModelUpdate } from '@/utils/a2uiDataModel';
+
 const BEGIN_RENDERING_PATTERN = /"beginRendering"\s*:/;
 const SURFACE_UPDATE_PATTERN = /"surfaceUpdate"\s*:/;
 const DATA_MODEL_UPDATE_PATTERN = /"dataModelUpdate"\s*:/;
 const DELETE_SURFACE_PATTERN = /"deleteSurface"\s*:/;
+const FORBIDDEN_COMPONENT_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSafeComponentKey(key: string): boolean {
+  return !FORBIDDEN_COMPONENT_KEYS.has(key);
 }
 
 function stripMarkdownCodeFence(input: string): string {
@@ -144,12 +151,34 @@ function collectParsedEnvelopeRecords(messages?: string | null): Record<string, 
   return objectRecords;
 }
 
+type A2UIComponentEntry = Record<string, unknown>;
+type A2UIComponents = A2UIComponentEntry[] | Record<string, A2UIComponentEntry>;
+type A2UIComponentRecord = A2UIComponentEntry & { id: string };
+
 interface A2UIMessageStreamState {
   surfaceId: string | undefined;
   root: string | undefined;
   styles: Record<string, unknown> | undefined;
-  componentsById: Map<string, Record<string, unknown>>;
+  componentShape: 'array' | 'object';
+  componentOrder: string[];
+  componentKeysById: Map<string, string>;
+  componentsById: Map<string, A2UIComponentRecord>;
+  data: Record<string, unknown>;
   dataRecords: Array<Record<string, unknown>>;
+}
+
+export interface A2UIMessageStreamSnapshot {
+  surfaceId?: string | undefined;
+  root?: string | undefined;
+  styles?: Record<string, unknown> | undefined;
+  components: A2UIComponents;
+  data: Record<string, unknown>;
+  dataRecords: Array<Record<string, unknown>>;
+}
+
+export interface MergedA2UIMessageStream {
+  messages: string;
+  snapshot?: A2UIMessageStreamSnapshot | undefined;
 }
 
 function createMessageStreamState(): A2UIMessageStreamState {
@@ -157,9 +186,105 @@ function createMessageStreamState(): A2UIMessageStreamState {
     surfaceId: undefined,
     root: undefined,
     styles: undefined,
-    componentsById: new Map<string, Record<string, unknown>>(),
+    componentShape: 'array',
+    componentOrder: [],
+    componentKeysById: new Map<string, string>(),
+    componentsById: new Map<string, A2UIComponentRecord>(),
+    data: Object.create(null) as Record<string, unknown>,
     dataRecords: [],
   };
+}
+
+function cloneValue<T>(value: T): T {
+  return structuredClone(value);
+}
+
+function buildSnapshotComponents(state: A2UIMessageStreamState): A2UIComponents {
+  if (state.componentShape === 'object') {
+    const components = Object.create(null) as Record<string, A2UIComponentEntry>;
+    let syntheticIndex = 0;
+    for (const componentId of state.componentOrder) {
+      const component = state.componentsById.get(componentId);
+      if (!component) continue;
+
+      const preferredKey = state.componentKeysById.get(componentId);
+      const snapshotKey =
+        preferredKey && isSafeComponentKey(preferredKey)
+          ? preferredKey
+          : isSafeComponentKey(componentId)
+            ? componentId
+            : `component-${syntheticIndex++}`;
+      components[snapshotKey] = cloneValue(component);
+    }
+    return components;
+  }
+
+  return state.componentOrder
+    .map((componentId) => state.componentsById.get(componentId))
+    .filter((component): component is A2UIComponentRecord => component !== undefined)
+    .map((component) => cloneValue(component));
+}
+
+function snapshotMessageStreamState(state: A2UIMessageStreamState): A2UIMessageStreamSnapshot {
+  return {
+    ...(state.surfaceId ? { surfaceId: state.surfaceId } : {}),
+    ...(state.root ? { root: state.root } : {}),
+    ...(state.styles ? { styles: cloneValue(state.styles) } : {}),
+    components: buildSnapshotComponents(state),
+    data: cloneValue(state.data),
+    dataRecords: cloneValue(state.dataRecords),
+  };
+}
+
+function hydrateMessageStreamState(snapshot: A2UIMessageStreamSnapshot): A2UIMessageStreamState {
+  const state = createMessageStreamState();
+  state.surfaceId = snapshot.surfaceId;
+  state.root = snapshot.root;
+  state.styles = snapshot.styles ? cloneValue(snapshot.styles) : undefined;
+  if (Array.isArray(snapshot.components)) {
+    state.componentShape = 'array';
+    for (const rawComponent of snapshot.components) {
+      if (!isValidComponentEntry(rawComponent)) continue;
+      const component = cloneValue(rawComponent);
+      state.componentsById.set(component.id, component);
+      if (!state.componentOrder.includes(component.id)) {
+        state.componentOrder.push(component.id);
+      }
+    }
+  } else {
+    state.componentShape = 'object';
+    for (const [key, rawComponent] of Object.entries(snapshot.components)) {
+      if (!isSafeComponentKey(key) || !isValidComponentEntry(rawComponent)) continue;
+      const component = cloneValue(rawComponent);
+      state.componentsById.set(component.id, component);
+      state.componentKeysById.set(component.id, key);
+      if (!state.componentOrder.includes(component.id)) {
+        state.componentOrder.push(component.id);
+      }
+    }
+  }
+  state.data = cloneValue(snapshot.data);
+  state.dataRecords = cloneValue(snapshot.dataRecords);
+  return state;
+}
+
+function isValidComponentEntry(value: unknown): value is A2UIComponentRecord {
+  return isRecord(value) && typeof value.id === 'string' && value.id.length > 0;
+}
+
+function mergeComponentEntry(
+  state: A2UIMessageStreamState,
+  rawComponent: A2UIComponentRecord,
+  objectKey?: string
+): void {
+  const component = cloneValue(rawComponent);
+  state.componentsById.set(component.id, component);
+  if (!state.componentOrder.includes(component.id)) {
+    state.componentOrder.push(component.id);
+  }
+  if (objectKey && isSafeComponentKey(objectKey)) {
+    state.componentKeysById.set(component.id, objectKey);
+  }
 }
 
 function buildDataRecord(
@@ -186,7 +311,11 @@ function applyEnvelopeToState(
   if (deleteSurface) {
     state.root = undefined;
     state.styles = undefined;
+    state.componentShape = 'array';
+    state.componentOrder = [];
+    state.componentKeysById.clear();
     state.componentsById.clear();
+    state.data = Object.create(null) as Record<string, unknown>;
     state.dataRecords = [];
     return;
   }
@@ -202,16 +331,28 @@ function applyEnvelopeToState(
 
   const componentSource = surfaceUpdate?.components;
   if (Array.isArray(componentSource)) {
+    state.componentShape = 'array';
     for (const rawComponent of componentSource) {
-      if (!isRecord(rawComponent)) continue;
-      if (typeof rawComponent.id !== 'string' || !rawComponent.id) continue;
-      state.componentsById.set(rawComponent.id, rawComponent);
+      if (!isValidComponentEntry(rawComponent)) continue;
+      mergeComponentEntry(state, rawComponent);
+    }
+  } else if (isRecord(componentSource)) {
+    state.componentShape = 'object';
+    for (const [key, rawComponent] of Object.entries(componentSource)) {
+      if (!isSafeComponentKey(key) || !isValidComponentEntry(rawComponent)) continue;
+      mergeComponentEntry(state, rawComponent, key);
     }
   }
 
-  const dataRecord = buildDataRecord(dataModelUpdate);
-  if (dataRecord) {
-    state.dataRecords.push(dataRecord);
+  if (dataModelUpdate) {
+    const path = typeof dataModelUpdate.path === 'string' ? dataModelUpdate.path : '/';
+    const contents = Array.isArray(dataModelUpdate.contents) ? dataModelUpdate.contents : [];
+    applyA2UIDataModelUpdate(state.data, path, contents);
+
+    const dataRecord = buildDataRecord(dataModelUpdate);
+    if (dataRecord) {
+      state.dataRecords.push(dataRecord);
+    }
   }
 }
 
@@ -231,7 +372,7 @@ function serializeMessageStreamState(state: A2UIMessageStreamState): string {
     records.push({
       surfaceUpdate: {
         ...(state.surfaceId ? { surfaceId: state.surfaceId } : {}),
-        components: [...state.componentsById.values()],
+        components: buildSnapshotComponents(state),
       },
     });
   }
@@ -255,12 +396,39 @@ export function extractA2UISurfaceId(messages?: string | null): string | undefin
   return extractSingleSurfaceId(collectParsedEnvelopeRecords(messages));
 }
 
-export function mergeA2UIMessageStream(
+export function buildA2UIMessageStreamSnapshot(
+  messages?: string | null
+): A2UIMessageStreamSnapshot | undefined {
+  const records = collectParsedEnvelopeRecords(messages);
+  if (records.length === 0) return undefined;
+  if (!extractSingleSurfaceId(records)) return undefined;
+
+  const state = createMessageStreamState();
+  for (const record of records) {
+    applyEnvelopeToState(state, record);
+  }
+  return snapshotMessageStreamState(state);
+}
+
+export function mergeA2UIMessageStreamWithSnapshot(
+  previousSnapshot: A2UIMessageStreamSnapshot | undefined,
   previousMessages: string | undefined,
   incomingMessages: string
-): string {
-  if (!incomingMessages) return previousMessages ?? '';
-  if (!previousMessages) return incomingMessages;
+): MergedA2UIMessageStream {
+  const buildIncomingResult = (): MergedA2UIMessageStream => ({
+    messages: incomingMessages,
+    snapshot: buildA2UIMessageStreamSnapshot(incomingMessages),
+  });
+
+  if (!incomingMessages) {
+    return {
+      messages: previousMessages ?? '',
+      snapshot: previousSnapshot,
+    };
+  }
+  if (!previousMessages && !previousSnapshot) {
+    return buildIncomingResult();
+  }
 
   const hasBeginRendering = BEGIN_RENDERING_PATTERN.test(incomingMessages);
   const hasDeleteSurface = DELETE_SURFACE_PATTERN.test(incomingMessages);
@@ -268,29 +436,51 @@ export function mergeA2UIMessageStream(
     SURFACE_UPDATE_PATTERN.test(incomingMessages) ||
     DATA_MODEL_UPDATE_PATTERN.test(incomingMessages);
   if (hasBeginRendering || hasDeleteSurface || !hasIncrementalUpdate) {
-    return incomingMessages;
+    return buildIncomingResult();
   }
 
-  const previousRecords = collectParsedEnvelopeRecords(previousMessages);
   const incomingRecords = collectParsedEnvelopeRecords(incomingMessages);
-  if (previousRecords.length === 0 || incomingRecords.length === 0) {
-    return incomingMessages;
+  if (incomingRecords.length === 0) {
+    return buildIncomingResult();
   }
 
-  const previousSurfaceId = extractSingleSurfaceId(previousRecords);
+  let state: A2UIMessageStreamState | undefined;
+  if (previousSnapshot) {
+    state = hydrateMessageStreamState(previousSnapshot);
+  } else if (previousMessages) {
+    const previousRecords = collectParsedEnvelopeRecords(previousMessages);
+    if (previousRecords.length > 0) {
+      state = createMessageStreamState();
+      for (const record of previousRecords) {
+        applyEnvelopeToState(state, record);
+      }
+    }
+  }
+
+  if (!state) {
+    return buildIncomingResult();
+  }
+
+  const previousSurfaceId = state.surfaceId;
   const incomingSurfaceId = extractSingleSurfaceId(incomingRecords);
   if (!previousSurfaceId || !incomingSurfaceId || previousSurfaceId !== incomingSurfaceId) {
-    return incomingMessages;
+    return buildIncomingResult();
   }
 
-  const state = createMessageStreamState();
-  for (const record of previousRecords) {
-    applyEnvelopeToState(state, record);
-  }
   for (const record of incomingRecords) {
     applyEnvelopeToState(state, record);
   }
 
-  const serialized = serializeMessageStreamState(state);
-  return serialized || incomingMessages;
+  const messages = serializeMessageStreamState(state);
+  return {
+    messages: messages || incomingMessages,
+    snapshot: snapshotMessageStreamState(state),
+  };
+}
+
+export function mergeA2UIMessageStream(
+  previousMessages: string | undefined,
+  incomingMessages: string
+): string {
+  return mergeA2UIMessageStreamWithSnapshot(undefined, previousMessages, incomingMessages).messages;
 }

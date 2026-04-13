@@ -1001,10 +1001,7 @@ const CanvasChartPreview = memo<{ model: CanvasChartModel }>(({ model }) => {
       <div className="h-64 overflow-x-auto">
         <div className="h-full inline-flex items-end gap-4 min-w-full pb-10">
           {model.labels.map((label, index) => (
-            <div
-              key={`${label}-${index}`}
-              className="flex flex-col items-center gap-2 min-w-13"
-            >
+            <div key={`${label}-${index}`} className="flex flex-col items-center gap-2 min-w-13">
               <div className="h-48 flex items-end gap-1">
                 {model.datasets.map((dataset) => {
                   const value = Math.max(0, dataset.values[index] ?? 0);
@@ -1019,9 +1016,9 @@ const CanvasChartPreview = memo<{ model: CanvasChartModel }>(({ model }) => {
                   );
                 })}
               </div>
-                   <span className="text-2xs text-slate-500 dark:text-slate-400 text-center max-w-[56px] truncate">
-                 {label}
-               </span>
+              <span className="text-2xs text-slate-500 dark:text-slate-400 text-center max-w-[56px] truncate">
+                {label}
+              </span>
             </div>
           ))}
         </div>
@@ -1128,7 +1125,7 @@ const CanvasFormPreview = memo<{ fields: CanvasFormField[] }>(({ fields }) => (
           </div>
         );
       })}
-       <p className="pt-1 text-2xs text-slate-400 dark:text-slate-500">Read-only form preview</p>
+      <p className="pt-1 text-2xs text-slate-400 dark:text-slate-500">Read-only form preview</p>
     </div>
   </div>
 ));
@@ -1314,6 +1311,7 @@ const CanvasContent = memo<{
         <A2UISurfaceRenderer
           surfaceId={tab.a2uiSurfaceId ?? tab.id}
           messages={tab.a2uiMessages ?? tab.content}
+          snapshot={tab.a2uiSnapshot}
         />
       );
     case 'mcp-app':
@@ -1392,9 +1390,7 @@ const CanvasToolbar = memo<{
         artifactUrl: result.url || tab.artifactUrl,
       });
     } catch (err: unknown) {
-      void message.error(
-        err instanceof Error ? err.message : 'Failed to save artifact'
-      );
+      void message.error(err instanceof Error ? err.message : 'Failed to save artifact');
       console.error('CanvasPanel: save failed', err);
     } finally {
       setSaving(false);
@@ -1409,11 +1405,11 @@ const CanvasToolbar = memo<{
       <div className="flex-1 flex items-center gap-2">
         <span className="text-primary">{typeIcon(tab.type)}</span>
         <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{tab.title}</span>
-           {tab.language && (
-             <span className="text-2xs px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded">
-               {tab.language}
-             </span>
-           )}
+        {tab.language && (
+          <span className="text-2xs px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded">
+            {tab.language}
+          </span>
+        )}
       </div>
       {canSave && (
         <button

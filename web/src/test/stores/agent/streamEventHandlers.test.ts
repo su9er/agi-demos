@@ -405,7 +405,9 @@ describe('streamEventHandlers', () => {
       ([, updates]) => (updates as any).isStreaming === false
     );
     const completionUpdates = completionCall?.[1] as any;
-    const assistantEvent = completionUpdates.timeline.find((e: any) => e.type === 'assistant_message');
+    const assistantEvent = completionUpdates.timeline.find(
+      (e: any) => e.type === 'assistant_message'
+    );
 
     expect(assistantEvent).toBeDefined();
     expect(assistantEvent.metadata).toEqual({
@@ -463,7 +465,9 @@ describe('streamEventHandlers', () => {
     );
     const completionUpdates = completionCall?.[1] as any;
     const oldTextEnd = completionUpdates.timeline.find((e: any) => e.id === 'text-end-old');
-    const assistantMessages = completionUpdates.timeline.filter((e: any) => e.type === 'assistant_message');
+    const assistantMessages = completionUpdates.timeline.filter(
+      (e: any) => e.type === 'assistant_message'
+    );
 
     expect(oldTextEnd?.metadata).toBeUndefined();
     expect(assistantMessages).toHaveLength(1);
@@ -499,7 +503,9 @@ describe('streamEventHandlers', () => {
     );
     const completionUpdates = completionCall?.[1] as any;
     const oldTextEnd = completionUpdates.timeline.find((e: any) => e.id === 'text-end-old');
-    const assistantMessages = completionUpdates.timeline.filter((e: any) => e.type === 'assistant_message');
+    const assistantMessages = completionUpdates.timeline.filter(
+      (e: any) => e.type === 'assistant_message'
+    );
 
     expect(oldTextEnd?.metadata).toBeUndefined();
     expect(assistantMessages).toHaveLength(1);
@@ -624,8 +630,58 @@ describe('streamEventHandlers', () => {
     expect(tab?.a2uiSurfaceId).toBe('surface-42');
     expect(tab?.a2uiHitlRequestId).toBe('hitl-req-1');
     expect(tab?.a2uiMessages).toBe(content);
+    expect(tab?.a2uiSnapshot?.surfaceId).toBe('surface-42');
     expect(mockState.timeline.some((item: any) => item.type === 'canvas_updated')).toBe(true);
     expect(useLayoutModeStore.getState().mode).toBe('canvas');
+  });
+
+  it('should materialize incremental A2UI dataModel updates into the tab snapshot', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    const initialContent = [
+      '{"beginRendering":{"surfaceId":"surface-42","root":"root-1"}}',
+      '{"surfaceUpdate":{"surfaceId":"surface-42","components":[{"id":"root-1","component":{"Text":{"text":{"literal":"hello"}}}}]}}',
+    ].join('\n');
+    const incrementalContent =
+      '{"dataModelUpdate":{"surfaceId":"surface-42","path":"/","contents":[{"key":"stats","valueMap":[{"key":"count","valueNumber":2}]}]}}';
+
+    handlers.onCanvasUpdated!({
+      type: 'canvas_updated',
+      data: {
+        conversation_id: conversationId,
+        block_id: 'block-1',
+        action: 'created',
+        block: {
+          id: 'block-1',
+          block_type: 'a2ui_surface',
+          title: 'Surface',
+          content: initialContent,
+          metadata: {},
+          version: 1,
+        },
+      } as any,
+    });
+
+    handlers.onCanvasUpdated!({
+      type: 'canvas_updated',
+      data: {
+        conversation_id: conversationId,
+        block_id: 'block-1',
+        action: 'updated',
+        block: {
+          id: 'block-1',
+          block_type: 'a2ui_surface',
+          title: 'Surface',
+          content: incrementalContent,
+          metadata: {},
+          version: 2,
+        },
+      } as any,
+    });
+
+    const tab = useCanvasStore.getState().tabs.find((item) => item.id === 'block-1');
+    expect(tab?.a2uiSnapshot?.surfaceId).toBe('surface-42');
+    expect(tab?.a2uiSnapshot?.data).toEqual({ stats: { count: 2 } });
+    expect(tab?.a2uiMessages).toContain('"dataModelUpdate"');
   });
 
   it('should clear a2uiHitlRequestId when canvas metadata clears the request marker', () => {
@@ -727,6 +783,7 @@ describe('streamEventHandlers', () => {
 
     const tab = useCanvasStore.getState().tabs.find((item) => item.id === 'block-1');
     expect(tab?.a2uiHitlRequestId).toBe('hitl-req-buffered');
+    expect(tab?.a2uiSnapshot?.surfaceId).toBe('surface-42');
   });
 
   it('should scope buffered A2UI request ids by conversation', () => {

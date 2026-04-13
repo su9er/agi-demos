@@ -130,6 +130,14 @@ export const A2UIRadio = memo(function A2UIRadio({
     setLocalValue(resolvedValue);
   }, [resolvedValue]);
 
+  const descriptionId = useMemo(
+    () =>
+      description
+        ? `${surfaceId}-${node.id}-description`.replace(/[^a-zA-Z0-9_-]/g, '-')
+        : undefined,
+    [description, node.id, surfaceId]
+  );
+
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const nextValue = event.target.value;
@@ -148,6 +156,7 @@ export const A2UIRadio = memo(function A2UIRadio({
       ({
         display: 'grid',
         gap: '8px',
+        minWidth: 0,
         ...normalizeStyle(props.style),
       }) satisfies CSSProperties,
     [props.style]
@@ -159,48 +168,32 @@ export const A2UIRadio = memo(function A2UIRadio({
 
   return (
     <div className="a2ui-radio" style={rootStyle}>
-      <section style={sectionStyle}>
+      <section className="a2ui-radio__section" style={sectionStyle}>
         {description ? (
-          <div
-            style={{
-              fontSize: '14px',
-              fontWeight: 500,
-              color: '#171717',
-            }}
-          >
+          <div id={descriptionId} className="a2ui-radio__description" dir="auto">
             {description}
           </div>
         ) : null}
         <div
           role="radiogroup"
-          aria-label={description ?? node.id}
-          style={{
-            display: 'grid',
-            gap: '8px',
-          }}
+          {...(descriptionId
+            ? { 'aria-labelledby': descriptionId }
+            : { 'aria-label': 'Selection options' })}
+          className="a2ui-radio__group"
         >
           {options.map((option) => (
-            <label
-              key={option.value}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                color: '#171717',
-                fontSize: '14px',
-                lineHeight: '20px',
-                cursor: 'pointer',
-              }}
-            >
+            <label key={option.value} className="a2ui-radio__option">
               <input
                 type="radio"
                 name={`${surfaceId}-${node.id}`}
                 value={option.value}
                 checked={localValue === option.value}
                 onChange={handleChange}
-                style={{ accentColor: '#171717' }}
+                className="a2ui-radio__input"
               />
-              <span>{option.label}</span>
+              <span className="a2ui-radio__label" dir="auto">
+                {option.label}
+              </span>
             </label>
           ))}
         </div>

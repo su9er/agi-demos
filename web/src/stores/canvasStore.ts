@@ -12,6 +12,8 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { useShallow } from 'zustand/react/shallow';
 
+import type { A2UIMessageStreamSnapshot } from './agent/a2uiMessages';
+
 export type CanvasContentType =
   | 'code'
   | 'markdown'
@@ -63,6 +65,8 @@ export interface CanvasTab {
   a2uiSurfaceId?: string | undefined;
   /** A2UI JSONL messages (when type is 'a2ui-surface') */
   a2uiMessages?: string | undefined;
+  /** Structured A2UI surface snapshot for incremental rendering */
+  a2uiSnapshot?: A2UIMessageStreamSnapshot | undefined;
   /** A2UI HITL request ID from server (when type is 'a2ui-surface', interactive) */
   a2uiHitlRequestId?: string | undefined;
   /** Preview rendering mode for type=preview */
@@ -283,6 +287,7 @@ export const useCanvasStore = create<CanvasState>()(
             // Persist A2UI metadata/message payload for refresh recovery
             a2uiSurfaceId: t.a2uiSurfaceId,
             a2uiMessages: t.a2uiMessages,
+            a2uiSnapshot: t.a2uiSnapshot,
             a2uiHitlRequestId: t.a2uiHitlRequestId,
             // Persist preview metadata for sandbox http services
             previewMode: t.previewMode,

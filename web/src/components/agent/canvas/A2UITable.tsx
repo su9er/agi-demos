@@ -193,6 +193,7 @@ export const A2UITable = memo(function A2UITable({
     () =>
       ({
         overflowX: 'auto',
+        minWidth: 0,
         ...normalizeStyle(props.style),
       }) satisfies CSSProperties,
     [props.style]
@@ -204,27 +205,10 @@ export const A2UITable = memo(function A2UITable({
 
   return (
     <div className="a2ui-table" style={rootStyle}>
-      <section style={sectionStyle}>
-        <table
-          style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            borderSpacing: 0,
-            fontSize: '14px',
-            lineHeight: '20px',
-            color: '#171717',
-          }}
-        >
+      <section className="a2ui-table__section" style={sectionStyle}>
+        <table className="a2ui-table__table">
           {caption ? (
-            <caption
-              style={{
-                marginBottom: '8px',
-                color: '#171717',
-                fontSize: '14px',
-                fontWeight: 500,
-                textAlign: 'left',
-              }}
-            >
+            <caption className="a2ui-table__caption" dir="auto">
               {caption}
             </caption>
           ) : null}
@@ -233,15 +217,8 @@ export const A2UITable = memo(function A2UITable({
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  style={{
-                    borderBottom: '1px solid #eaeaea',
-                    padding: '8px 12px',
-                    color: '#666666',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    textAlign: column.align,
-                    width: column.width,
-                  }}
+                  className="a2ui-table__header"
+                  style={{ textAlign: column.align, width: column.width }}
                 >
                   {column.header}
                 </th>
@@ -255,12 +232,8 @@ export const A2UITable = memo(function A2UITable({
                   {columns.map((column, columnIndex) => (
                     <td
                       key={`${row.key}-${column.key}`}
-                      style={{
-                        borderBottom: '1px solid #f3f3f3',
-                        padding: '10px 12px',
-                        textAlign: column.align,
-                        verticalAlign: 'top',
-                      }}
+                      className="a2ui-table__cell"
+                      style={{ textAlign: column.align }}
                     >
                       {row.cells[columnIndex] ?? ''}
                     </td>
@@ -269,14 +242,7 @@ export const A2UITable = memo(function A2UITable({
               ))
             ) : (
               <tr>
-                <td
-                  colSpan={columns.length}
-                  style={{
-                    padding: '16px 12px',
-                    color: '#666666',
-                    textAlign: 'center',
-                  }}
-                >
+                <td colSpan={columns.length} className="a2ui-table__empty">
                   {emptyText}
                 </td>
               </tr>

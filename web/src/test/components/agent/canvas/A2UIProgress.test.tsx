@@ -87,4 +87,24 @@ describe('A2UIProgress', () => {
       expect(screen.getByText('75%')).toBeInTheDocument();
     });
   });
+
+  it('uses a generic accessible name when no visible label is rendered', () => {
+    getDataSpy.mockReturnValue(20);
+
+    render(
+      <A2UIProgress
+        node={{
+          ...node,
+          properties: {
+            ...node.properties,
+            label: undefined,
+            showValue: false,
+          },
+        }}
+        surfaceId="surface-1"
+      />
+    );
+
+    expect(screen.getByRole('progressbar', { name: 'Progress' })).toBeInTheDocument();
+  });
 });

@@ -97,6 +97,25 @@ describe('A2UIRadio', () => {
     expect(setDataSpy).toHaveBeenCalledWith(node, '/form/plan', 'pro', 'surface-1');
   });
 
+  it('uses a human-readable fallback name when no description is provided', () => {
+    getDataSpy.mockReturnValue('starter');
+
+    render(
+      <A2UIRadio
+        node={{
+          ...node,
+          properties: {
+            ...node.properties,
+            description: undefined,
+          },
+        }}
+        surfaceId="surface-1"
+      />
+    );
+
+    expect(screen.getByRole('radiogroup', { name: 'Selection options' })).toBeInTheDocument();
+  });
+
   it('refreshes the checked option when the bound A2UI data changes', async () => {
     let currentValue = 'starter';
     getDataSpy.mockImplementation(() => currentValue);

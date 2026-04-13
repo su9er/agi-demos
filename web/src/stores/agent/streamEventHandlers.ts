@@ -17,7 +17,11 @@ import { useGraphStore } from '../graphStore';
 import { useUnifiedHITLStore } from '../hitlStore.unified';
 import { useLayoutModeStore } from '../layoutMode';
 
-import { extractA2UISurfaceId, mergeA2UIMessageStream } from './a2uiMessages';
+import {
+  buildA2UIMessageStreamSnapshot,
+  extractA2UISurfaceId,
+  mergeA2UIMessageStreamWithSnapshot,
+} from './a2uiMessages';
 import { useExecutionStore } from './executionStore';
 
 import type { DeltaBufferState } from './deltaBuffers';
@@ -1763,7 +1767,12 @@ export function createStreamEventHandlers(
         };
         const tabType = typeMap[data.block.block_type] ?? 'code';
 
-        const derivedSurfaceId = extractA2UISurfaceId(data.block.content);
+        const a2uiSnapshot =
+          tabType === 'a2ui-surface'
+            ? buildA2UIMessageStreamSnapshot(data.block.content)
+            : undefined;
+        const derivedSurfaceId =
+          a2uiSnapshot?.surfaceId ?? extractA2UISurfaceId(data.block.content);
         canvasStore.openTab({
           id: data.block.id,
           title: data.block.title,
@@ -1776,6 +1785,7 @@ export function createStreamEventHandlers(
                 a2uiSurfaceId: metadataSurfaceId ?? derivedSurfaceId ?? data.block.id,
                 a2uiHitlRequestId: resolvedHitlRequestId,
                 a2uiMessages: data.block.content,
+                a2uiSnapshot,
               }
             : {}),
         });
@@ -1791,14 +1801,17 @@ export function createStreamEventHandlers(
         const existingTab = canvasStore.tabs.find((t) => t.id === data.block_id);
         if (existingTab) {
           if (existingTab.type === 'a2ui-surface') {
-            const mergedA2UI = mergeA2UIMessageStream(
+            const mergedA2UI = mergeA2UIMessageStreamWithSnapshot(
+              existingTab.a2uiSnapshot,
               existingTab.a2uiMessages ?? existingTab.content,
               data.block.content
             );
-            const derivedSurfaceId = extractA2UISurfaceId(mergedA2UI);
-            canvasStore.updateContent(data.block_id, mergedA2UI);
+            const derivedSurfaceId =
+              mergedA2UI.snapshot?.surfaceId ?? extractA2UISurfaceId(mergedA2UI.messages);
+            canvasStore.updateContent(data.block_id, mergedA2UI.messages);
             canvasStore.updateTab(data.block_id, {
-              a2uiMessages: mergedA2UI,
+              a2uiMessages: mergedA2UI.messages,
+              a2uiSnapshot: mergedA2UI.snapshot,
               a2uiSurfaceId:
                 metadataSurfaceId ?? derivedSurfaceId ?? existingTab.a2uiSurfaceId ?? data.block.id,
               ...(shouldClearBufferedHitlRequestId
@@ -1829,7 +1842,12 @@ export function createStreamEventHandlers(
               a2ui_surface: 'a2ui-surface',
             };
           const fallbackTabType = typeMap[data.block.block_type] ?? 'code';
-          const derivedSurfaceId = extractA2UISurfaceId(data.block.content);
+          const a2uiSnapshot =
+            fallbackTabType === 'a2ui-surface'
+              ? buildA2UIMessageStreamSnapshot(data.block.content)
+              : undefined;
+          const derivedSurfaceId =
+            a2uiSnapshot?.surfaceId ?? extractA2UISurfaceId(data.block.content);
           canvasStore.openTab({
             id: data.block.id,
             title: data.block.title,
@@ -1842,6 +1860,7 @@ export function createStreamEventHandlers(
                   a2uiSurfaceId: metadataSurfaceId ?? derivedSurfaceId ?? data.block.id,
                   a2uiHitlRequestId: resolvedHitlRequestId,
                   a2uiMessages: data.block.content,
+                  a2uiSnapshot,
                 }
               : {}),
           });
@@ -1855,7 +1874,9 @@ export function createStreamEventHandlers(
         }
       } else if (data.action === 'deleted') {
         canvasStore.closeTab(data.block_id, true);
-        pendingA2UIRequestIds.delete(getPendingA2UIRequestKey(handlerConversationId, data.block_id));
+        pendingA2UIRequestIds.delete(
+          getPendingA2UIRequestKey(handlerConversationId, data.block_id)
+        );
 
         // If no more tabs, switch back to chat mode
         if (useCanvasStore.getState().tabs.length === 0) {
@@ -1879,7 +1900,10 @@ export function createStreamEventHandlers(
       // Store the server-assigned request_id into the canvas tab so the
       // A2UISurfaceRenderer can use it when dispatching user actions back.
       const canvasStore = useCanvasStore.getState();
-      pendingA2UIRequestIds.set(getPendingA2UIRequestKey(handlerConversationId, blockId), requestId);
+      pendingA2UIRequestIds.set(
+        getPendingA2UIRequestKey(handlerConversationId, blockId),
+        requestId
+      );
       canvasStore.updateTab(blockId, { a2uiHitlRequestId: requestId });
 
       // Add to timeline
@@ -2165,11 +2189,12 @@ export function createStreamEventHandlers(
         content?: string;
       }
       const hasContent = !!(completeEvent.data as CompleteEventWithContent).content?.trim();
-      const updatedTimeline = (hasCurrentTurnAnchor || hadTransientTextEvents) && hasTextEndMessages
-        ? mergeCompletionIntoLastAssistant(cleanedTimeline, completeEvent, currentTurnStartIndex)
-        : hasContent || hasRenderableCompletionData(completeEvent)
-          ? appendSSEEventToTimeline(cleanedTimeline, completeEvent)
-          : cleanedTimeline;
+      const updatedTimeline =
+        (hasCurrentTurnAnchor || hadTransientTextEvents) && hasTextEndMessages
+          ? mergeCompletionIntoLastAssistant(cleanedTimeline, completeEvent, currentTurnStartIndex)
+          : hasContent || hasRenderableCompletionData(completeEvent)
+            ? appendSSEEventToTimeline(cleanedTimeline, completeEvent)
+            : cleanedTimeline;
 
       const newMessages = timelineToMessages(updatedTimeline);
 

@@ -27,28 +27,7 @@ type ProgressNode = Record<string, unknown> & {
   properties?: ProgressProperties;
 };
 
-const TONE_STYLES: Record<string, { track: string; fill: string; text: string }> = {
-  neutral: {
-    track: '#ebebeb',
-    fill: '#171717',
-    text: '#525252',
-  },
-  success: {
-    track: '#e7f7ed',
-    fill: '#0a6b2d',
-    text: '#0a6b2d',
-  },
-  warning: {
-    track: '#fff6e5',
-    fill: '#a66a00',
-    text: '#8a5b00',
-  },
-  error: {
-    track: '#fdecec',
-    fill: '#c53030',
-    text: '#9f1c1c',
-  },
-};
+const PROGRESS_TONES = new Set(['neutral', 'success', 'warning', 'error']);
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -77,14 +56,13 @@ export const A2UIProgress = memo(function A2UIProgress({
     const maxValue = resolveBoundNumberValue(props.max ?? 100, node, surfaceId, actions);
     return typeof maxValue === 'number' && maxValue > 0 ? maxValue : 100;
   }, [actions, node, props.max, surfaceId, version]);
-  const tone = TONE_STYLES[props.tone ?? 'neutral'] ?? {
-    track: '#ebebeb',
-    fill: '#171717',
-    text: '#525252',
-  };
+  const toneKey =
+    typeof props.tone === 'string' && PROGRESS_TONES.has(props.tone) ? props.tone : 'neutral';
   const clampedValue = clamp(resolvedValue, 0, resolvedMax);
   const percent = resolvedMax > 0 ? clamp((clampedValue / resolvedMax) * 100, 0, 100) : 0;
   const valueText = `${Math.round(percent)}%`;
+  const labelText = label ?? 'Progress';
+  const labelId = `${surfaceId}-${node.id}-progress-label`.replace(/[^a-zA-Z0-9_-]/g, '-');
 
   const rootStyle =
     node.weight !== undefined ? ({ '--weight': node.weight } as CSSProperties) : undefined;
@@ -93,70 +71,37 @@ export const A2UIProgress = memo(function A2UIProgress({
       ({
         display: 'grid',
         gap: '8px',
+        minWidth: 0,
         ...normalizeStyle(props.style),
       }) satisfies CSSProperties,
     [props.style]
   );
 
   return (
-    <div className="a2ui-progress" style={rootStyle}>
-      <section style={sectionStyle}>
+    <div className="a2ui-progress" style={rootStyle} data-tone={toneKey}>
+      <section className="a2ui-progress__section" style={sectionStyle}>
         {label || props.showValue !== false ? (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '12px',
-            }}
-          >
-            <span
-              style={{
-                color: '#171717',
-                fontSize: '14px',
-                fontWeight: 500,
-                lineHeight: '20px',
-              }}
-            >
-              {label ?? 'Progress'}
+          <div className="a2ui-progress__header">
+            <span id={labelId} className="a2ui-progress__label" dir="auto">
+              {labelText}
             </span>
             {props.showValue !== false ? (
-              <span
-                style={{
-                  color: tone.text,
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  lineHeight: '16px',
-                }}
-              >
-                {valueText}
-              </span>
+              <span className="a2ui-progress__value">{valueText}</span>
             ) : null}
           </div>
         ) : null}
         <div
           role="progressbar"
-          aria-label={label ?? node.id}
+          {...(label || props.showValue !== false
+            ? { 'aria-labelledby': labelId }
+            : { 'aria-label': 'Progress' })}
           aria-valuemin={0}
           aria-valuemax={resolvedMax}
           aria-valuenow={Math.round(clampedValue)}
-          style={{
-            width: '100%',
-            height: '8px',
-            borderRadius: '9999px',
-            overflow: 'hidden',
-            backgroundColor: tone.track,
-          }}
+          aria-valuetext={valueText}
+          className="a2ui-progress__track"
         >
-          <div
-            style={{
-              height: '100%',
-              width: `${percent}%`,
-              borderRadius: '9999px',
-              backgroundColor: tone.fill,
-              transition: 'width 160ms ease-out',
-            }}
-          />
+          <div className="a2ui-progress__fill" style={{ transform: `scaleX(${percent / 100})` }} />
         </div>
       </section>
     </div>
