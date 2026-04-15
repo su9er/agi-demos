@@ -146,7 +146,10 @@ async def test_register_hook_and_notify_hook_collects_diagnostics() -> None:
         payload={"tenant_id": "tenant-1"},
     )
 
-    assert captured == [{"tenant_id": "tenant-1"}]
+    assert len(captured) == 1
+    assert captured[0]["tenant_id"] == "tenant-1"
+    assert captured[0]["hook_family"] == "mutating"
+    assert captured[0]["hook_identity"]["hook_name"] == "before_tool_selection"
     assert any(item.code == "hook_handler_failed" for item in diagnostics)
 
 
@@ -336,6 +339,87 @@ async def test_notify_hook_default_priority_is_100() -> None:
     await registry.notify_hook("test_hook")
 
     assert execution_order == ["early", "default", "late"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_apply_hook_executes_custom_script_runtime_override() -> None:
+    """Custom script overrides should execute real code for matching lifecycle hooks."""
+    registry = AgentPluginRegistry()
+
+    result = await registry.apply_hook(
+        "before_response",
+        payload={"response_instructions": []},
+        runtime_overrides=[
+            {
+                "plugin_name": "__custom__",
+                "hook_name": "before_response",
+                "hook_family": "mutating",
+                "executor_kind": "script",
+                "source_ref": "src/infrastructure/agent/hooks/scripts/demo_runtime_hook.py",
+                "entrypoint": "append_demo_response_instruction",
+                "enabled": True,
+                "priority": 15,
+                "settings": {},
+            }
+        ],
+    )
+
+    assert result.payload["demo_hook_executed"] is True
+    assert "Demo runtime hook executed from custom script." in result.payload["response_instructions"]
+    assert result.diagnostics == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_apply_hook_enforces_side_effect_family_no_payload_mutation() -> None:
+    """Side-effect hooks should not mutate the dispatcher payload."""
+    registry = AgentPluginRegistry()
+
+    result = await registry.apply_hook(
+        "after_subagent_complete",
+        payload={"response_instructions": []},
+        runtime_overrides=[
+            {
+                "plugin_name": "__custom__",
+                "hook_name": "after_subagent_complete",
+                "hook_family": "side_effect",
+                "executor_kind": "script",
+                "source_ref": "src/infrastructure/agent/hooks/scripts/demo_runtime_hook.py",
+                "entrypoint": "append_demo_response_instruction",
+                "enabled": True,
+                "priority": 15,
+                "settings": {},
+            }
+        ],
+    )
+
+    assert result.payload == {"response_instructions": []}
+
+
+@pytest.mark.unit
+def test_list_hook_catalog_includes_hook_family_metadata() -> None:
+    """Registered hooks should retain canonical family metadata in the catalog."""
+    registry = AgentPluginRegistry()
+
+    async def _handler(payload):
+        return payload
+
+    registry.register_hook(
+        "plugin-a",
+        "before_response",
+        _handler,
+        hook_family="mutating",
+        priority=42,
+    )
+
+    catalog = registry.list_hook_catalog()
+
+    assert len(catalog) == 1
+    entry = catalog[0]
+    assert entry.hook_name == "before_response"
+    assert entry.hook_family == "mutating"
+    assert entry.default_executor_kind == "builtin"
 
 
 @pytest.mark.unit

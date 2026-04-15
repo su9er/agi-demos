@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+
 import { useTranslation } from 'react-i18next';
 
 import { Edit, RefreshCw } from 'lucide-react';
@@ -47,6 +49,11 @@ function formatHookSettings(settings: Record<string, unknown>, emptyLabel: strin
   return entries
     .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`)
     .join(' · ');
+}
+
+function formatHookIdentityValue(value: string | null | undefined, emptyLabel: string): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : emptyLabel;
 }
 
 function StatusPill({
@@ -427,23 +434,59 @@ export function TenantAgentConfigView({
             <div className="space-y-3">
               {config.runtime_hooks.map((hook) => (
                 <div
-                  key={`${hook.plugin_name}:${hook.hook_name}`}
+                  key={[hook.plugin_name ?? hook.source_ref ?? 'hook', hook.hook_name].join(':')}
                   className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/70"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                        {hook.plugin_name} / {hook.hook_name}
+                        {hook.plugin_name
+                          ? `${hook.plugin_name} / ${hook.hook_name}`
+                          : hook.hook_name}
                       </p>
-                       <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
-                         {formatHookSettings(
-                           hook.settings,
-                           config.runtime_hook_settings_redacted
-                             ? t('tenant.agentConfigView.sections.runtimeHooks.settingsHidden')
-                             : t('tenant.agentConfigView.sections.runtimeHooks.noCustomSettings')
-                         )}
-                       </p>
-                     </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {hook.hook_family ? (
+                          <StatusPill>
+                            {t('tenant.agentConfigView.sections.runtimeHooks.family', {
+                              value: hook.hook_family,
+                            })}
+                          </StatusPill>
+                        ) : null}
+                        {hook.executor_kind ? (
+                          <StatusPill>
+                            {t('tenant.agentConfigView.sections.runtimeHooks.executorKind', {
+                              value: hook.executor_kind,
+                            })}
+                          </StatusPill>
+                        ) : null}
+                      </div>
+                      <div className="mt-3 space-y-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                        <p>
+                          {t('tenant.agentConfigView.sections.runtimeHooks.sourceRef', {
+                            value: formatHookIdentityValue(
+                              hook.source_ref,
+                              t('tenant.agentConfigView.sections.runtimeHooks.notSet')
+                            ),
+                          })}
+                        </p>
+                        <p>
+                          {t('tenant.agentConfigView.sections.runtimeHooks.entrypoint', {
+                            value: formatHookIdentityValue(
+                              hook.entrypoint,
+                              t('tenant.agentConfigView.sections.runtimeHooks.notSet')
+                            ),
+                          })}
+                        </p>
+                        <p>
+                          {formatHookSettings(
+                            hook.settings,
+                            config.runtime_hook_settings_redacted
+                              ? t('tenant.agentConfigView.sections.runtimeHooks.settingsHidden')
+                              : t('tenant.agentConfigView.sections.runtimeHooks.noCustomSettings')
+                          )}
+                        </p>
+                      </div>
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       <StatusPill tone={hook.enabled ? 'positive' : 'neutral'}>
                         {hook.enabled ? t('common.status.enabled') : t('common.status.disabled')}

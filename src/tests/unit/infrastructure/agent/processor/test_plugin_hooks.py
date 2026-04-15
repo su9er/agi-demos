@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.infrastructure.agent.plugins.registry import HookDispatchResult
+from src.infrastructure.agent.plugins.registry import AgentPluginRegistry, HookDispatchResult
 from src.infrastructure.agent.processor.processor import (
     ProcessorConfig,
     SessionProcessor,
@@ -47,7 +47,11 @@ def _make_tool(name="test_tool", output="ok"):
 
 def _make_processor(*, registry=None, tools=None):
     """Build a minimal SessionProcessor with optional plugin registry."""
-    config = ProcessorConfig(model="test-model", plugin_registry=registry)
+    config = ProcessorConfig(
+        model="test-model",
+        plugin_registry=registry,
+        runtime_context={"tenant_id": "tenant-1", "project_id": "project-1"},
+    )
     return SessionProcessor(config=config, tools=tools or [])
 
 
@@ -86,6 +90,38 @@ class TestNotifyPluginHookHelper:
         # Must not raise
         await proc._notify_plugin_hook("on_error", {"err": "x"})
         registry.apply_hook.assert_awaited_once()
+
+    async def test_custom_runtime_override_merges_response_instructions(self):
+        """Custom script hook overrides should feed runtime guidance into the processor."""
+        registry = AgentPluginRegistry()
+        config = ProcessorConfig(
+            model="test-model",
+            plugin_registry=registry,
+            runtime_hook_overrides=[
+                {
+                    "plugin_name": "__custom__",
+                    "hook_name": "before_response",
+                    "hook_family": "mutating",
+                    "executor_kind": "script",
+                    "source_ref": "src/infrastructure/agent/hooks/scripts/demo_runtime_hook.py",
+                    "entrypoint": "append_demo_response_instruction",
+                    "enabled": True,
+                    "priority": 15,
+                    "settings": {},
+                }
+            ],
+        )
+        proc = SessionProcessor(config=config, tools=[])
+
+        await proc._notify_plugin_hook(
+            "before_response",
+            {
+                "response_instructions": list(proc._response_instructions),
+                "session_instructions": list(proc._session_instructions),
+            },
+        )
+
+        assert "Demo runtime hook executed from custom script." in proc._response_instructions
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +180,8 @@ class TestProcessLifecycleHooks:
         payload = start_call.kwargs.get("payload") or start_call.args[1]
         assert payload["session_id"] == "sess-1"
         assert "message_count" in payload
+        assert payload["tenant_id"] == "tenant-1"
+        assert payload["project_id"] == "project-1"
 
     async def test_on_session_end_fires(self):
         """on_session_end should fire after completion events."""
@@ -191,6 +229,7 @@ class TestProcessLifecycleHooks:
         assert payload["session_id"] == "sess-3"
         assert "error" in payload
         assert payload["error_type"] == "RuntimeError"
+        assert payload["tenant_id"] == "tenant-1"
 
 
 # ---------------------------------------------------------------------------
@@ -239,9 +278,11 @@ class TestExecuteToolHooks:
         assert bp["tool_name"] == "my_tool"
         assert bp["call_id"] == "call-1"
         assert bp["session_id"] == "sess-4"
+        assert bp["tenant_id"] == "tenant-1"
 
         # Verify after payload
         after_call = next(c for c in calls if c.args[0] == "after_tool_execution")
         ap = after_call.kwargs.get("payload") or after_call.args[1]
         assert ap["tool_name"] == "my_tool"
         assert ap["session_id"] == "sess-4"
+        assert ap["tenant_id"] == "tenant-1"

@@ -221,8 +221,12 @@ class ResetPatternsResponse(BaseModel):
 class RuntimeHookConfigResponse(BaseModel):
     """Response model for a configured runtime hook override."""
 
-    plugin_name: str
     hook_name: str
+    plugin_name: str
+    hook_family: str | None = None
+    executor_kind: str = "builtin"
+    source_ref: str | None = None
+    entrypoint: str | None = None
     enabled: bool = True
     priority: int | None = None
     settings: dict[str, Any] = Field(default_factory=dict)
@@ -231,12 +235,16 @@ class RuntimeHookConfigResponse(BaseModel):
 class HookCatalogEntryResponse(BaseModel):
     """Response model for a runtime hook available in the registry."""
 
-    plugin_name: str
     hook_name: str
+    plugin_name: str
+    hook_family: str
     display_name: str
     description: str | None = None
     default_priority: int
     default_enabled: bool = True
+    default_executor_kind: str = "builtin"
+    default_source_ref: str | None = None
+    default_entrypoint: str | None = None
     default_settings: dict[str, Any] = Field(default_factory=dict)
     settings_schema: dict[str, Any] = Field(default_factory=dict)
 
@@ -250,8 +258,12 @@ class HookCatalogResponse(BaseModel):
 class RuntimeHookConfigRequest(BaseModel):
     """Request model for a configured runtime hook override."""
 
-    plugin_name: str = Field(..., min_length=1, max_length=100)
     hook_name: str = Field(..., min_length=1, max_length=100)
+    plugin_name: str = Field(default="", max_length=100)
+    hook_family: str | None = Field(default=None, min_length=1, max_length=50)
+    executor_kind: str = Field(default="builtin", min_length=1, max_length=20)
+    source_ref: str | None = Field(default=None, min_length=1, max_length=300)
+    entrypoint: str | None = Field(default=None, min_length=1, max_length=200)
     enabled: bool = True
     priority: int | None = Field(default=None, ge=-1000, le=1000)
     settings: dict[str, Any] = Field(default_factory=dict)

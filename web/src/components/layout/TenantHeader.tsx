@@ -37,6 +37,7 @@ import {
   Monitor,
   Languages,
   Activity,
+  History,
   ArrowLeft,
   ChevronRight,
   LayoutGrid,
@@ -76,7 +77,7 @@ const TenantHeader: React.FC<TenantHeaderProps> = ({
 }) => {
   const { t } = useTranslation();
   const location = useLocation();
-  const normalizedTenantId = tenantId?.trim();
+  const normalizedTenantId = tenantId.trim();
   const basePath = normalizedTenantId ? `/tenant/${normalizedTenantId}` : '/tenant';
 
   const currentProject = useProjectStore((state) => state.currentProject);
@@ -126,6 +127,12 @@ const TenantHeader: React.FC<TenantHeaderProps> = ({
         icon: <Bot size={16} />,
       },
       {
+        id: 'audit-logs',
+        label: t('nav.auditLogs', 'Audit Logs'),
+        path: `${basePath}/audit-logs`,
+        icon: <History size={16} />,
+      },
+      {
         id: 'agent-definitions',
         label: t('nav.agentDefinitions', 'Definitions'),
         path: `${basePath}/agent-definitions`,
@@ -165,7 +172,7 @@ const TenantHeader: React.FC<TenantHeaderProps> = ({
     [basePath, effectiveProjectId, t]
   );
 
-  const MAX_VISIBLE_NAV_ITEMS = 6;
+  const MAX_VISIBLE_NAV_ITEMS = 7;
   const visibleNav = allNav.slice(0, MAX_VISIBLE_NAV_ITEMS);
   const overflowNav = allNav.slice(MAX_VISIBLE_NAV_ITEMS);
 
@@ -341,7 +348,7 @@ function OverflowMenu({ items }: { items: NavItem[] }) {
                 key={item.id}
                 type="button"
                 onClick={() => {
-                  navigate(item.path);
+                  void navigate(item.path);
                   setOpen(false);
                 }}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset ${
@@ -452,7 +459,7 @@ function HeaderUserMenu({ tenantId }: { tenantId: string }) {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    void navigate('/login');
   };
 
   const cycleTheme = () => {
@@ -463,7 +470,7 @@ function HeaderUserMenu({ tenantId }: { tenantId: string }) {
 
   const toggleLanguage = () => {
     const next = i18n.language === 'zh-CN' ? 'en-US' : 'zh-CN';
-    i18n.changeLanguage(next);
+    void i18n.changeLanguage(next);
   };
 
   const themeIcon =
@@ -551,7 +558,7 @@ function HeaderUserMenu({ tenantId }: { tenantId: string }) {
               icon={<User size={16} />}
               label={t('user.profile', 'Profile')}
               onClick={() => {
-                navigate('/profile');
+                void navigate('/profile');
                 setOpen(false);
               }}
             />
@@ -559,7 +566,7 @@ function HeaderUserMenu({ tenantId }: { tenantId: string }) {
               icon={<Settings size={16} />}
               label={t('user.settings', 'Settings')}
               onClick={() => {
-                navigate(`${basePath}/settings`);
+                void navigate(`${basePath}/settings`);
                 setOpen(false);
               }}
             />
@@ -567,7 +574,7 @@ function HeaderUserMenu({ tenantId }: { tenantId: string }) {
               icon={<CreditCard size={16} />}
               label={t('user.billing', 'Billing')}
               onClick={() => {
-                navigate(`${basePath}/billing`);
+                void navigate(`${basePath}/billing`);
                 setOpen(false);
               }}
             />

@@ -8,21 +8,32 @@ import type { SkillResponse } from './execution';
  */
 export type ConfigType = 'default' | 'custom';
 
+export type HookFamily = 'observational' | 'mutating' | 'policy' | 'side_effect';
+export type HookExecutorKind = 'builtin' | 'script' | 'plugin';
+
 export interface RuntimeHookConfig {
-  plugin_name: string;
+  plugin_name?: string | null | undefined;
   hook_name: string;
+  hook_family?: HookFamily | null | undefined;
+  executor_kind?: HookExecutorKind | null | undefined;
+  source_ref?: string | null | undefined;
+  entrypoint?: string | null | undefined;
   enabled: boolean;
   priority?: number | null | undefined;
   settings: Record<string, unknown>;
 }
 
 export interface HookCatalogEntry {
-  plugin_name: string;
+  plugin_name?: string | null | undefined;
   hook_name: string;
   display_name: string;
   description?: string | null | undefined;
+  hook_family?: HookFamily | null | undefined;
   default_priority: number;
   default_enabled: boolean;
+  default_executor_kind?: HookExecutorKind | null | undefined;
+  default_source_ref?: string | null | undefined;
+  default_entrypoint?: string | null | undefined;
   default_settings: Record<string, unknown>;
   settings_schema: Record<string, unknown>;
 }

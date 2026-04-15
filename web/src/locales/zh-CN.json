@@ -1520,6 +1520,10 @@
     "auditLogs": {
       "title": "审计日志",
       "description": "查看组织中的所有活动和变更记录",
+      "mode": {
+        "allEvents": "全部事件",
+        "runtimeHooks": "运行时 Hook"
+      },
       "filterActionPlaceholder": "按操作筛选...",
       "filterResourceType": "资源类型",
       "filterFromDate": "起始日期",
@@ -1541,7 +1545,59 @@
       "viewDetails": "详情",
       "detailTitle": "审计日志详情",
       "details": "详细信息",
-      "showing": "显示第 {{from}}-{{to}} 条，共 {{total}} 条"
+      "showing": "显示第 {{from}}-{{to}} 条，共 {{total}} 条",
+      "runtimeHookSummary": {
+        "title": "运行时 Hook 概览",
+        "description": "跟踪当前租户下 Hook 执行量、执行器分布和隔离模式。",
+        "total": "运行时 Hook 事件",
+        "latestEvent": "最新事件",
+        "topExecutor": "主要执行器",
+        "topIsolation": "主要隔离模式",
+        "allActions": "全部动作",
+        "allExecutors": "全部执行器",
+        "allFamilies": "全部 Hook 家族",
+        "allIsolationModes": "全部隔离模式",
+        "actions": "动作分布",
+        "actionChart": "动作量图表",
+        "executors": "执行器",
+        "families": "Hook 家族",
+        "isolationModes": "隔离模式",
+        "timeline": "最近时间线",
+        "timelineEmpty": "当前筛选条件下暂无运行时 Hook 事件",
+        "executorLabel": "执行器",
+        "isolationLabel": "隔离",
+        "familyLabel": "家族",
+        "resourceLabel": "资源",
+        "resourceTypeLabel": "运行时 Hook",
+        "filterAction": "动作",
+        "filterHookName": "按 Hook 名称筛选...",
+        "filterExecutorKind": "执行器",
+        "filterHookFamily": "Hook 家族",
+        "filterIsolationMode": "隔离模式",
+        "noData": "当前筛选条件下暂无运行时 Hook 数据",
+        "actionLabels": {
+          "custom_execution_blocked": "已拦截",
+          "custom_execution_started": "已开始",
+          "custom_execution_failed": "已失败",
+          "custom_execution_succeeded": "已成功",
+          "custom_execution_requires_sandbox": "需要沙箱"
+        },
+        "executorLabels": {
+          "builtin": "内建",
+          "script": "脚本",
+          "plugin": "插件"
+        },
+        "familyLabels": {
+          "observational": "观察型",
+          "mutating": "变更型",
+          "policy": "策略 / 决策",
+          "side_effect": "副作用型"
+        },
+        "isolationLabels": {
+          "host": "宿主机",
+          "sandbox": "沙箱"
+        }
+      }
     },
     "clusters": {
       "title": "集群管理",

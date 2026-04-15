@@ -25,3 +25,12 @@ class AuditLogListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class RuntimeHookAuditSummaryResponse(BaseModel):
+    total: int
+    action_counts: dict[str, int] = Field(default_factory=dict)
+    executor_counts: dict[str, int] = Field(default_factory=dict)
+    family_counts: dict[str, int] = Field(default_factory=dict)
+    isolation_mode_counts: dict[str, int] = Field(default_factory=dict)
+    latest_timestamp: datetime | None = None

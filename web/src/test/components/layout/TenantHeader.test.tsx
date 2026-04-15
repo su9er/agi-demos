@@ -97,6 +97,22 @@ describe('TenantHeader', () => {
     );
   });
 
+  it('renders audit logs entry in top navigation', () => {
+    render(
+      <TenantHeader
+        tenantId="tenant-1"
+        sidebarCollapsed={false}
+        onSidebarToggle={vi.fn()}
+        onMobileMenuOpen={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('link', { name: 'Audit Logs' })).toHaveAttribute(
+      'href',
+      '/tenant/tenant-1/audit-logs'
+    );
+  });
+
   it('uses tenant workspace path when route projectId is absent', () => {
     render(
       <TenantHeader

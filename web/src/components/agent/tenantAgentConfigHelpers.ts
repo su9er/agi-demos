@@ -1,4 +1,13 @@
-import type { HookCatalogEntry, RuntimeHookConfig, TenantAgentConfig } from '@/types/agent';
+import type {
+  HookCatalogEntry,
+  HookExecutorKind,
+  HookFamily,
+  RuntimeHookConfig,
+  TenantAgentConfig,
+} from '@/types/agent';
+
+const HOOK_FAMILIES = new Set<HookFamily>(['observational', 'mutating', 'policy', 'side_effect']);
+const EXECUTOR_KINDS = new Set<HookExecutorKind>(['builtin', 'script', 'plugin']);
 
 export function parseToolList(value: string | undefined): string[] {
   if (!value || !value.trim()) {
@@ -15,8 +24,37 @@ export function formatToolList(tools: string[]): string {
   return tools.join(', ');
 }
 
-export function hookKey(hook: Pick<RuntimeHookConfig, 'plugin_name' | 'hook_name'>): string {
-  return `${hook.plugin_name.trim().toLowerCase()}::${hook.hook_name.trim().toLowerCase()}`;
+export function hookKey(
+  hook: Pick<
+    RuntimeHookConfig,
+    'plugin_name' | 'hook_name' | 'executor_kind' | 'source_ref' | 'entrypoint'
+  >
+): string {
+  const namespace = hook.plugin_name?.trim().toLowerCase() ?? hook.source_ref?.trim().toLowerCase() ?? '';
+  return `${namespace}::${hook.hook_name.trim().toLowerCase()}`;
+}
+
+function normalizeOptionalText(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeOptionalTextOrNull(value: string | null | undefined): string | null {
+  return normalizeOptionalText(value) ?? null;
+}
+
+function normalizeHookFamily(value: RuntimeHookConfig['hook_family']): RuntimeHookConfig['hook_family'] {
+  const trimmed = normalizeOptionalText(value);
+  return trimmed && HOOK_FAMILIES.has(trimmed as HookFamily) ? (trimmed as HookFamily) : null;
+}
+
+function normalizeExecutorKind(
+  value: RuntimeHookConfig['executor_kind']
+): RuntimeHookConfig['executor_kind'] {
+  const trimmed = normalizeOptionalText(value);
+  return trimmed && EXECUTOR_KINDS.has(trimmed as HookExecutorKind)
+    ? (trimmed as HookExecutorKind)
+    : null;
 }
 
 function normalizeValue(value: unknown): unknown {
@@ -42,6 +80,53 @@ function areSettingsEqual(
   return JSON.stringify(normalizeValue(left)) === JSON.stringify(normalizeValue(right));
 }
 
+function getCatalogDefaultRuntimeHook(entry: HookCatalogEntry): RuntimeHookConfig {
+  return {
+    plugin_name: normalizeOptionalText(entry.plugin_name),
+    hook_name: entry.hook_name,
+    hook_family: normalizeHookFamily(entry.hook_family),
+    executor_kind: normalizeExecutorKind(entry.default_executor_kind) ?? 'builtin',
+    source_ref:
+      normalizeOptionalTextOrNull(entry.default_source_ref) ??
+      normalizeOptionalTextOrNull(entry.plugin_name),
+    entrypoint: normalizeOptionalTextOrNull(entry.default_entrypoint),
+    enabled: entry.default_enabled,
+    priority: entry.default_priority,
+    settings: { ...entry.default_settings },
+  };
+}
+
+export function normalizeRuntimeHookForSave(hook: RuntimeHookConfig): RuntimeHookConfig {
+  return {
+    plugin_name: normalizeOptionalText(hook.plugin_name),
+    hook_name: hook.hook_name.trim(),
+    hook_family: normalizeHookFamily(hook.hook_family),
+    executor_kind: normalizeExecutorKind(hook.executor_kind),
+    source_ref: normalizeOptionalTextOrNull(hook.source_ref),
+    entrypoint: normalizeOptionalTextOrNull(hook.entrypoint),
+    enabled: hook.enabled,
+    priority: hook.priority ?? null,
+    settings: hook.settings,
+  };
+}
+
+export function serializeCustomRuntimeHooks(runtimeHooks: RuntimeHookConfig[]): RuntimeHookConfig[] {
+  return runtimeHooks.map(normalizeRuntimeHookForSave);
+}
+
+export function createEmptyCustomRuntimeHook(): RuntimeHookConfig {
+  return {
+    hook_name: '',
+    hook_family: 'observational',
+    executor_kind: 'script',
+    source_ref: '',
+    entrypoint: 'run',
+    enabled: true,
+    priority: null,
+    settings: {},
+  };
+}
+
 export function buildRuntimeHooks(
   config: TenantAgentConfig,
   hookCatalog: HookCatalogEntry[]
@@ -50,6 +135,7 @@ export function buildRuntimeHooks(
 
   return hookCatalog.map((entry) => {
     const current = existing.get(hookKey(entry));
+    const catalogDefault = getCatalogDefaultRuntimeHook(entry);
     const allowedSettings = new Set([
       ...Object.keys(entry.default_settings),
       ...Object.keys(getHookSchemaProperties(entry)),
@@ -58,10 +144,17 @@ export function buildRuntimeHooks(
       Object.entries(current?.settings ?? {}).filter(([key]) => allowedSettings.has(key))
     );
     return {
-      plugin_name: entry.plugin_name,
-      hook_name: entry.hook_name,
-      enabled: current?.enabled ?? entry.default_enabled,
-      priority: current ? (current.priority ?? null) : entry.default_priority,
+      ...catalogDefault,
+      plugin_name: normalizeOptionalText(current?.plugin_name) ?? catalogDefault.plugin_name,
+      hook_name: current?.hook_name ?? catalogDefault.hook_name,
+      hook_family: normalizeHookFamily(current?.hook_family) ?? catalogDefault.hook_family ?? null,
+      executor_kind: normalizeExecutorKind(current?.executor_kind) ?? catalogDefault.executor_kind,
+      source_ref:
+        normalizeOptionalTextOrNull(current?.source_ref) ?? catalogDefault.source_ref ?? null,
+      entrypoint:
+        normalizeOptionalTextOrNull(current?.entrypoint) ?? catalogDefault.entrypoint ?? null,
+      enabled: current?.enabled ?? catalogDefault.enabled,
+      priority: current ? (current.priority ?? null) : catalogDefault.priority,
       settings: {
         ...entry.default_settings,
         ...filteredCurrentSettings,
@@ -91,11 +184,17 @@ export function isHookCustomized(
   hook: RuntimeHookConfig,
   entry: HookCatalogEntry
 ): boolean {
-  const effectivePriority = hook.priority ?? entry.default_priority;
+  const catalogDefault = getCatalogDefaultRuntimeHook(entry);
+  const effectivePriority = hook.priority ?? catalogDefault.priority ?? entry.default_priority;
   return (
-    hook.enabled !== entry.default_enabled ||
-    effectivePriority !== entry.default_priority ||
-    !areSettingsEqual(hook.settings, entry.default_settings)
+    hook.enabled !== catalogDefault.enabled ||
+    effectivePriority !== catalogDefault.priority ||
+    normalizeOptionalTextOrNull(hook.plugin_name) !== normalizeOptionalTextOrNull(entry.plugin_name) ||
+    normalizeHookFamily(hook.hook_family) !== catalogDefault.hook_family ||
+    (normalizeExecutorKind(hook.executor_kind) ?? 'builtin') !== catalogDefault.executor_kind ||
+    normalizeOptionalTextOrNull(hook.source_ref) !== catalogDefault.source_ref ||
+    normalizeOptionalTextOrNull(hook.entrypoint) !== catalogDefault.entrypoint ||
+    !areSettingsEqual(hook.settings, catalogDefault.settings)
   );
 }
 
@@ -115,10 +214,6 @@ export function serializeRuntimeHooks(
       return isHookCustomized(hook, entry);
     })
     .map((hook) => ({
-      plugin_name: hook.plugin_name,
-      hook_name: hook.hook_name,
-      enabled: hook.enabled,
-      priority: hook.priority ?? null,
-      settings: hook.settings,
+      ...normalizeRuntimeHookForSave(hook),
     }));
 }

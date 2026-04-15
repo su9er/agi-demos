@@ -97,6 +97,7 @@ def register_builtin_sisyphus_plugin(registry: AgentPluginRegistry) -> None:
     api.register_hook(
         "on_session_start",
         _on_session_start,
+        hook_family="mutating",
         priority=20,
         display_name="Session start reminder",
         description="Reinforces Sisyphus' bias toward immediate execution.",
@@ -118,6 +119,7 @@ def register_builtin_sisyphus_plugin(registry: AgentPluginRegistry) -> None:
     api.register_hook(
         "before_response",
         _before_response,
+        hook_family="mutating",
         priority=30,
         display_name="Response continuation reminder",
         description="Pushes the agent to keep working before concluding with prose.",
@@ -147,6 +149,7 @@ def register_builtin_sisyphus_plugin(registry: AgentPluginRegistry) -> None:
     api.register_hook(
         "after_tool_execution",
         _after_tool_execution,
+        hook_family="mutating",
         priority=40,
         display_name="Tool follow-up reminder",
         description="Encourages another concrete step after todo, skill, or delegation activity.",

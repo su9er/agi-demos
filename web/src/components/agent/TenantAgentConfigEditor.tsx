@@ -8,6 +8,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Select,
   Spin,
   Switch,
   Tag,
@@ -19,15 +20,20 @@ import { agentConfigService, TenantAgentConfigError } from '@/services/agentConf
 
 import {
   buildRuntimeHooks,
+  createEmptyCustomRuntimeHook,
   formatToolList,
   getHookSchemaProperties,
   hookKey,
   isHookCustomized,
+  normalizeRuntimeHookForSave,
   parseToolList,
+  serializeCustomRuntimeHooks,
   serializeRuntimeHooks,
 } from './tenantAgentConfigHelpers';
 
 import type {
+  HookExecutorKind,
+  HookFamily,
   HookCatalogEntry,
   RuntimeHookConfig,
   TenantAgentConfig,
@@ -55,6 +61,12 @@ interface FormValues {
   tool_timeout_seconds?: number | undefined;
   enabled_tools: string;
   disabled_tools: string;
+}
+
+interface EditableCustomRuntimeHook extends RuntimeHookConfig {
+  ui_key: string;
+  settings_draft: string;
+  settings_error: string | null;
 }
 
 function SectionHeader({ title, description }: { title: string; description: string }) {
@@ -90,6 +102,63 @@ function SettingCard({
   );
 }
 
+const HOOK_FAMILY_OPTIONS: HookFamily[] = ['observational', 'mutating', 'policy', 'side_effect'];
+const EXECUTOR_KIND_OPTIONS: HookExecutorKind[] = ['builtin', 'script', 'plugin'];
+
+function createCustomHookUiKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `custom-hook-${String(Date.now())}-${Math.random().toString(16).slice(2)}`;
+}
+
+function stringifyHookSettings(settings: Record<string, unknown>): string {
+  return JSON.stringify(settings, null, 2);
+}
+
+function parseHookSettingsDraft(
+  draft: string,
+  t: ReturnType<typeof useTranslation>['t']
+): { settings: Record<string, unknown>; error: string | null } {
+  if (!draft.trim()) {
+    return { settings: {}, error: null };
+  }
+
+  try {
+    const parsed = JSON.parse(draft) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return { settings: parsed as Record<string, unknown>, error: null };
+    }
+
+    return {
+      settings: {},
+      error: t('tenant.agentConfigEditor.runtimeHooks.custom.validation.settingsObject'),
+    };
+  } catch {
+    return {
+      settings: {},
+      error: t('tenant.agentConfigEditor.runtimeHooks.custom.validation.settingsJson'),
+    };
+  }
+}
+
+function toEditableCustomRuntimeHook(
+  hook: RuntimeHookConfig,
+  t: ReturnType<typeof useTranslation>['t']
+): EditableCustomRuntimeHook {
+  const normalized = normalizeRuntimeHookForSave(hook);
+  const settingsDraft = stringifyHookSettings(normalized.settings);
+  const parsedSettings = parseHookSettingsDraft(settingsDraft, t);
+
+  return {
+    ...normalized,
+    ui_key: createCustomHookUiKey(),
+    settings_draft: settingsDraft,
+    settings_error: parsedSettings.error,
+  };
+}
+
 export function TenantAgentConfigEditor({
   tenantId,
   open,
@@ -107,7 +176,10 @@ export function TenantAgentConfigEditor({
   const [hookCatalog, setHookCatalog] = useState<HookCatalogEntry[]>([]);
   const [hookCatalogError, setHookCatalogError] = useState<string | null>(null);
   const [runtimeHooks, setRuntimeHooks] = useState<RuntimeHookConfig[]>([]);
-  const [unmanagedRuntimeHooks, setUnmanagedRuntimeHooks] = useState<RuntimeHookConfig[]>([]);
+  const [unmanagedRuntimeHooks, setUnmanagedRuntimeHooks] = useState<EditableCustomRuntimeHook[]>(
+    []
+  );
+  const [showCustomHookErrors, setShowCustomHookErrors] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -138,8 +210,11 @@ export function TenantAgentConfigEditor({
         setHookCatalogError(nextHookCatalogError);
         setRuntimeHooks(buildRuntimeHooks(config, catalog));
         setUnmanagedRuntimeHooks(
-          config.runtime_hooks.filter((hook) => !catalogKeys.has(hookKey(hook)))
+          config.runtime_hooks
+            .filter((hook) => !catalogKeys.has(hookKey(hook)))
+            .map((hook) => toEditableCustomRuntimeHook(hook, t))
         );
+        setShowCustomHookErrors(false);
         form.setFieldsValue({
           llm_model: config.llm_model,
           llm_temperature: config.llm_temperature,
@@ -183,9 +258,88 @@ export function TenantAgentConfigEditor({
     []
   );
 
+  const updateCustomRuntimeHook = useCallback(
+    (uiKey: string, updater: (current: EditableCustomRuntimeHook) => EditableCustomRuntimeHook) => {
+      setUnmanagedRuntimeHooks((previous) =>
+        previous.map((hook) => (hook.ui_key === uiKey ? updater(hook) : hook))
+      );
+      setHasChanges(true);
+    },
+    []
+  );
+
+  const removeCustomRuntimeHook = useCallback((uiKey: string) => {
+    setUnmanagedRuntimeHooks((previous) => previous.filter((hook) => hook.ui_key !== uiKey));
+    setHasChanges(true);
+  }, []);
+
+  const addCustomRuntimeHook = useCallback(() => {
+    setUnmanagedRuntimeHooks((previous) => [
+      ...previous,
+      toEditableCustomRuntimeHook(createEmptyCustomRuntimeHook(), t),
+    ]);
+    setShowCustomHookErrors(false);
+    setHasChanges(true);
+  }, [t]);
+
+  const getCustomHookErrors = useCallback(
+    (hook: EditableCustomRuntimeHook): string[] => {
+      const errors: string[] = [];
+
+      if (!hook.hook_name.trim()) {
+        errors.push(t('tenant.agentConfigEditor.runtimeHooks.custom.validation.hookName'));
+      }
+
+      if (!hook.hook_family?.trim()) {
+        errors.push(t('tenant.agentConfigEditor.runtimeHooks.custom.validation.hookFamily'));
+      }
+
+      if (!hook.executor_kind?.trim()) {
+        errors.push(t('tenant.agentConfigEditor.runtimeHooks.custom.validation.executorKind'));
+      }
+
+      if (!hook.source_ref?.trim()) {
+        errors.push(t('tenant.agentConfigEditor.runtimeHooks.custom.validation.sourceRef'));
+      }
+
+      if (
+        hook.executor_kind &&
+        hook.executor_kind !== 'builtin' &&
+        !hook.entrypoint?.trim()
+      ) {
+        errors.push(t('tenant.agentConfigEditor.runtimeHooks.custom.validation.entrypoint'));
+      }
+
+      if (hook.settings_error) {
+        errors.push(hook.settings_error);
+      }
+
+      return errors;
+    },
+    [t]
+  );
+
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
+      setShowCustomHookErrors(true);
+
+      const customHookValidationErrors = unmanagedRuntimeHooks.flatMap((hook, index) =>
+        getCustomHookErrors(hook).map(
+          (errorText) =>
+            `${t('tenant.agentConfigEditor.runtimeHooks.custom.itemLabel', {
+              index: index + 1,
+            })}: ${errorText}`
+        )
+      );
+
+      if (customHookValidationErrors.length > 0) {
+        const firstError = customHookValidationErrors[0] ?? t('tenant.agentConfigEditor.saveError');
+        setError(firstError);
+        message.error(t('tenant.agentConfigEditor.runtimeHooks.custom.validation.summary'));
+        return;
+      }
+
       setSaving(true);
       setError(null);
 
@@ -199,7 +353,12 @@ export function TenantAgentConfigEditor({
         enabled_tools: parseToolList(values.enabled_tools),
         disabled_tools: parseToolList(values.disabled_tools),
         runtime_hooks: [
-          ...unmanagedRuntimeHooks,
+          ...serializeCustomRuntimeHooks(
+            unmanagedRuntimeHooks.map(
+              ({ ui_key: _uiKey, settings_draft: _settingsDraft, settings_error: _settingsError, ...hook }) =>
+                hook
+            )
+          ),
           ...serializeRuntimeHooks(runtimeHooks, hookCatalog),
         ],
       };
@@ -535,6 +694,33 @@ export function TenantAgentConfigEditor({
                           <p className="mt-2 text-xs uppercase tracking-[0.14em] text-slate-400">
                             {entry.plugin_name} / {entry.hook_name}
                           </p>
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                            <Tag>{currentHook.hook_family || t('tenant.agentConfigEditor.runtimeHooks.unknown')}</Tag>
+                            <Tag>
+                              {t('tenant.agentConfigEditor.runtimeHooks.executorKindLabel', {
+                                value:
+                                  currentHook.executor_kind ||
+                                  t('tenant.agentConfigEditor.runtimeHooks.unknown'),
+                              })}
+                            </Tag>
+                            <Tag>
+                              {t('tenant.agentConfigEditor.runtimeHooks.sourceRefLabel', {
+                                value:
+                                  currentHook.source_ref ||
+                                  entry.default_source_ref ||
+                                  entry.plugin_name ||
+                                  t('tenant.agentConfigEditor.runtimeHooks.none'),
+                              })}
+                            </Tag>
+                            <Tag>
+                              {t('tenant.agentConfigEditor.runtimeHooks.entrypointLabel', {
+                                value:
+                                  currentHook.entrypoint ||
+                                  entry.default_entrypoint ||
+                                  t('tenant.agentConfigEditor.runtimeHooks.none'),
+                              })}
+                            </Tag>
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-3">
@@ -558,6 +744,10 @@ export function TenantAgentConfigEditor({
                                 updateRuntimeHook(key, () => ({
                                   plugin_name: entry.plugin_name,
                                   hook_name: entry.hook_name,
+                                  hook_family: entry.hook_family ?? null,
+                                  executor_kind: entry.default_executor_kind ?? 'builtin',
+                                  source_ref: entry.default_source_ref ?? entry.plugin_name ?? null,
+                                  entrypoint: entry.default_entrypoint ?? null,
                                   enabled: entry.default_enabled,
                                   priority: entry.default_priority,
                                   settings: { ...entry.default_settings },
@@ -714,6 +904,263 @@ export function TenantAgentConfigEditor({
                   {t('tenant.agentConfigEditor.runtimeHooks.empty')}
                 </p>
               ) : null}
+
+              <div className="border-t border-slate-200/80 pt-5 dark:border-slate-800">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-white">
+                      {t('tenant.agentConfigEditor.runtimeHooks.custom.title')}
+                    </h4>
+                    <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                      {t('tenant.agentConfigEditor.runtimeHooks.custom.description')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addCustomRuntimeHook}
+                    className="inline-flex min-h-10 items-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-600 transition-colors duration-150 hover:border-slate-300 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:text-white"
+                  >
+                    {t('tenant.agentConfigEditor.runtimeHooks.custom.add')}
+                  </button>
+                </div>
+
+                {unmanagedRuntimeHooks.length === 0 ? (
+                  <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                    {t('tenant.agentConfigEditor.runtimeHooks.custom.empty')}
+                  </p>
+                ) : (
+                  <div className="mt-4 space-y-4">
+                    {unmanagedRuntimeHooks.map((hook, index) => {
+                      const hookErrors = showCustomHookErrors ? getCustomHookErrors(hook) : [];
+
+                      return (
+                        <div
+                          key={hook.ui_key}
+                          className="rounded-2xl border border-slate-200/80 bg-white p-5 dark:border-slate-800 dark:bg-slate-950"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-4">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Text strong>
+                                  {t('tenant.agentConfigEditor.runtimeHooks.custom.itemLabel', {
+                                    index: index + 1,
+                                  })}
+                                </Text>
+                                <Tag color="purple">
+                                  {t('tenant.agentConfigEditor.runtimeHooks.custom.badge')}
+                                </Tag>
+                                <Tag color={hook.enabled ? 'green' : 'default'}>
+                                  {hook.enabled
+                                    ? t('common.status.enabled')
+                                    : t('common.status.disabled')}
+                                </Tag>
+                              </div>
+                              <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                                {t('tenant.agentConfigEditor.runtimeHooks.custom.identityDescription')}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Switch
+                                aria-label={t(
+                                  'tenant.agentConfigEditor.runtimeHooks.custom.enabledToggle'
+                                )}
+                                checked={hook.enabled}
+                                onChange={(checked) => {
+                                  updateCustomRuntimeHook(hook.ui_key, (current) => ({
+                                    ...current,
+                                    enabled: checked,
+                                  }));
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  removeCustomRuntimeHook(hook.ui_key);
+                                }}
+                                className="inline-flex min-h-10 items-center rounded-full border border-rose-200 px-4 text-sm font-medium text-rose-600 transition-colors duration-150 hover:border-rose-300 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 focus-visible:ring-offset-2 dark:border-rose-900 dark:text-rose-300 dark:hover:border-rose-800 dark:hover:text-rose-200"
+                              >
+                                {t('tenant.agentConfigEditor.runtimeHooks.custom.remove')}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-5 grid gap-4 md:grid-cols-2">
+                            <div>
+                              <Text strong>
+                                {t('tenant.agentConfigEditor.runtimeHooks.custom.hookName')}
+                              </Text>
+                              <Input
+                                className="mt-2"
+                                value={hook.hook_name}
+                                placeholder={t(
+                                  'tenant.agentConfigEditor.runtimeHooks.custom.hookNamePlaceholder'
+                                )}
+                                onChange={(event) => {
+                                  updateCustomRuntimeHook(hook.ui_key, (current) => ({
+                                    ...current,
+                                    hook_name: event.target.value,
+                                  }));
+                                }}
+                              />
+                            </div>
+
+                            <div>
+                              <Text strong>
+                                {t('tenant.agentConfigEditor.runtimeHooks.custom.priority')}
+                              </Text>
+                              <InputNumber
+                                className="mt-2"
+                                style={{ width: '100%' }}
+                                value={hook.priority ?? null}
+                                placeholder={t(
+                                  'tenant.agentConfigEditor.runtimeHooks.custom.priorityPlaceholder'
+                                )}
+                                onChange={(value) => {
+                                  updateCustomRuntimeHook(hook.ui_key, (current) => ({
+                                    ...current,
+                                    priority: typeof value === 'number' ? value : null,
+                                  }));
+                                }}
+                              />
+                            </div>
+
+                            <div>
+                              <Text strong>
+                                {t('tenant.agentConfigEditor.runtimeHooks.custom.hookFamily')}
+                              </Text>
+                              <Select
+                                className="mt-2"
+                                value={hook.hook_family ?? null}
+                                options={HOOK_FAMILY_OPTIONS.map((value) => ({
+                                  label: t(
+                                    `tenant.agentConfigEditor.runtimeHooks.familyOptions.${value}`
+                                  ),
+                                  value,
+                                }))}
+                                onChange={(value: HookFamily) => {
+                                  updateCustomRuntimeHook(hook.ui_key, (current) => ({
+                                    ...current,
+                                    hook_family: value,
+                                  }));
+                                }}
+                              />
+                            </div>
+
+                            <div>
+                              <Text strong>
+                                {t('tenant.agentConfigEditor.runtimeHooks.custom.executorKind')}
+                              </Text>
+                              <Select
+                                className="mt-2"
+                                value={hook.executor_kind ?? null}
+                                options={EXECUTOR_KIND_OPTIONS.map((value) => ({
+                                  label: t(
+                                    `tenant.agentConfigEditor.runtimeHooks.executorOptions.${value}`
+                                  ),
+                                  value,
+                                }))}
+                                onChange={(value: HookExecutorKind) => {
+                                  updateCustomRuntimeHook(hook.ui_key, (current) => ({
+                                    ...current,
+                                    executor_kind: value,
+                                    entrypoint:
+                                      value === 'builtin' && !current.entrypoint
+                                        ? null
+                                        : current.entrypoint,
+                                  }));
+                                }}
+                              />
+                            </div>
+
+                            <div className="md:col-span-2">
+                              <Text strong>
+                                {t('tenant.agentConfigEditor.runtimeHooks.custom.sourceRef')}
+                              </Text>
+                              <Input
+                                className="mt-2"
+                                value={hook.source_ref ?? ''}
+                                placeholder={t(
+                                  'tenant.agentConfigEditor.runtimeHooks.custom.sourceRefPlaceholder'
+                                )}
+                                onChange={(event) => {
+                                  updateCustomRuntimeHook(hook.ui_key, (current) => ({
+                                    ...current,
+                                    source_ref: event.target.value,
+                                  }));
+                                }}
+                              />
+                            </div>
+
+                            <div className="md:col-span-2">
+                              <Text strong>
+                                {t('tenant.agentConfigEditor.runtimeHooks.custom.entrypoint')}
+                              </Text>
+                              <Input
+                                className="mt-2"
+                                value={hook.entrypoint ?? ''}
+                                placeholder={t(
+                                  'tenant.agentConfigEditor.runtimeHooks.custom.entrypointPlaceholder'
+                                )}
+                                onChange={(event) => {
+                                  updateCustomRuntimeHook(hook.ui_key, (current) => ({
+                                    ...current,
+                                    entrypoint: event.target.value,
+                                  }));
+                                }}
+                              />
+                            </div>
+
+                            <div className="md:col-span-2">
+                              <Text strong>
+                                {t('tenant.agentConfigEditor.runtimeHooks.custom.settings')}
+                              </Text>
+                              <TextArea
+                                className="mt-2"
+                                rows={6}
+                                value={hook.settings_draft}
+                                placeholder={t(
+                                  'tenant.agentConfigEditor.runtimeHooks.custom.settingsPlaceholder'
+                                )}
+                                onChange={(event) => {
+                                  const nextDraft = event.target.value;
+                                  const nextParsed = parseHookSettingsDraft(nextDraft, t);
+                                  updateCustomRuntimeHook(hook.ui_key, (current) => ({
+                                    ...current,
+                                    settings_draft: nextDraft,
+                                    settings: nextParsed.error ? current.settings : nextParsed.settings,
+                                    settings_error: nextParsed.error,
+                                  }));
+                                }}
+                              />
+                              <div className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                {t('tenant.agentConfigEditor.runtimeHooks.custom.settingsHint')}
+                              </div>
+                            </div>
+                          </div>
+
+                          {hookErrors.length > 0 ? (
+                            <Alert
+                              className="mt-4"
+                              type="error"
+                              showIcon
+                              title={t(
+                                'tenant.agentConfigEditor.runtimeHooks.custom.validation.title'
+                              )}
+                              description={
+                                <ul className="list-disc space-y-1 pl-5">
+                                  {hookErrors.map((errorText) => (
+                                    <li key={errorText}>{errorText}</li>
+                                  ))}
+                                </ul>
+                              }
+                            />
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </section>
           </div>
         </Form>

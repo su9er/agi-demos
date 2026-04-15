@@ -947,6 +947,11 @@
           "empty": "No explicit hook overrides are stored. The tenant is currently inheriting the built-in runtime hook catalog defaults.",
           "noCustomSettings": "No custom settings",
           "settingsHidden": "Hook settings are visible to tenant admins only.",
+          "family": "Family: {{value}}",
+          "executorKind": "Executor: {{value}}",
+          "sourceRef": "Source: {{value}}",
+          "entrypoint": "Entrypoint: {{value}}",
+          "notSet": "not set",
           "priority": "Priority {{value}}",
           "inherit": "inherit"
         }
@@ -1027,8 +1032,59 @@
         "priority": "Priority",
         "priorityAria": "{{name}} priority",
         "catalogDefaultPriority": "Catalog default: {{value}}",
+        "executorKindLabel": "Executor {{value}}",
+        "sourceRefLabel": "Source {{value}}",
+        "entrypointLabel": "Entrypoint {{value}}",
+        "unknown": "unknown",
+        "none": "none",
         "noExtraSettings": "This hook exposes no extra settings beyond enablement and priority.",
-        "empty": "No runtime hooks are currently exposed for tenant customization."
+        "empty": "No runtime hooks are currently exposed for tenant customization.",
+        "familyOptions": {
+          "observational": "Observational",
+          "mutating": "Mutating",
+          "policy": "Policy / decision",
+          "side_effect": "Side effect"
+        },
+        "executorOptions": {
+          "builtin": "Built-in",
+          "script": "Script",
+          "plugin": "Plugin"
+        },
+        "custom": {
+          "title": "Custom hooks",
+          "description": "Add unmanaged hooks when you need a tenant-specific script or plugin executor that is not part of the shared catalog.",
+          "add": "Add custom hook",
+          "empty": "No custom hooks are configured for this tenant.",
+          "badge": "Custom",
+          "itemLabel": "Custom hook {{index}}",
+          "identityDescription": "Configure lifecycle, executor identity, and runtime settings separately. These fields are sent directly to the runtime hook config model.",
+          "enabledToggle": "Toggle custom hook",
+          "remove": "Remove",
+          "hookName": "Lifecycle hook name",
+          "hookNamePlaceholder": "before_tool_execution",
+          "priority": "Priority",
+          "priorityPlaceholder": "inherit",
+          "hookFamily": "Hook family",
+          "executorKind": "Executor kind",
+          "sourceRef": "Source reference",
+          "sourceRefPlaceholder": "plugins/demo_hooks.py",
+          "entrypoint": "Entrypoint",
+          "entrypointPlaceholder": "run",
+          "settings": "Runtime settings (JSON object)",
+          "settingsPlaceholder": "{\n  \"message\": \"Annotate the response\"\n}",
+          "settingsHint": "Use a JSON object only. Executor identity fields belong above, not inside settings.",
+          "validation": {
+            "title": "Custom hook is incomplete",
+            "summary": "Review the custom hook fields before saving.",
+            "hookName": "Hook name is required.",
+            "hookFamily": "Hook family is required.",
+            "executorKind": "Executor kind is required.",
+            "sourceRef": "Source reference is required.",
+            "entrypoint": "Entrypoint is required for script and plugin hooks.",
+            "settingsJson": "Settings must be valid JSON.",
+            "settingsObject": "Settings must be a JSON object."
+          }
+        }
       }
     },
     "instances": {
@@ -1317,6 +1373,10 @@
     "auditLogs": {
       "title": "Audit Logs",
       "description": "Review all activity and changes in your organization",
+      "mode": {
+        "allEvents": "All Events",
+        "runtimeHooks": "Runtime Hooks"
+      },
       "filterActionPlaceholder": "Filter by action...",
       "filterResourceType": "Resource Type",
       "filterFromDate": "From date",
@@ -1338,7 +1398,59 @@
       "viewDetails": "Details",
       "detailTitle": "Audit Log Detail",
       "details": "Details",
-      "showing": "Showing {{from}}-{{to}} of {{total}}"
+      "showing": "Showing {{from}}-{{to}} of {{total}}",
+      "runtimeHookSummary": {
+        "title": "Runtime Hook Summary",
+        "description": "Track hook execution volume, executor mix, and isolation posture for the current tenant.",
+        "total": "Runtime Hook Events",
+        "latestEvent": "Latest Event",
+        "topExecutor": "Top Executor",
+        "topIsolation": "Top Isolation Mode",
+        "allActions": "All Actions",
+        "allExecutors": "All Executors",
+        "allFamilies": "All Families",
+        "allIsolationModes": "All Isolation Modes",
+        "actions": "Actions",
+        "actionChart": "Action Volume Chart",
+        "executors": "Executors",
+        "families": "Hook Families",
+        "isolationModes": "Isolation Modes",
+        "timeline": "Recent Timeline",
+        "timelineEmpty": "No runtime hook events available for the current filters",
+        "executorLabel": "Executor",
+        "isolationLabel": "Isolation",
+        "familyLabel": "Family",
+        "resourceLabel": "Resource",
+        "resourceTypeLabel": "Runtime Hook",
+        "filterAction": "Action",
+        "filterHookName": "Filter by hook name...",
+        "filterExecutorKind": "Executor",
+        "filterHookFamily": "Hook Family",
+        "filterIsolationMode": "Isolation Mode",
+        "noData": "No runtime hook data for the current filters",
+        "actionLabels": {
+          "custom_execution_blocked": "Blocked",
+          "custom_execution_started": "Started",
+          "custom_execution_failed": "Failed",
+          "custom_execution_succeeded": "Succeeded",
+          "custom_execution_requires_sandbox": "Requires sandbox"
+        },
+        "executorLabels": {
+          "builtin": "Built-in",
+          "script": "Script",
+          "plugin": "Plugin"
+        },
+        "familyLabels": {
+          "observational": "Observational",
+          "mutating": "Mutating",
+          "policy": "Policy / decision",
+          "side_effect": "Side effect"
+        },
+        "isolationLabels": {
+          "host": "Host",
+          "sandbox": "Sandbox"
+        }
+      }
     },
     "clusters": {
       "title": "Cluster Management",

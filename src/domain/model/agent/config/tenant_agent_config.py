@@ -32,32 +32,72 @@ class ConfigType(Enum):
     CUSTOM = "custom"
 
 
+class HookExecutorKind(Enum):
+    """Supported runtime hook executor kinds."""
+
+    BUILTIN = "builtin"
+    SCRIPT = "script"
+    PLUGIN = "plugin"
+
+
 @dataclass(frozen=True)
 class RuntimeHookConfig:
     """Tenant-scoped runtime hook override for a plugin hook handler."""
 
-    plugin_name: str
     hook_name: str
+    plugin_name: str = ""
+    hook_family: str | None = None
+    executor_kind: str = HookExecutorKind.BUILTIN.value
+    source_ref: str | None = None
+    entrypoint: str | None = None
     enabled: bool = True
     priority: int | None = None
     settings: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.plugin_name.strip():
-            raise ValueError("plugin_name cannot be empty")
         if not self.hook_name.strip():
             raise ValueError("hook_name cannot be empty")
+        normalized_executor_kind = self.executor_kind.strip().lower()
+        if normalized_executor_kind not in {item.value for item in HookExecutorKind}:
+            raise ValueError(f"Unsupported executor_kind: {self.executor_kind}")
+        if normalized_executor_kind == HookExecutorKind.BUILTIN.value and not self.plugin_name.strip():
+            raise ValueError("plugin_name cannot be empty for builtin runtime hooks")
+        if normalized_executor_kind in {
+            HookExecutorKind.SCRIPT.value,
+            HookExecutorKind.PLUGIN.value,
+        } and not (self.source_ref or "").strip():
+            raise ValueError("source_ref is required for custom runtime hooks")
+        if normalized_executor_kind in {
+            HookExecutorKind.SCRIPT.value,
+            HookExecutorKind.PLUGIN.value,
+        } and not (self.entrypoint or "").strip():
+            raise ValueError("entrypoint is required for custom runtime hooks")
 
     @property
-    def key(self) -> tuple[str, str]:
-        """Return normalized identity for this hook config."""
+    def catalog_key(self) -> tuple[str, str]:
+        """Return the catalog identity for this hook config."""
         return (self.plugin_name.strip().lower(), self.hook_name.strip().lower())
+
+    @property
+    def key(self) -> tuple[str, str, str, str]:
+        """Return normalized identity for this hook config entry."""
+        source_identity = (self.source_ref or self.plugin_name).strip().lower()
+        return (
+            self.hook_name.strip().lower(),
+            self.executor_kind.strip().lower(),
+            source_identity,
+            (self.entrypoint or "").strip().lower(),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize config for API responses and persistence."""
         return {
             "plugin_name": self.plugin_name,
             "hook_name": self.hook_name,
+            "hook_family": self.hook_family,
+            "executor_kind": self.executor_kind,
+            "source_ref": self.source_ref,
+            "entrypoint": self.entrypoint,
             "enabled": self.enabled,
             "priority": self.priority,
             "settings": dict(self.settings),
@@ -67,8 +107,18 @@ class RuntimeHookConfig:
     def from_dict(cls, data: dict[str, Any]) -> "RuntimeHookConfig":
         """Deserialize a runtime hook config from stored JSON data."""
         return cls(
-            plugin_name=str(data.get("plugin_name", "")).strip(),
             hook_name=str(data.get("hook_name", "")).strip(),
+            plugin_name=str(data.get("plugin_name", "")).strip(),
+            hook_family=str(data["hook_family"]).strip().lower()
+            if data.get("hook_family") is not None
+            else None,
+            executor_kind=str(data.get("executor_kind", HookExecutorKind.BUILTIN.value)).strip(),
+            source_ref=str(data["source_ref"]).strip()
+            if data.get("source_ref") is not None
+            else None,
+            entrypoint=str(data["entrypoint"]).strip()
+            if data.get("entrypoint") is not None
+            else None,
             enabled=bool(data.get("enabled", True)),
             priority=int(data["priority"]) if data.get("priority") is not None else None,
             settings=dict(data.get("settings", {}))
@@ -282,7 +332,7 @@ class TenantAgentConfig:
         """Return the configured runtime hook override for a plugin/hook pair."""
         normalized_key = (plugin_name.strip().lower(), hook_name.strip().lower())
         for runtime_hook in self.runtime_hooks:
-            if runtime_hook.key == normalized_key:
+            if runtime_hook.catalog_key == normalized_key:
                 return runtime_hook
         return None
 

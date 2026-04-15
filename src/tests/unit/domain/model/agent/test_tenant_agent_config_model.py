@@ -282,3 +282,23 @@ class TestTenantAgentConfig:
         assert hook.enabled is False
         assert hook.priority == 25
         assert hook.settings == {"message": "be concise"}
+
+    def test_runtime_hook_config_supports_explicit_custom_executor_identity(self):
+        """Custom runtime hooks should retain executor identity outside settings."""
+        hook = RuntimeHookConfig(
+            hook_name="before_response",
+            plugin_name="__custom__",
+            hook_family="mutating",
+            executor_kind="script",
+            source_ref="src/infrastructure/agent/hooks/scripts/demo_runtime_hook.py",
+            entrypoint="append_demo_response_instruction",
+            enabled=True,
+            settings={"message": "keep going"},
+        )
+
+        serialized = hook.to_dict()
+
+        assert serialized["executor_kind"] == "script"
+        assert serialized["source_ref"] == "src/infrastructure/agent/hooks/scripts/demo_runtime_hook.py"
+        assert serialized["entrypoint"] == "append_demo_response_instruction"
+        assert serialized["settings"] == {"message": "keep going"}

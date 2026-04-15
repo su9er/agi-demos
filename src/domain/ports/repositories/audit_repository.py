@@ -29,8 +29,10 @@ class AuditRepository(ABC):
         tenant_id: str,
         *,
         action: str | None = None,
+        action_prefix: str | None = None,
         resource_type: str | None = None,
         actor: str | None = None,
+        detail_filters: dict[str, str] | None = None,
         start_time: datetime | None = None,
         end_time: datetime | None = None,
         limit: int = 50,
@@ -44,9 +46,26 @@ class AuditRepository(ABC):
         tenant_id: str,
         *,
         action: str | None = None,
+        action_prefix: str | None = None,
         resource_type: str | None = None,
         actor: str | None = None,
+        detail_filters: dict[str, str] | None = None,
         start_time: datetime | None = None,
         end_time: datetime | None = None,
     ) -> int:
         """Count audit entries matching optional filters."""
+
+    @abstractmethod
+    async def summarize_by_tenant_filtered(
+        self,
+        tenant_id: str,
+        *,
+        action: str | None = None,
+        action_prefix: str | None = None,
+        resource_type: str | None = None,
+        actor: str | None = None,
+        detail_filters: dict[str, str] | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> dict[str, object]:
+        """Summarize audit entries matching optional filters."""

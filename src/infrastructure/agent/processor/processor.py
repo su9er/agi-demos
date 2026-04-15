@@ -393,6 +393,25 @@ class SessionProcessor:
             logger.warning("Plugin hook %r failed", hook_name, exc_info=True)
             return effective_payload
 
+    def _runtime_hook_context_fields(self) -> dict[str, Any]:
+        """Return shared tenant/project fields for runtime hook payloads."""
+        runtime_context = (
+            dict(self.config.runtime_context)
+            if isinstance(self.config.runtime_context, dict)
+            else {}
+        )
+        langfuse_context = (
+            dict(self._langfuse_context)
+            if isinstance(self._langfuse_context, dict)
+            else {}
+        )
+        tenant_id = langfuse_context.get("tenant_id") or runtime_context.get("tenant_id")
+        project_id = langfuse_context.get("project_id") or runtime_context.get("project_id")
+        return {
+            "tenant_id": tenant_id,
+            "project_id": project_id,
+        }
+
     def _merge_hook_instructions(self, payload: Mapping[str, Any]) -> None:
         """Merge hook-provided session/response instructions into processor state."""
         for field_name, target in (
@@ -643,8 +662,7 @@ class SessionProcessor:
             {
                 "session_id": session_id,
                 "message_count": len(messages),
-                "tenant_id": (self._langfuse_context or {}).get("tenant_id"),
-                "project_id": (self._langfuse_context or {}).get("project_id"),
+                **self._runtime_hook_context_fields(),
             },
         )
 
@@ -712,6 +730,7 @@ class SessionProcessor:
                 {
                     "session_id": session_id,
                     "step_count": self._step_count,
+                    **self._runtime_hook_context_fields(),
                     "result": (
                         effective_result.name
                         if hasattr(effective_result, "name")
@@ -725,6 +744,7 @@ class SessionProcessor:
                 "on_error",
                 {
                     "session_id": session_id,
+                    **self._runtime_hook_context_fields(),
                     "error": str(e),
                     "error_type": type(e).__name__,
                 },
@@ -1387,6 +1407,7 @@ class SessionProcessor:
                 "session_id": session_id,
                 "step_count": self._step_count,
                 "message_count": len(messages),
+                **self._runtime_hook_context_fields(),
                 "session_instructions": list(self._session_instructions),
                 "response_instructions": list(self._response_instructions),
             },
@@ -3192,6 +3213,7 @@ class SessionProcessor:
                     "arguments": arguments,
                     "call_id": call_id,
                     "session_id": session_id,
+                    **self._runtime_hook_context_fields(),
                 },
             )
             if isinstance(before_tool_payload.get("arguments"), dict):
@@ -3214,6 +3236,7 @@ class SessionProcessor:
                         "tool_name": tool_name,
                         "call_id": call_id,
                         "session_id": session_id,
+                        **self._runtime_hook_context_fields(),
                         "result": getattr(tool_part, "output", None),
                         "error": getattr(tool_part, "error", None),
                     },
@@ -3297,6 +3320,7 @@ class SessionProcessor:
                 "arguments": arguments,
                 "call_id": call_id,
                 "session_id": session_id,
+                **self._runtime_hook_context_fields(),
             },
         )
         if isinstance(before_tool_payload.get("arguments"), dict):
@@ -3318,6 +3342,7 @@ class SessionProcessor:
                     "tool_name": tool_name,
                     "call_id": call_id,
                     "session_id": session_id,
+                    **self._runtime_hook_context_fields(),
                     "result": getattr(tool_part, "output", None),
                     "error": getattr(tool_part, "error", None),
                 },

@@ -77,6 +77,7 @@ class PluginSDK:
         hook_name: str,
         handler: PluginHookHandler,
         *,
+        hook_family: str | None = None,
         priority: int = 100,
         display_name: str | None = None,
         description: str | None = None,
@@ -89,6 +90,7 @@ class PluginSDK:
         self._api.register_hook(
             hook_name,
             handler,
+            hook_family=hook_family,
             priority=priority,
             display_name=display_name,
             description=description,

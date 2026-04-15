@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildRuntimeHooks,
+  createEmptyCustomRuntimeHook,
   hookKey,
+  serializeCustomRuntimeHooks,
   serializeRuntimeHooks,
 } from '../../../components/agent/tenantAgentConfigHelpers';
 
@@ -14,8 +16,12 @@ const hookCatalog: HookCatalogEntry[] = [
     hook_name: 'start-work',
     display_name: 'Start work',
     description: 'Reminds the runtime to start with concrete execution.',
+    hook_family: 'observational',
     default_priority: 100,
     default_enabled: true,
+    default_executor_kind: 'builtin',
+    default_source_ref: 'builtin_sisyphus',
+    default_entrypoint: null,
     default_settings: {
       reminder: 'Start with the next concrete action.',
       sticky: true,
@@ -54,6 +60,9 @@ describe('TenantAgentConfigEditor helpers', () => {
       hookKey({
         plugin_name: ' Builtin_Sisyphus ',
         hook_name: ' Start-Work ',
+        executor_kind: ' builtin ',
+        source_ref: ' builtin_sisyphus ',
+        entrypoint: ' ',
       })
     ).toBe('builtin_sisyphus::start-work');
   });
@@ -65,6 +74,10 @@ describe('TenantAgentConfigEditor helpers', () => {
         {
           plugin_name: 'builtin_sisyphus',
           hook_name: 'start-work',
+          hook_family: 'observational',
+          executor_kind: 'builtin',
+          source_ref: 'builtin_sisyphus',
+          entrypoint: null,
           enabled: false,
           priority: 120,
           settings: {
@@ -78,6 +91,10 @@ describe('TenantAgentConfigEditor helpers', () => {
       {
         plugin_name: 'builtin_sisyphus',
         hook_name: 'start-work',
+        hook_family: 'observational',
+        executor_kind: 'builtin',
+        source_ref: 'builtin_sisyphus',
+        entrypoint: null,
         enabled: false,
         priority: 120,
         settings: {
@@ -105,6 +122,10 @@ describe('TenantAgentConfigEditor helpers', () => {
       {
         plugin_name: 'builtin_sisyphus',
         hook_name: 'start-work',
+        hook_family: 'observational',
+        executor_kind: 'builtin',
+        source_ref: 'builtin_sisyphus',
+        entrypoint: null,
         enabled: true,
         priority: 100,
         settings: {
@@ -122,6 +143,10 @@ describe('TenantAgentConfigEditor helpers', () => {
         {
           plugin_name: 'builtin_sisyphus',
           hook_name: 'start-work',
+          hook_family: 'observational',
+          executor_kind: 'builtin',
+          source_ref: 'builtin_sisyphus',
+          entrypoint: null,
           enabled: true,
           priority: null,
           settings: {
@@ -138,6 +163,10 @@ describe('TenantAgentConfigEditor helpers', () => {
       {
         plugin_name: 'builtin_sisyphus',
         hook_name: 'start-work',
+        hook_family: 'observational',
+        executor_kind: 'builtin',
+        source_ref: 'builtin_sisyphus',
+        entrypoint: null,
         enabled: true,
         priority: null,
         settings: {
@@ -155,6 +184,10 @@ describe('TenantAgentConfigEditor helpers', () => {
         {
           plugin_name: 'builtin_sisyphus',
           hook_name: 'start-work',
+          hook_family: 'observational',
+          executor_kind: 'builtin',
+          source_ref: 'builtin_sisyphus',
+          entrypoint: null,
           enabled: true,
           priority: 100,
           settings: {
@@ -170,6 +203,10 @@ describe('TenantAgentConfigEditor helpers', () => {
       {
         plugin_name: 'builtin_sisyphus',
         hook_name: 'start-work',
+        hook_family: 'observational',
+        executor_kind: 'builtin',
+        source_ref: 'builtin_sisyphus',
+        entrypoint: null,
         enabled: true,
         priority: 100,
         settings: {
@@ -178,5 +215,47 @@ describe('TenantAgentConfigEditor helpers', () => {
         },
       },
     ]);
+  });
+
+  it('serializes custom runtime hooks with explicit executor identity fields', () => {
+    const customHook = {
+      ...createEmptyCustomRuntimeHook(),
+      hook_name: 'before_tool_execution',
+      hook_family: 'mutating',
+      executor_kind: 'script',
+      source_ref: 'plugins/demo_hooks.py',
+      entrypoint: 'annotate_tool',
+      settings: {
+        tag: 'demo',
+      },
+    };
+
+    expect(serializeCustomRuntimeHooks([customHook])).toEqual([
+      {
+        hook_name: 'before_tool_execution',
+        hook_family: 'mutating',
+        executor_kind: 'script',
+        source_ref: 'plugins/demo_hooks.py',
+        entrypoint: 'annotate_tool',
+        enabled: true,
+        priority: null,
+        settings: {
+          tag: 'demo',
+        },
+      },
+    ]);
+  });
+
+  it('preserves side_effect hook family for custom runtime hooks', () => {
+    const customHook = {
+      ...createEmptyCustomRuntimeHook(),
+      hook_name: 'after_subagent_complete',
+      hook_family: 'side_effect' as const,
+      executor_kind: 'plugin' as const,
+      source_ref: 'src/infrastructure/agent/plugins/demo_plugin_hook.py',
+      entrypoint: 'emit_audit_event',
+    };
+
+    expect(serializeCustomRuntimeHooks([customHook])[0]?.hook_family).toBe('side_effect');
   });
 });

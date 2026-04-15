@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.configuration.config import get_settings
 from src.domain.model.agent.tenant_agent_config import (
     ConfigType,
+    HookExecutorKind,
     RuntimeHookConfig,
     TenantAgentConfig,
 )
@@ -22,6 +23,16 @@ from src.infrastructure.adapters.primary.web.dependencies import (
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.sql_tenant_agent_config_repository import (
     SqlTenantAgentConfigRepository,
+)
+from src.infrastructure.agent.plugins.hook_security_policy import (
+    ALLOWED_ISOLATION_MODES,
+    HOST_ISOLATION_MODE,
+    ISOLATION_MODE_SETTING_KEY,
+    MAX_CUSTOM_HOOK_TIMEOUT_SECONDS,
+    MIN_CUSTOM_HOOK_TIMEOUT_SECONDS,
+    TIMEOUT_SETTING_KEY,
+    is_executor_allowed_for_family,
+    normalize_hook_family,
 )
 from src.infrastructure.agent.plugins.registry import RegisteredHookMetadata, get_plugin_registry
 from src.infrastructure.agent.state.agent_session_pool import invalidate_agent_session
@@ -68,8 +79,12 @@ def _build_config_response(
         disabled_tools=config.disabled_tools,
         runtime_hooks=[
             RuntimeHookConfigResponse(
-                plugin_name=item.plugin_name,
                 hook_name=item.hook_name,
+                plugin_name=item.plugin_name,
+                hook_family=item.hook_family,
+                executor_kind=item.executor_kind,
+                source_ref=item.source_ref,
+                entrypoint=item.entrypoint,
                 enabled=item.enabled,
                 priority=item.priority,
                 settings={} if redact_runtime_hook_settings else dict(item.settings),
@@ -86,7 +101,7 @@ def _build_config_response(
 def _validate_runtime_hooks(
     runtime_hooks: list[RuntimeHookConfig],
     *,
-    allowed_unknown_hook_keys: set[tuple[str, str]] | None = None,
+    allowed_unknown_hook_keys: set[tuple[str, str, str, str]] | None = None,
 ) -> None:
     """Reject invalid runtime hook overrides before they reach execution."""
     if len(runtime_hooks) > MAX_RUNTIME_HOOK_OVERRIDES:
@@ -100,12 +115,12 @@ def _validate_runtime_hooks(
         (entry.plugin_name.strip().lower(), entry.hook_name.strip().lower()): entry
         for entry in get_plugin_registry().list_hook_catalog()
     }
-    seen_hooks: set[tuple[str, str]] = set()
+    seen_hooks: set[tuple[str, str, str, str]] = set()
 
     for hook in runtime_hooks:
         _validate_runtime_hook_override(
             hook,
-            catalog_entry=catalog.get(hook.key),
+            catalog_entry=catalog.get(hook.catalog_key),
             seen_hooks=seen_hooks,
             allowed_unknown_keys=allowed_unknown_keys,
         )
@@ -115,8 +130,8 @@ def _validate_runtime_hook_override(
     hook: RuntimeHookConfig,
     *,
     catalog_entry: RegisteredHookMetadata | None,
-    seen_hooks: set[tuple[str, str]],
-    allowed_unknown_keys: set[tuple[str, str]],
+    seen_hooks: set[tuple[str, str, str, str]],
+    allowed_unknown_keys: set[tuple[str, str, str, str]],
 ) -> None:
     """Validate one runtime hook override against the catalog."""
     hook_label = f"{hook.plugin_name}:{hook.hook_name}"
@@ -127,10 +142,13 @@ def _validate_runtime_hook_override(
     seen_hooks.add(hook.key)
 
     _validate_runtime_hook_priority(hook, hook_label)
+    _validate_runtime_hook_identity(hook, hook_label, catalog_entry)
     _validate_runtime_hook_settings_size(hook, hook_label)
+    _validate_runtime_hook_security_boundary(hook, hook_label, catalog_entry)
 
     if catalog_entry is None:
-        if hook.key not in allowed_unknown_keys:
+        registry = get_plugin_registry()
+        if hook.key not in allowed_unknown_keys and hook.hook_name not in registry.list_well_known_hooks():
             raise HTTPException(status_code=422, detail=f"Unknown runtime hook: {hook_label}")
         return
 
@@ -149,6 +167,107 @@ def _validate_runtime_hook_priority(hook: RuntimeHookConfig, hook_label: str) ->
             f"-{MAX_RUNTIME_HOOK_PRIORITY} and {MAX_RUNTIME_HOOK_PRIORITY}"
         ),
     )
+
+
+def _validate_runtime_hook_identity(
+    hook: RuntimeHookConfig,
+    hook_label: str,
+    catalog_entry: RegisteredHookMetadata | None,
+) -> None:
+    """Validate runtime hook identity and executor fields."""
+    normalized_executor_kind = hook.executor_kind.strip().lower()
+    if normalized_executor_kind not in {item.value for item in HookExecutorKind}:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Runtime hook {hook_label} has unsupported executor_kind",
+        )
+    if normalized_executor_kind == HookExecutorKind.BUILTIN.value:
+        if not hook.plugin_name.strip():
+            raise HTTPException(
+                status_code=422,
+                detail=f"Builtin runtime hook {hook_label} requires plugin_name",
+            )
+        return
+
+    if not (hook.source_ref or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Custom runtime hook {hook_label} requires source_ref",
+        )
+    if not (hook.entrypoint or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Custom runtime hook {hook_label} requires entrypoint",
+        )
+    effective_family = (hook.hook_family or (catalog_entry.hook_family if catalog_entry else "")).strip()
+    if not effective_family:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Custom runtime hook {hook_label} requires hook_family",
+        )
+
+
+def _validate_runtime_hook_security_boundary(
+    hook: RuntimeHookConfig,
+    hook_label: str,
+    catalog_entry: RegisteredHookMetadata | None,
+) -> None:
+    """Validate executor/family permission boundaries for runtime hooks."""
+    normalized_executor_kind = hook.executor_kind.strip().lower()
+    if normalized_executor_kind == HookExecutorKind.BUILTIN.value:
+        return
+
+    effective_family = normalize_hook_family(
+        hook.hook_family or (catalog_entry.hook_family if catalog_entry else "")
+    )
+    if not is_executor_allowed_for_family(
+        executor_kind=normalized_executor_kind,
+        hook_family=effective_family,
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Runtime hook {hook_label} cannot use executor_kind "
+                f"{hook.executor_kind} for hook_family {effective_family}"
+            ),
+        )
+
+    timeout_override = hook.settings.get(TIMEOUT_SETTING_KEY)
+    if timeout_override is not None and not isinstance(timeout_override, (int, float)):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Runtime hook {hook_label} timeout_seconds must be numeric",
+        )
+    if timeout_override is not None:
+        timeout_seconds = float(timeout_override)
+        if not (
+            MIN_CUSTOM_HOOK_TIMEOUT_SECONDS
+            <= timeout_seconds
+            <= MAX_CUSTOM_HOOK_TIMEOUT_SECONDS
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Runtime hook {hook_label} timeout_seconds must be between "
+                    f"{MIN_CUSTOM_HOOK_TIMEOUT_SECONDS} and {MAX_CUSTOM_HOOK_TIMEOUT_SECONDS}"
+                ),
+            )
+
+    isolation_mode = hook.settings.get(ISOLATION_MODE_SETTING_KEY, HOST_ISOLATION_MODE)
+    if not isinstance(isolation_mode, str):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Runtime hook {hook_label} isolation_mode must be a string",
+        )
+    normalized_isolation_mode = isolation_mode.strip().lower()
+    if normalized_isolation_mode not in ALLOWED_ISOLATION_MODES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Runtime hook {hook_label} isolation_mode must be one of: "
+                f"{', '.join(sorted(ALLOWED_ISOLATION_MODES))}"
+            ),
+        )
 
 
 def _validate_runtime_hook_settings_size(hook: RuntimeHookConfig, hook_label: str) -> None:
@@ -327,10 +446,14 @@ async def get_hook_catalog(
         HookCatalogEntryResponse(
             plugin_name=entry.plugin_name,
             hook_name=entry.hook_name,
+            hook_family=entry.hook_family,
             display_name=entry.display_name,
             description=entry.description,
             default_priority=entry.default_priority,
             default_enabled=entry.default_enabled,
+            default_executor_kind=entry.default_executor_kind,
+            default_source_ref=entry.default_source_ref,
+            default_entrypoint=entry.default_entrypoint,
             default_settings=dict(entry.default_settings),
             settings_schema=dict(entry.settings_schema),
         )
@@ -404,8 +527,12 @@ async def update_tenant_agent_config(
         runtime_hooks = (
             [
                 RuntimeHookConfig(
-                    plugin_name=item.plugin_name,
                     hook_name=item.hook_name,
+                    plugin_name=item.plugin_name,
+                    hook_family=item.hook_family,
+                    executor_kind=item.executor_kind,
+                    source_ref=item.source_ref,
+                    entrypoint=item.entrypoint,
                     enabled=item.enabled,
                     priority=item.priority,
                     settings=dict(item.settings),

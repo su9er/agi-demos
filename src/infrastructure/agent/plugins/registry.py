@@ -12,6 +12,8 @@ from typing import Any
 
 import jsonschema
 
+from src.domain.model.agent.tenant_agent_config import HookExecutorKind
+from src.infrastructure.agent.plugins.custom_hook_executor import execute_custom_hook
 from src.infrastructure.agent.tools.define import ToolInfo
 
 logger = logging.getLogger(__name__)
@@ -74,6 +76,51 @@ LIFECYCLE_EVENTS: frozenset[str] = frozenset(
         "on_unload",
     }
 )
+
+HOOK_FAMILY_BY_NAME: dict[str, str] = {
+    "on_session_start": "mutating",
+    "on_session_end": "side_effect",
+    "before_response": "mutating",
+    "after_response": "side_effect",
+    "before_tool_selection": "mutating",
+    "after_tool_selection": "side_effect",
+    "before_tool_execution": "policy",
+    "after_tool_execution": "mutating",
+    "before_planning": "mutating",
+    "after_planning": "side_effect",
+    "on_error": "side_effect",
+    "on_context_overflow": "side_effect",
+    "before_subagent_spawn": "policy",
+    "after_subagent_spawn": "side_effect",
+    "before_subagent_complete": "side_effect",
+    "after_subagent_complete": "side_effect",
+    "on_subagent_doom_loop": "side_effect",
+    "on_subagent_routed": "side_effect",
+}
+
+HOOK_DISPLAY_NAME_BY_NAME: dict[str, str] = {
+    hook_name: hook_name.replace("_", " ").title() for hook_name in WELL_KNOWN_HOOKS
+}
+
+HOOK_DEFAULT_DESCRIPTION_BY_NAME: dict[str, str] = {
+    "before_tool_execution": "Runs before tool execution and may request continue / deny / ask decisions.",
+    "after_tool_execution": "Runs after tool execution to mutate follow-up payloads or emit side effects.",
+    "before_response": "Runs before the model drafts a response and may adjust response payloads.",
+    "on_session_start": "Runs at the start of a processor session.",
+    "on_error": "Runs when the processor catches an error.",
+    "before_subagent_spawn": "Runs before a subagent starts and may enforce policy decisions.",
+    "after_subagent_complete": "Runs after a subagent completes.",
+}
+
+
+def _normalize_hook_name(value: str) -> str:
+    """Normalize a hook name for storage and comparison."""
+    return (value or "").strip().lower()
+
+
+def _infer_hook_family(hook_name: str) -> str:
+    """Infer the canonical family for a hook name."""
+    return HOOK_FAMILY_BY_NAME.get(_normalize_hook_name(hook_name), "mutating")
 
 
 @dataclass(frozen=True)
@@ -182,10 +229,14 @@ class RegisteredHookMetadata:
 
     plugin_name: str
     hook_name: str
+    hook_family: str
     display_name: str
     description: str | None = None
     default_priority: int = 100
     default_enabled: bool = True
+    default_executor_kind: str = HookExecutorKind.BUILTIN.value
+    default_source_ref: str | None = None
+    default_entrypoint: str | None = None
     default_settings: dict[str, Any] = field(default_factory=dict)
     settings_schema: dict[str, Any] = field(default_factory=dict)
 
@@ -196,6 +247,22 @@ class HookDispatchResult:
 
     payload: dict[str, Any]
     diagnostics: list[PluginDiagnostic] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _ResolvedHookEntry:
+    """Resolved runtime hook entry ready for execution."""
+
+    entry_type: str
+    plugin_name: str
+    enabled: bool
+    priority: int
+    hook_family: str
+    executor_kind: str
+    source_ref: str | None
+    entrypoint: str | None
+    effective_settings: dict[str, Any]
+    handler: PluginHookHandler | None = None
 
 
 class AgentPluginRegistry:
@@ -391,6 +458,7 @@ class AgentPluginRegistry:
         hook_name: str,
         handler: PluginHookHandler,
         *,
+        hook_family: str | None = None,
         priority: int = 100,
         display_name: str | None = None,
         description: str | None = None,
@@ -408,9 +476,10 @@ class AgentPluginRegistry:
             priority: Numeric priority -- lower values run first.  Default ``100``.
             overwrite: Allow replacing an existing handler from the same plugin.
         """
-        normalized_hook_name = (hook_name or "").strip().lower()
+        normalized_hook_name = _normalize_hook_name(hook_name)
         if not normalized_hook_name:
             raise ValueError("hook_name is required")
+        resolved_hook_family = _infer_hook_family(hook_family or normalized_hook_name)
         with self._lock:
             bucket = self._hook_handlers.setdefault(normalized_hook_name, {})
             if plugin_name in bucket and not overwrite:
@@ -421,10 +490,19 @@ class AgentPluginRegistry:
             self._hook_metadata[(plugin_name, normalized_hook_name)] = RegisteredHookMetadata(
                 plugin_name=plugin_name,
                 hook_name=normalized_hook_name,
-                display_name=display_name or normalized_hook_name.replace("_", " ").title(),
-                description=description,
+                hook_family=resolved_hook_family,
+                display_name=display_name
+                or HOOK_DISPLAY_NAME_BY_NAME.get(
+                    normalized_hook_name,
+                    normalized_hook_name.replace("_", " ").title(),
+                ),
+                description=description
+                or HOOK_DEFAULT_DESCRIPTION_BY_NAME.get(normalized_hook_name),
                 default_priority=priority,
                 default_enabled=default_enabled,
+                default_executor_kind=HookExecutorKind.BUILTIN.value,
+                default_source_ref=plugin_name,
+                default_entrypoint=None,
                 default_settings=dict(default_settings or {}),
                 settings_schema=dict(settings_schema or {}),
             )
@@ -538,6 +616,177 @@ class AgentPluginRegistry:
         """Return the set of well-known hook names with documented semantics."""
         return WELL_KNOWN_HOOKS
 
+    @staticmethod
+    def _collect_runtime_overrides(
+        normalized_name: str,
+        runtime_overrides: list[Mapping[str, Any]] | None,
+    ) -> tuple[dict[tuple[str, str], dict[str, Any]], list[dict[str, Any]]]:
+        """Partition runtime overrides into builtin and custom entries."""
+        override_map: dict[tuple[str, str], dict[str, Any]] = {}
+        custom_entries: list[dict[str, Any]] = []
+        for raw_override in runtime_overrides or []:
+            override_hook_name = _normalize_hook_name(str(raw_override.get("hook_name", "")))
+            if override_hook_name != normalized_name:
+                continue
+            override = dict(raw_override)
+            executor_kind = str(
+                override.get("executor_kind", HookExecutorKind.BUILTIN.value)
+            ).strip().lower()
+            plugin_name = str(override.get("plugin_name", "")).strip().lower()
+            if executor_kind == HookExecutorKind.BUILTIN.value:
+                if plugin_name:
+                    override_map[(plugin_name, override_hook_name)] = override
+                continue
+            custom_entries.append(override)
+        return override_map, custom_entries
+
+    @staticmethod
+    def _build_effective_settings(
+        metadata: RegisteredHookMetadata | None,
+        override: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge default and override settings for one hook entry."""
+        effective_settings: dict[str, Any] = {}
+        if metadata is not None:
+            effective_settings.update(metadata.default_settings)
+        override_settings = override.get("settings")
+        if isinstance(override_settings, dict):
+            effective_settings.update(override_settings)
+        return effective_settings
+
+    def _resolve_hook_entries(
+        self,
+        *,
+        normalized_name: str,
+        raw_handlers: dict[str, tuple[int, PluginHookHandler]],
+        raw_metadata: dict[str, RegisteredHookMetadata | None],
+        override_map: dict[tuple[str, str], dict[str, Any]],
+        custom_entries: list[dict[str, Any]],
+    ) -> list[_ResolvedHookEntry]:
+        """Resolve registered and custom hook entries into one ordered list."""
+        entries: list[_ResolvedHookEntry] = []
+        for plugin_name, (default_priority, handler) in raw_handlers.items():
+            override = override_map.get((plugin_name, normalized_name), {})
+            override_priority = override.get("priority")
+            metadata = raw_metadata.get(plugin_name)
+            entries.append(
+                _ResolvedHookEntry(
+                    entry_type="registered",
+                    plugin_name=plugin_name,
+                    enabled=bool(override.get("enabled", True)),
+                    priority=int(override_priority)
+                    if override_priority is not None
+                    else default_priority,
+                    hook_family=str(
+                        override.get(
+                            "hook_family",
+                            metadata.hook_family if metadata is not None else _infer_hook_family(normalized_name),
+                        )
+                    ).strip().lower(),
+                    executor_kind=str(
+                        override.get(
+                            "executor_kind",
+                            metadata.default_executor_kind
+                            if metadata is not None
+                            else HookExecutorKind.BUILTIN.value,
+                        )
+                    ).strip().lower(),
+                    source_ref=(
+                        str(override["source_ref"]).strip()
+                        if override.get("source_ref") is not None
+                        else (metadata.default_source_ref if metadata is not None else None)
+                    ),
+                    entrypoint=(
+                        str(override["entrypoint"]).strip()
+                        if override.get("entrypoint") is not None
+                        else (metadata.default_entrypoint if metadata is not None else None)
+                    ),
+                    effective_settings=self._build_effective_settings(metadata, override),
+                    handler=handler,
+                )
+            )
+
+        for override in custom_entries:
+            raw_priority = override.get("priority")
+            plugin_name = str(override.get("plugin_name", "")).strip() or str(
+                override.get("source_ref", "custom-hook")
+            ).strip()
+            entries.append(
+                _ResolvedHookEntry(
+                    entry_type="custom",
+                    plugin_name=plugin_name,
+                    enabled=bool(override.get("enabled", True)),
+                    priority=int(raw_priority) if raw_priority is not None else 100,
+                    hook_family=str(
+                        override.get("hook_family") or _infer_hook_family(normalized_name)
+                    ).strip().lower(),
+                    executor_kind=str(
+                        override.get("executor_kind", HookExecutorKind.BUILTIN.value)
+                    ).strip().lower(),
+                    source_ref=str(override.get("source_ref", "")).strip() or None,
+                    entrypoint=str(override.get("entrypoint", "")).strip() or None,
+                    effective_settings=self._build_effective_settings(None, override),
+                )
+            )
+        return sorted(entries, key=lambda item: item.priority)
+
+    @staticmethod
+    def _build_hook_payload(
+        *,
+        current_payload: dict[str, Any],
+        normalized_name: str,
+        entry: _ResolvedHookEntry,
+    ) -> dict[str, Any]:
+        """Build the runtime payload passed to one hook entry."""
+        hook_payload = dict(current_payload)
+        hook_payload["hook_settings"] = entry.effective_settings
+        hook_payload["hook_identity"] = {
+            "plugin_name": entry.plugin_name,
+            "hook_name": normalized_name,
+            "priority": entry.priority,
+            "executor_kind": entry.executor_kind,
+            "source_ref": entry.source_ref,
+            "entrypoint": entry.entrypoint,
+        }
+        hook_payload["hook_family"] = entry.hook_family
+        return hook_payload
+
+    @staticmethod
+    async def _execute_hook_entry(
+        entry: _ResolvedHookEntry,
+        hook_payload: dict[str, Any],
+    ) -> Mapping[str, Any] | None:
+        """Execute one resolved hook entry."""
+        if entry.entry_type == "custom":
+            return await execute_custom_hook(
+                executor_kind=entry.executor_kind,
+                source_ref=str(entry.source_ref or ""),
+                entrypoint=str(entry.entrypoint or ""),
+                hook_family=entry.hook_family,
+                payload=hook_payload,
+            )
+        if entry.handler is None:
+            return None
+        result = entry.handler(hook_payload)
+        if inspect.isawaitable(result):
+            result = await result
+        return result if isinstance(result, Mapping) else None
+
+    @staticmethod
+    def _apply_hook_result_by_family(
+        current_payload: dict[str, Any],
+        result: Mapping[str, Any] | None,
+        *,
+        hook_family: str,
+    ) -> dict[str, Any]:
+        """Apply a hook result while enforcing family capabilities."""
+        if not isinstance(result, Mapping):
+            return current_payload
+        normalized_family = (hook_family or "").strip().lower()
+        if normalized_family in {"observational", "side_effect"}:
+            return current_payload
+        return dict(result)
+
     def list_commands(self) -> dict[str, tuple[str, PluginCommandHandler]]:
         """Return command handlers keyed by command name."""
         with self._lock:
@@ -626,7 +875,7 @@ class AgentPluginRegistry:
         runtime_overrides: list[Mapping[str, Any]] | None = None,
     ) -> HookDispatchResult:
         """Invoke named hook handlers and return the mutated payload."""
-        normalized_name = (hook_name or "").strip().lower()
+        normalized_name = _normalize_hook_name(hook_name)
         if not normalized_name:
             return HookDispatchResult(payload=dict(payload or {}))
 
@@ -637,49 +886,37 @@ class AgentPluginRegistry:
                 for plugin_name in raw_handlers
             }
 
-        override_map: dict[tuple[str, str], dict[str, Any]] = {}
-        for raw_override in runtime_overrides or []:
-            plugin_name = str(raw_override.get("plugin_name", "")).strip().lower()
-            override_hook_name = str(raw_override.get("hook_name", "")).strip().lower()
-            if not plugin_name or not override_hook_name:
-                continue
-            override_map[(plugin_name, override_hook_name)] = dict(raw_override)
-
-        sorted_handlers = sorted(
-            raw_handlers.items(),
-            key=lambda item: (
-                override_map.get((item[0], normalized_name), {}).get("priority", item[1][0]),
-            ),
+        override_map, custom_entries = self._collect_runtime_overrides(
+            normalized_name,
+            runtime_overrides,
+        )
+        ordered_entries = self._resolve_hook_entries(
+            normalized_name=normalized_name,
+            raw_handlers=raw_handlers,
+            raw_metadata=raw_metadata,
+            override_map=override_map,
+            custom_entries=custom_entries,
         )
 
         current_payload = dict(payload or {})
         diagnostics: list[PluginDiagnostic] = []
-        for plugin_name, (default_priority, handler) in sorted_handlers:
-            override = override_map.get((plugin_name, normalized_name), {})
-            if override and not bool(override.get("enabled", True)):
+        for entry in ordered_entries:
+            plugin_name = entry.plugin_name
+            if not entry.enabled:
                 continue
 
-            metadata = raw_metadata.get(plugin_name)
-            effective_settings = {}
-            if metadata is not None:
-                effective_settings.update(metadata.default_settings)
-            override_settings = override.get("settings")
-            if isinstance(override_settings, dict):
-                effective_settings.update(override_settings)
-
-            hook_payload = dict(current_payload)
-            hook_payload["hook_settings"] = effective_settings
-            hook_payload["hook_identity"] = {
-                "plugin_name": plugin_name,
-                "hook_name": normalized_name,
-                "priority": override.get("priority", default_priority),
-            }
+            hook_payload = self._build_hook_payload(
+                current_payload=current_payload,
+                normalized_name=normalized_name,
+                entry=entry,
+            )
             try:
-                result = handler(hook_payload)
-                if inspect.isawaitable(result):
-                    result = await result
-                if isinstance(result, Mapping):
-                    current_payload = dict(result)
+                result = await self._execute_hook_entry(entry, hook_payload)
+                current_payload = self._apply_hook_result_by_family(
+                    current_payload,
+                    result,
+                    hook_family=entry.hook_family,
+                )
             except Exception as exc:
                 diagnostics.append(
                     PluginDiagnostic(

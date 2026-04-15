@@ -792,11 +792,13 @@ class SubAgentSessionRunner:
                 ],
             )
 
-    async def runner_finalize(
+    async def runner_finalize(  # noqa: PLR0913
         self,
         *,
         conversation_id: str,
         run_id: str,
+        project_id: str,
+        tenant_id: str,
         subagent: SubAgent,
         cancelled_by_control: bool,
         summary: str,
@@ -842,6 +844,8 @@ class SubAgentSessionRunner:
                 "type": "subagent_ended",
                 "conversation_id": conversation_id,
                 "run_id": run_id,
+                "project_id": project_id,
+                "tenant_id": tenant_id,
                 "subagent_name": subagent.name,
                 "status": (final_run.status.value if final_run else "unknown"),
                 "summary": ((final_run.summary if final_run else summary) or ""),
@@ -858,6 +862,8 @@ class SubAgentSessionRunner:
         *,
         conversation_id: str,
         run_id: str,
+        project_id: str,
+        tenant_id: str,
         subagent: SubAgent,
         normalized_spawn_mode: str,
         thread_requested: bool,
@@ -866,25 +872,28 @@ class SubAgentSessionRunner:
         requested_thinking_override: str | None,
     ) -> None:
         """Emit spawning + spawned lifecycle hooks for a subagent session."""
-        await self.emit_subagent_lifecycle_hook(
-            dict(
-                SubAgentSpawningEvent(
-                    conversation_id=conversation_id,
-                    run_id=run_id,
-                    subagent_name=subagent.name,
-                    spawn_mode=normalized_spawn_mode,
-                    thread_requested=bool(thread_requested),
-                    cleanup=normalized_cleanup,
-                    model_override=requested_model_override,
-                    thinking_override=requested_thinking_override,
-                ).to_event_dict()
-            )
+        spawning_payload = dict(
+            SubAgentSpawningEvent(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                subagent_name=subagent.name,
+                spawn_mode=normalized_spawn_mode,
+                thread_requested=bool(thread_requested),
+                cleanup=normalized_cleanup,
+                model_override=requested_model_override,
+                thinking_override=requested_thinking_override,
+            ).to_event_dict()
         )
+        spawning_payload["project_id"] = project_id
+        spawning_payload["tenant_id"] = tenant_id
+        await self.emit_subagent_lifecycle_hook(spawning_payload)
         await self.emit_subagent_lifecycle_hook(
             {
                 "type": "subagent_spawned",
                 "conversation_id": conversation_id,
                 "run_id": run_id,
+                "project_id": project_id,
+                "tenant_id": tenant_id,
                 "subagent_name": subagent.name,
                 "spawn_mode": normalized_spawn_mode,
                 "thread_requested": bool(thread_requested),
@@ -983,6 +992,8 @@ class SubAgentSessionRunner:
         subagent: SubAgent,
         run_id: str,
         conversation_id: str,
+        project_id: str,
+        tenant_id: str,
     ) -> bool:
         """Validate spawn and emit rejection event if denied. Returns True if rejected."""
         assert self.deps.spawn_validator is not None
@@ -1006,10 +1017,13 @@ class SubAgentSessionRunner:
             rejection_reason=validation.rejection_reason or "",
             context=validation.context,
         )
-        await self.emit_subagent_lifecycle_hook(dict(event.to_event_dict()))
+        payload = dict(event.to_event_dict())
+        payload["project_id"] = project_id
+        payload["tenant_id"] = tenant_id
+        await self.emit_subagent_lifecycle_hook(payload)
         return True
 
-    async def launch_subagent_session(  # noqa: PLR0913
+    async def launch_subagent_session(  # noqa: PLR0913,PLR0915
         self,
         run_id: str,
         subagent: SubAgent,
@@ -1046,6 +1060,8 @@ class SubAgentSessionRunner:
                 subagent,
                 run_id,
                 conversation_id,
+                project_id,
+                tenant_id,
             )
             if rejected:
                 return
@@ -1077,14 +1093,15 @@ class SubAgentSessionRunner:
             result_error: str | None = None
 
             try:
-                await self.emit_subagent_lifecycle_hook(
-                    dict(
-                        SubAgentQueuedEvent(
-                            subagent_id=subagent.id,
-                            subagent_name=subagent.display_name,
-                        ).to_event_dict(),
-                    ),
+                queued_payload = dict(
+                    SubAgentQueuedEvent(
+                        subagent_id=subagent.id,
+                        subagent_name=subagent.display_name,
+                    ).to_event_dict(),
                 )
+                queued_payload["project_id"] = project_id
+                queued_payload["tenant_id"] = tenant_id
+                await self.emit_subagent_lifecycle_hook(queued_payload)
                 lane_wait_start = time.time()
                 async with self.deps.subagent_lane_semaphore:
                     lane_wait_ms = int(
@@ -1138,27 +1155,29 @@ class SubAgentSessionRunner:
                     run_id,
                     configured_timeout,
                 )
-                await self.emit_subagent_lifecycle_hook(
-                    dict(
-                        SubAgentKilledEvent(
-                            subagent_id=subagent.id,
-                            subagent_name=subagent.display_name,
-                            kill_reason=f"Timed out after {configured_timeout}s",
-                        ).to_event_dict(),
-                    ),
+                timeout_payload = dict(
+                    SubAgentKilledEvent(
+                        subagent_id=subagent.id,
+                        subagent_name=subagent.display_name,
+                        kill_reason=f"Timed out after {configured_timeout}s",
+                    ).to_event_dict(),
                 )
+                timeout_payload["project_id"] = project_id
+                timeout_payload["tenant_id"] = tenant_id
+                await self.emit_subagent_lifecycle_hook(timeout_payload)
             except asyncio.CancelledError:
                 cancelled_by_control = True
                 self.runner_mark_cancelled(conversation_id, run_id)
-                await self.emit_subagent_lifecycle_hook(
-                    dict(
-                        SubAgentKilledEvent(
-                            subagent_id=subagent.id,
-                            subagent_name=subagent.display_name,
-                            kill_reason="Cancelled by control",
-                        ).to_event_dict(),
-                    ),
+                cancelled_payload = dict(
+                    SubAgentKilledEvent(
+                        subagent_id=subagent.id,
+                        subagent_name=subagent.display_name,
+                        kill_reason="Cancelled by control",
+                    ).to_event_dict(),
                 )
+                cancelled_payload["project_id"] = project_id
+                cancelled_payload["tenant_id"] = tenant_id
+                await self.emit_subagent_lifecycle_hook(cancelled_payload)
                 raise
             except Exception as exc:
                 self.runner_mark_error(
@@ -1171,6 +1190,8 @@ class SubAgentSessionRunner:
                 await self.runner_finalize(
                     conversation_id=conversation_id,
                     run_id=run_id,
+                    project_id=project_id,
+                    tenant_id=tenant_id,
                     subagent=subagent,
                     cancelled_by_control=cancelled_by_control,
                     summary=summary,
@@ -1191,6 +1212,8 @@ class SubAgentSessionRunner:
         await self.launch_emit_lifecycle_hooks(
             conversation_id=conversation_id,
             run_id=run_id,
+            project_id=project_id,
+            tenant_id=tenant_id,
             subagent=subagent,
             normalized_spawn_mode=normalized_spawn_mode,
             thread_requested=thread_requested,
