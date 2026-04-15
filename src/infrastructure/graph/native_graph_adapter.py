@@ -1042,14 +1042,7 @@ class NativeGraphAdapter(GraphServicePort):
         Returns:
             True if deletion was successful
         """
-        try:
-            query = "MATCH (e:Episodic {memory_id: $memory_id}) DETACH DELETE e"
-            await self._neo4j_client.execute_query(query, memory_id=memory_id)
-            return True
-
-        except Exception as e:
-            logger.warning(f"Failed to delete episode by memory_id {memory_id}: {e}")
-            return False
+        return await self.remove_episode_by_memory_id(memory_id)
 
     @override
     async def remove_episode(self, episode_uuid: str) -> bool:

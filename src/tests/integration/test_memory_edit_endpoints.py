@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.adapters.secondary.persistence.models import (
     Memory,
+    MemoryChunk,
     MemoryShare,
     Project,
     User,
@@ -93,6 +94,38 @@ class TestMemoryUpdateEndpoint:
         data = response.json()
         assert data["title"] == "New Title Only"
         assert data["content"] == original_content  # Content unchanged
+
+    async def test_update_memory_refreshes_searchable_chunks(
+        self,
+        async_client: AsyncClient,
+        db: AsyncSession,
+        test_memory_db: "Memory",
+    ):
+        update_data = {
+            "content": "Updated searchable content for memory chunks.",
+            "metadata": {"category": "decision"},
+            "version": test_memory_db.version,
+        }
+
+        response = await async_client.patch(
+            f"/api/v1/memories/{test_memory_db.id}",
+            json=update_data,
+        )
+
+        assert response.status_code == 200
+
+        result = await db.execute(
+            select(MemoryChunk).where(
+                MemoryChunk.project_id == test_memory_db.project_id,
+                MemoryChunk.source_type == "memory",
+                MemoryChunk.source_id == test_memory_db.id,
+            )
+        )
+        chunks = list(result.scalars().all())
+
+        assert chunks
+        assert any("Updated searchable content" in chunk.content for chunk in chunks)
+        assert all(chunk.category == "decision" for chunk in chunks)
 
     async def test_update_memory_with_edit_permission(
         self,

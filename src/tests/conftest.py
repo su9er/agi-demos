@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.compiler import compiles
 
 # DI Container
 from src.configuration.di_container import DIContainer
@@ -48,6 +50,12 @@ TEST_PROJECT_ID = "550e8400-e29b-41d4-a716-446655440002"
 TEST_MEMORY_ID = "550e8400-e29b-41d4-a716-446655440003"
 
 # --- Database Fixtures ---
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_for_sqlite(_type, _compiler, **_kw) -> str:
+    """Allow SQLite-backed tests to create tables that use PostgreSQL JSONB."""
+    return "JSON"
 
 
 @pytest.fixture
@@ -424,6 +432,7 @@ def mock_graph_service(mock_neo4j_client):
     service = Mock()
     # Expose the underlying client for tests that need direct Neo4j access
     service.client = mock_neo4j_client
+    service.embedder = None
 
     # Mock GraphServicePort methods
     service.add_episode = AsyncMock()
@@ -431,6 +440,7 @@ def mock_graph_service(mock_neo4j_client):
     service.hybrid_search = AsyncMock(return_value=[])
     service.get_graph_data = AsyncMock(return_value={"nodes": [], "edges": []})
     service.delete_episode = AsyncMock(return_value=True)
+    service.delete_episode_by_memory_id = AsyncMock(return_value=True)
     service.remove_episode = AsyncMock(return_value=True)
     service.remove_episode_by_memory_id = AsyncMock(return_value=True)
 

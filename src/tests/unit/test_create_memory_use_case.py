@@ -49,6 +49,9 @@ async def test_create_memory_success(mock_repo, mock_graph_service):
     mock_repo.save.assert_called_once()
     saved_memory = mock_repo.save.call_args[0][0]
     assert saved_memory.title == "Test Memory"
+    assert saved_memory.metadata["tenant_id"] == "tenant_123"
+    assert saved_memory.metadata["project_id"] == "proj_123"
+    assert saved_memory.metadata["user_id"] == "user_123"
 
     # Verify graph service call
     mock_graph_service.add_episode.assert_called_once()

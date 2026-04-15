@@ -8,13 +8,14 @@ Tests:
 
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.infrastructure.adapters.secondary.persistence.models import Memory
+from src.infrastructure.adapters.secondary.persistence.models import Memory, MemoryChunk
 
 
 @pytest.mark.asyncio
@@ -131,27 +132,48 @@ class TestMemoryWorkflowNew:
         assert data["processing_status"] == "PENDING"
         assert data["task_id"] is not None
 
-    async def test_delete_memory_uses_graphiti_remove(
+    async def test_delete_memory_uses_memory_id_graph_cleanup(
         self,
         async_client: AsyncClient,
         test_memory_db: "Memory",
         mock_graph_service,
         db: AsyncSession,
     ):
-        """Test delete memory uses correct graphiti remove_episode method.
+        """Test delete memory uses the canonical memory-id cleanup method.
 
         This test verifies that the dependency override chain is correctly set up:
         - The router uses get_graph_service() dependency
         - conftest.py overrides get_graph_service to return mock_graph_service
-        - mock_graph_service.remove_episode should be called with the memory ID
+        - mock_graph_service.delete_episode_by_memory_id should be called with the memory ID
         """
+        db.add(
+            MemoryChunk(
+                id=str(uuid4()),
+                project_id=test_memory_db.project_id,
+                source_type="memory",
+                source_id=test_memory_db.id,
+                chunk_index=0,
+                content="chunk to delete",
+                content_hash="hash-to-delete",
+                category="fact",
+            )
+        )
+        await db.commit()
+
         # Act
         response = await async_client.delete(f"/api/v1/memories/{test_memory_db.id}")
 
         # Assert
         assert response.status_code == 204
 
-        # Verify graph_service.remove_episode was called
-        # The router now uses graph_service.remove_episode(memory_id) directly
-        assert mock_graph_service.remove_episode.called
-        mock_graph_service.remove_episode.assert_called_with(test_memory_db.id)
+        assert mock_graph_service.delete_episode_by_memory_id.called
+        mock_graph_service.delete_episode_by_memory_id.assert_called_with(test_memory_db.id)
+
+        chunk_result = await db.execute(
+            select(MemoryChunk).where(
+                MemoryChunk.project_id == test_memory_db.project_id,
+                MemoryChunk.source_type == "memory",
+                MemoryChunk.source_id == test_memory_db.id,
+            )
+        )
+        assert list(chunk_result.scalars().all()) == []

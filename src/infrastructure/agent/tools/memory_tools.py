@@ -13,10 +13,8 @@ rather than relying solely on automatic recall.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import uuid as uuid_mod
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -387,9 +385,13 @@ async def _execute_memory_create(
     session = session_factory()
     try:
         from src.application.services.memory_service import MemoryService
+        from src.infrastructure.adapters.secondary.persistence.sql_chunk_repository import (
+            SqlChunkRepository,
+        )
         from src.infrastructure.adapters.secondary.persistence.sql_memory_repository import (
             SqlMemoryRepository,
         )
+        from src.infrastructure.memory.chunk_sync import upsert_memory_chunks
 
         repo = SqlMemoryRepository(session)
         service = MemoryService(
@@ -410,42 +412,21 @@ async def _execute_memory_create(
 
         await session.commit()
 
-        # Create a searchable MemoryChunk with embedding for vector search
-        # Generate embedding inline so the chunk is immediately searchable
+        # Sync searchable chunks via the shared helper after the primary write commits.
         try:
-            from src.infrastructure.adapters.secondary.persistence.models import (
-                MemoryChunk,
-            )
-
-            # Generate embedding for vector search (graceful degradation)
-            embedding: list[float] | None = None
-            emb_svc = embedding_service or _memcreate_embedding_service
-            if emb_svc:
-                try:
-                    embedding = await emb_svc.embed_text(content)
-                except Exception as emb_err:
-                    logger.warning(
-                        "memory_create: embedding generation failed, "+
-                        "chunk will be saved without embedding: %s",
-                        emb_err,
-                    )
-
-            chunk = MemoryChunk(
-                id=str(uuid_mod.uuid4()),
-                project_id=project_id,
-                source_type="memory",
-                source_id=memory.id,
-                chunk_index=0,
+            chunk_repo = SqlChunkRepository(session)
+            await upsert_memory_chunks(
+                chunk_repo,
+                memory_id=memory.id,
                 content=content,
-                content_hash=hashlib.sha256(content.encode()).hexdigest(),
+                project_id=project_id,
                 category=category,
-                embedding=embedding,
-                metadata_={"title": title, "tags": tags, "source": "agent_tool"},
+                metadata={"title": title, "tags": tags, "source": "agent_tool"},
+                embedding_service=embedding_service or _memcreate_embedding_service,
             )
-            session.add(chunk)
             await session.commit()
         except Exception as chunk_err:
-            logger.warning("memory_create: failed to create searchable chunk: %s", chunk_err)
+            logger.warning("memory_create: failed to sync searchable chunks: %s", chunk_err)
 
         logger.info(
             "memory_create: created memory %s for project %s",
@@ -572,8 +553,15 @@ async def _execute_memory_update(
     session = session_factory()
     try:
         from src.application.services.memory_service import MemoryService
+        from src.infrastructure.adapters.secondary.persistence.sql_chunk_repository import (
+            SqlChunkRepository,
+        )
         from src.infrastructure.adapters.secondary.persistence.sql_memory_repository import (
             SqlMemoryRepository,
+        )
+        from src.infrastructure.memory.chunk_sync import (
+            normalize_memory_chunk_category,
+            upsert_memory_chunks,
         )
 
         repo = SqlMemoryRepository(session)
@@ -592,52 +580,34 @@ async def _execute_memory_update(
 
         await session.commit()
 
-        # Sync MemoryChunk rows so memory_get returns updated content
+        # Sync searchable chunks through the shared helper whenever searchable
+        # content or metadata may have changed.
         try:
-            from sqlalchemy import update as sa_update
-
-            from src.infrastructure.adapters.secondary.persistence.models import (
-                MemoryChunk,
-            )
-
-            update_values: dict[str, Any] = {}
-            if content is not None:
-                update_values["content"] = content
-                update_values["content_hash"] = hashlib.sha256(
-                    content.encode()
-                ).hexdigest()
-                # Regenerate embedding for updated content
-                emb_svc = _memcreate_embedding_service
-                if emb_svc:
-                    try:
-                        new_embedding = await emb_svc.embed_text(content)
-                        if new_embedding is not None:
-                            update_values["embedding"] = new_embedding
-                    except Exception as emb_err:
-                        logger.warning(
-                            "memory_update: embedding re-generation failed, "
-                            + "keeping old embedding: %s",
-                            emb_err,
-                        )
-            if title is not None or tags is not None:
-                # Rebuild metadata_ JSON with updated title/tags
-                update_values["metadata_"] = {
-                    "title": title if title is not None else memory.title,
-                    "tags": tags if tags is not None else memory.tags,
-                    "source": "agent_tool",
-                }
-            if update_values:
-                stmt = (
-                    sa_update(MemoryChunk)
-                    .where(MemoryChunk.source_id == memory_id)
-                    .values(**update_values)
+            if (
+                content is not None
+                or title is not None
+                or tags is not None
+                or (metadata is not None and "category" in metadata)
+            ):
+                chunk_repo = SqlChunkRepository(session)
+                await upsert_memory_chunks(
+                    chunk_repo,
+                    memory_id=memory.id,
+                    content=memory.content,
+                    project_id=memory.project_id,
+                    category=normalize_memory_chunk_category(
+                        memory.metadata.get("category")
+                    ),
+                    metadata={
+                        "title": memory.title,
+                        "tags": memory.tags,
+                        "source": "agent_tool",
+                    },
+                    embedding_service=_memcreate_embedding_service,
                 )
-                await session.execute(stmt)
                 await session.commit()
         except Exception as chunk_err:
-            logger.warning(
-                "memory_update: failed to sync MemoryChunk: %s", chunk_err
-            )
+            logger.warning("memory_update: failed to sync searchable chunks: %s", chunk_err)
 
         logger.info(
             "memory_update: updated memory %s",
@@ -758,11 +728,19 @@ async def _execute_memory_delete(
     session = session_factory()
     try:
         from src.application.services.memory_service import MemoryService
+        from src.infrastructure.adapters.secondary.persistence.sql_chunk_repository import (
+            SqlChunkRepository,
+        )
         from src.infrastructure.adapters.secondary.persistence.sql_memory_repository import (
             SqlMemoryRepository,
         )
+        from src.infrastructure.memory.chunk_sync import delete_memory_chunks
 
         repo = SqlMemoryRepository(session)
+        existing_memory = await repo.find_by_id(memory_id)
+        if existing_memory is None:
+            return json.dumps({"error": f"Memory {memory_id} not found"})
+
         service = MemoryService(
             memory_repo=repo,
             graph_service=graph_service,
@@ -772,22 +750,18 @@ async def _execute_memory_delete(
 
         await session.commit()
 
-        # Also delete MemoryChunk rows (memory_get reads from this table)
+        # Best-effort searchable chunk cleanup after the primary delete commits.
         try:
-            from sqlalchemy import delete as sa_delete
-
-            from src.infrastructure.adapters.secondary.persistence.models import (
-                MemoryChunk,
+            chunk_repo = SqlChunkRepository(session)
+            await delete_memory_chunks(
+                chunk_repo,
+                memory_id=memory_id,
+                project_id=existing_memory.project_id,
             )
-
-            stmt = sa_delete(MemoryChunk).where(
-                MemoryChunk.source_id == memory_id
-            )
-            await session.execute(stmt)
             await session.commit()
         except Exception as chunk_err:
             logger.warning(
-                "memory_delete: failed to remove MemoryChunk rows: %s",
+                "memory_delete: failed to remove searchable chunks: %s",
                 chunk_err,
             )
 
