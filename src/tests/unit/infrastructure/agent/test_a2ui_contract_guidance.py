@@ -47,6 +47,19 @@ def test_default_prompt_a2ui_guidance_matches_contract_fixture() -> None:
 
     assert '{"Text":{"text":{"literal":"hello"}}}' not in prompt_text
     assert '{"Text":{"text":{"literalString":"hello"}}}' in prompt_text
+    assert (
+        '{"dataModelUpdate":{"surfaceId":"<id>","path":"/","contents":[{"key":"status",'
+        '"valueString":"ok"}]}}'
+    ) in prompt_text
+    assert "canonical data binding as its own JSONL line after `surfaceUpdate`" in prompt_text
+    assert (
+        "Nested `surfaceUpdate.dataModelUpdate` may be accepted and canonicalized for "
+        "compatibility with legacy payloads, but it is not canonical authoring."
+    ) in prompt_text
+    assert (
+        "Tabs `tabItems[].child` and Modal `entryPointChild` / `contentChild` must "
+        "reference actual component IDs defined in the same surface."
+    ) in prompt_text
     assert "update the same surface to reflect the confirmed/completed state" in prompt_text
     assert "MUST update the same surface with `canvas_update`" in prompt_text
     assert "Do not leave the stale pre-submit form visible" in prompt_text
@@ -75,6 +88,19 @@ def test_canvas_tool_guidance_stays_within_contract_tiers() -> None:
         if component == "List":
             assert "must not be authored" in tool_text
 
+    assert (
+        "Nested surfaceUpdate.dataModelUpdate is accepted and canonicalized for "
+        "compatibility, but it is not canonical authoring; emit dataModelUpdate as "
+        "its own JSON line instead."
+    ) in tool_text
+    assert (
+        "Compatibility aliases Checkbox -> CheckBox and Select -> MultipleChoice are "
+        "accepted and canonicalized automatically, but do not author them by default."
+    ) in tool_text
+    assert (
+        "Tabs.tabItems[].child and Modal.entryPointChild/contentChild must reference "
+        "component ids defined in the same surface."
+    ) in tool_text
     assert "update the same surface" in tool_text
     assert "MUST call " in tool_text
     assert "`canvas_update` on the same block_id" in tool_text

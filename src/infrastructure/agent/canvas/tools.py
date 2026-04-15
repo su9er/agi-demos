@@ -160,6 +160,7 @@ def get_canvas_manager() -> CanvasManager:
                     "For a2ui_surface: A2UI JSONL messages — one JSON object per line. Required messages: "
                     '1) {"beginRendering":{"surfaceId":"<id>","root":"<root-component-id>"}} '
                     '2) {"surfaceUpdate":{"surfaceId":"<id>","components":[...]}} '
+                    '3) Optional canonical data binding as its own JSON line: {"dataModelUpdate":{"surfaceId":"<id>","path":"/","contents":[...]}} '
                     'Each component entry MUST use {"id":"<component-id>","component":{"Text|Button|Card|Column|Row|TextField|Divider|Image|CheckBox|MultipleChoice|Radio|Badge|Tabs|Modal|Table|Progress":{...}}} '
                     '— do not emit legacy {"id":"...","type":"Text",...} objects. '
                     "Available canonical components: Text, Button, Card, Column, Row, TextField, Divider, Image, CheckBox, MultipleChoice, Radio, Badge, Tabs, Modal, Table, Progress. "
@@ -176,7 +177,9 @@ def get_canvas_manager() -> CanvasManager:
                     'Modal uses entryPointChild + contentChild ids: {"Modal":{"entryPointChild":"open-modal","contentChild":"modal-body"}}. '
                     'Table uses columns + rows: {"Table":{"columns":[{"header":{"literalString":"Name"}}],"rows":[{"cells":[{"literalString":"Alice"}]}]}}. '
                     'Progress uses NumberValue bindings: {"Progress":{"label":{"literalString":"Completion"},"value":{"path":"/progress/current"},"max":{"literalNumber":100}}}. '
+                    "Tabs.tabItems[].child and Modal.entryPointChild/contentChild must reference component ids defined in the same surface. "
                     "Accepted compatibility aliases: Checkbox -> CheckBox and Select -> MultipleChoice. "
+                    "Nested surfaceUpdate.dataModelUpdate is accepted and canonicalized for compatibility, but it is not canonical authoring; emit dataModelUpdate as its own JSON line instead. "
                     "Renderer-only backward-compat payloads such as List may render in history/replay paths but must not be authored. "
                     "Column/Row gap may be a number (treated as px). Card.title may be a string or an inline Text component, which will be hoisted into Card.children. "
                     "TextField default input values can be seeded with a matching dataModelUpdate message. "
@@ -359,11 +362,9 @@ async def canvas_update(
         if content is not None:
             if existing.block_type.value == "a2ui_surface":
                 _validate_a2ui_syntax(content)
-                existing_surface_id = (
-                    existing.metadata.get("surface_id")
-                    if isinstance(existing.metadata, dict)
-                    else None
-                ) or extract_surface_id(existing.content)
+                existing_surface_id = existing.metadata.get("surface_id") or extract_surface_id(
+                    existing.content
+                )
                 if isinstance(existing_surface_id, str) and existing_surface_id:
                     validation_error = validate_a2ui_incremental_surface_id(
                         content,
@@ -529,11 +530,13 @@ async def canvas_delete(
                     '1) {"beginRendering":{"surfaceId":"<id>","root":"<root-id>"}} '
                     '2) {"surfaceUpdate":{"surfaceId":"<id>","components":[...]}}. '
                     "Do not wrap both envelopes in one markdown block or prose response. "
-                    "Do not nest dataModelUpdate inside surfaceUpdate; if needed, emit it as its own JSON line. "
+                    "Canonical authoring emits dataModelUpdate as its own JSON line. Nested surfaceUpdate.dataModelUpdate is accepted and canonicalized for compatibility, but it is not canonical authoring. "
                     'Minimal interactive example: {"beginRendering":{"surfaceId":"confirm-surface","root":"button-1"}}\n'
                     '{"surfaceUpdate":{"surfaceId":"confirm-surface","components":[{"id":"label-1","component":{"Text":{"text":{"literalString":"Confirm"}}}},{"id":"button-1","component":{"Button":{"child":"label-1","action":{"name":"confirm"}}}}]}} '
-                    'Every component entry must use {"id":"...","component":{"Text|Button|Card|Column|Row|TextField|Divider|Image|Checkbox|CheckBox|Select|MultipleChoice|Radio|Badge|Tabs|Modal|Table|Progress":{...}}}. '
+                    'Every component entry must use {"id":"...","component":{"Text|Button|Card|Column|Row|TextField|Divider|Image|CheckBox|MultipleChoice|Radio|Badge|Tabs|Modal|Table|Progress":{...}}}. '
                     'Do not use legacy {"type":"Text",...} component objects. '
+                    "Compatibility aliases Checkbox -> CheckBox and Select -> MultipleChoice are accepted and canonicalized automatically, but do not author them by default. "
+                    "Tabs.tabItems[].child and Modal.entryPointChild/contentChild must reference component ids defined in the same surface. "
                     "Button.label, numeric gap, and inline Card title Text sugar are accepted and canonicalized automatically. "
                     "Interactive surfaces must include at least one reachable Button with action.name."
                 ),

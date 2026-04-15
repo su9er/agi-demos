@@ -317,6 +317,47 @@ describe('mergeA2UIMessageStream', () => {
     expect(merged.snapshot?.data).toEqual({ status: 'ok' });
   });
 
+  it('builds the same replay snapshot for accepted+canonicalized typed envelopes as canonical messages', () => {
+    const typedMessages = getA2UIContractMessages('tier2_typed_envelopes');
+    const canonicalMessages = getA2UIContractMessages('tier1_typed_canonical');
+
+    const typedSnapshot = buildA2UIMessageStreamSnapshot(typedMessages);
+    const canonicalSnapshot = buildA2UIMessageStreamSnapshot(canonicalMessages);
+
+    expect(typedSnapshot).toEqual(canonicalSnapshot);
+  });
+
+  it('serializes accepted+canonicalized typed updates back to the canonical message stream', () => {
+    const canonicalMessages = getA2UIContractMessages('tier1_typed_canonical');
+    const typedCase = getA2UIContractCase('tier2_typed_envelopes');
+    const previousMessages = canonicalMessages.split('\n').slice(0, 2).join('\n');
+    const previousSnapshot = buildA2UIMessageStreamSnapshot(previousMessages);
+
+    const merged = mergeA2UIMessageStreamWithSnapshot(
+      previousSnapshot,
+      previousMessages,
+      JSON.stringify(typedCase.records?.[2])
+    );
+
+    expect(merged.snapshot).toEqual(buildA2UIMessageStreamSnapshot(canonicalMessages));
+    expect(merged.messages.split('\n').map((record) => JSON.parse(record))).toEqual(
+      canonicalMessages.split('\n').map((record) => JSON.parse(record))
+    );
+  });
+
+  it('materializes repeated canonical dataModelUpdate fixtures into a stable replay snapshot', () => {
+    const messages = getA2UIContractMessages('tier1_repeated_data_model_updates');
+
+    const snapshot = buildA2UIMessageStreamSnapshot(messages);
+
+    expect(snapshot?.surfaceId).toBe('multi-update-surface');
+    expect(snapshot?.root).toBe('status-text');
+    expect(snapshot?.data).toEqual({
+      status: 'queued',
+      progress: { current: 2 },
+    });
+  });
+
   it('canonicalizes tier2 legacy alias fixtures before snapshot persistence', () => {
     const messages = getA2UIContractMessages('tier2_legacy_aliases');
 

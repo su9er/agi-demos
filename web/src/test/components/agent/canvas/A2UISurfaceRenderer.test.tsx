@@ -199,6 +199,77 @@ describe('A2UISurfaceRenderer', () => {
     expect(textComponent?.text?.literalString).toBe('Historical hello');
   });
 
+  it('renders accepted+canonicalized typed envelopes through the snapshot replay path', () => {
+    const contractCase = getA2UIContractCase('tier2_typed_envelopes');
+    const messages = getA2UIContractMessages(contractCase.id);
+    const snapshot = buildA2UIMessageStreamSnapshot(messages);
+
+    render(
+      <A2UISurfaceRenderer
+        surfaceId={contractCase.identity?.surfaceId ?? 'typed-surface'}
+        messages="not-json"
+        snapshot={snapshot}
+      />
+    );
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+    expect(viewerSpy.mock.calls[0]?.[0]).toMatchObject({
+      root: 'root-1',
+      data: { status: 'ok' },
+    });
+
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+    const textComponent = props?.components?.find((entry) => entry.id === 'root-1')?.component
+      ?.Text as { text?: { literalString?: string } } | undefined;
+    expect(textComponent?.text?.literalString).toBe('Typed hello');
+  });
+
+  it('renders the shared Tabs and Modal contract fixture through the canonical message path', () => {
+    const contractCase = getA2UIContractCase('tier1_tabs_modal_complete');
+    const messages = getA2UIContractMessages(contractCase.id);
+
+    render(
+      <A2UISurfaceRenderer
+        surfaceId={contractCase.identity?.surfaceId ?? 'references-surface'}
+        messages={messages}
+      />
+    );
+
+    expect(screen.queryByText(waitingText)).not.toBeInTheDocument();
+    expect(viewerSpy).toHaveBeenCalledTimes(1);
+
+    const props = viewerSpy.mock.calls[0]?.[0] as
+      | {
+          root?: string;
+          components?: Array<{ id: string; component: Record<string, unknown> }>;
+        }
+      | undefined;
+
+    expect(props?.root).toBe('layout-1');
+
+    const tabsComponent = props?.components?.find((entry) => entry.id === 'tabs-1')?.component
+      ?.Tabs as
+      | {
+          tabItems?: Array<{ title?: { literalString?: string }; child?: string }>;
+        }
+      | undefined;
+    expect(tabsComponent?.tabItems).toEqual([
+      { title: { literalString: 'Overview' }, child: 'tab-panel-1' },
+    ]);
+
+    const modalComponent = props?.components?.find((entry) => entry.id === 'modal-1')?.component
+      ?.Modal as { entryPointChild?: string; contentChild?: string } | undefined;
+    expect(modalComponent).toEqual({
+      entryPointChild: 'modal-trigger-1',
+      contentChild: 'modal-body-1',
+    });
+  });
+
   it('renders Card payloads with explicit children', () => {
     const cardComponents = [
       {

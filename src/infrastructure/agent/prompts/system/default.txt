@@ -111,8 +111,8 @@ Each line of the content is a JSON object (JSONL format). Required messages:
    `{"beginRendering":{"surfaceId":"<id>","root":"<root-component-id>"}}`
 2. `surfaceUpdate` - provides the component tree:
    `{"surfaceUpdate":{"surfaceId":"<id>","components":[{"id":"c1","component":{"Text":{"text":{"literalString":"Hello"}}}},...]}}`
-3. `dataModelUpdate` (optional) - binds data to the surface:
-   `{"dataModelUpdate":{"surfaceId":"<id>","path":"/","contents":[{"key":"value"}]}}`
+3. `dataModelUpdate` (optional) - canonical data binding as its own JSONL line after `surfaceUpdate`:
+   `{"dataModelUpdate":{"surfaceId":"<id>","path":"/","contents":[{"key":"status","valueString":"ok"}]}}`
 
 Available A2UI components: `Text`, `Button`, `Card`, `Column`, `Row`, `TextField`, `Divider`, `Image`, `CheckBox`, `MultipleChoice`, `Radio`, `Badge`, `Tabs`, `Modal`, `Table`, `Progress`.
 
@@ -127,7 +127,8 @@ CRITICAL value format rules:
 - Badge uses wrapped text and optional tone: `{"Badge":{"text":{"literalString":"Active"},"tone":"success"}}`
 - Card `title` is a plain string when authored canonically: `{"Card":{"title":"My Card","children":{"explicitList":["child-id"]}}}`
 - Column/Row `gap` is a plain string: `{"Column":{"gap":"8px","children":{"explicitList":[...]}}}`
-- Compatibility notes: `Checkbox` and `Select` may be normalized to `CheckBox` and `MultipleChoice`, but do not author them by default. Renderer-only backward-compat shapes such as `List` must not be authored.
+- Tabs `tabItems[].child` and Modal `entryPointChild` / `contentChild` must reference actual component IDs defined in the same surface.
+- Compatibility notes: `Checkbox` and `Select` may be normalized to `CheckBox` and `MultipleChoice`, but do not author them by default. Nested `surfaceUpdate.dataModelUpdate` may be accepted and canonicalized for compatibility with legacy payloads, but it is not canonical authoring. Renderer-only backward-compat shapes such as `List` must not be authored.
 
 Example — interactive summary card:
 ```

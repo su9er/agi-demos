@@ -32,6 +32,10 @@ from src.tests.unit.agent.canvas.a2ui_contract_fixtures import (
     get_a2ui_contract_case,
     iter_backend_contract_cases,
 )
+from src.tests.unit.agent.canvas.native_block_contract_fixtures import (
+    iter_native_block_contract_cases,
+    serialize_native_block_content,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -479,6 +483,62 @@ class TestCanvasTools:
 
         result = await canvas_delete.execute(ctx, block_id="nonexistent")
         assert result.is_error
+
+        configure_canvas(None)  # reset global
+
+    @pytest.mark.parametrize(
+        "case",
+        iter_native_block_contract_cases(target="backend"),
+        ids=lambda case: str(case["id"]),
+    )
+    async def test_canvas_native_block_lifecycle_from_shared_contract_cases(
+        self, ctx: ToolContext, case: dict[str, object]
+    ) -> None:
+        mgr = CanvasManager()
+        configure_canvas(mgr)
+        block_type = str(case["blockType"])
+        title = str(case["title"])
+        updated_title = str(case.get("updatedTitle", f"Updated {title}"))
+        initial_content = serialize_native_block_content(case["content"])
+        updated_content = serialize_native_block_content(case.get("updatedContent", case["content"]))
+
+        create_result = await canvas_create.execute(
+            ctx,
+            block_type=block_type,
+            title=title,
+            content=initial_content,
+        )
+        assert not create_result.is_error
+        block_id = json.loads(create_result.output)["block_id"]
+
+        create_events = ctx.consume_pending_events()
+        assert create_events[0]["data"]["action"] == "created"
+        assert create_events[0]["data"]["block"]["block_type"] == block_type
+
+        update_result = await canvas_update.execute(
+            ctx,
+            block_id=block_id,
+            title=updated_title,
+            content=updated_content,
+        )
+        assert not update_result.is_error
+        update_data = json.loads(update_result.output)
+        assert update_data["version"] == 3
+
+        update_events = ctx.consume_pending_events()
+        assert update_events[0]["data"]["action"] == "updated"
+        assert update_events[0]["data"]["block"]["title"] == updated_title
+        assert update_events[0]["data"]["block"]["content"] == updated_content
+        assert update_events[0]["data"]["block"]["version"] == 3
+
+        delete_result = await canvas_delete.execute(ctx, block_id=block_id)
+        assert not delete_result.is_error
+        delete_data = json.loads(delete_result.output)
+        assert delete_data["deleted"] is True
+
+        delete_events = ctx.consume_pending_events()
+        assert delete_events[0]["data"]["action"] == "deleted"
+        assert delete_events[0]["data"]["block"] is None
 
         configure_canvas(None)  # reset global
 

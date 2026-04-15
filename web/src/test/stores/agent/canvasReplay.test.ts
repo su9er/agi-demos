@@ -7,6 +7,10 @@ import {
   getA2UIContractMessages,
   getA2UIContractSnapshot,
 } from '../../fixtures/a2uiContractFixtures';
+import {
+  getNativeBlockFixtureCase,
+  serializeNativeBlockContent,
+} from '../../fixtures/canvasNativeBlockFixtures';
 
 describe('canvasReplay', () => {
   beforeEach(() => {
@@ -191,5 +195,98 @@ describe('canvasReplay', () => {
     expect(tab?.a2uiSnapshot?.surfaceId).toBe('surface-42');
     expect(Array.isArray(tab?.a2uiSnapshot?.components)).toBe(false);
     expect(tab?.a2uiMessages).toBe('not-json');
+  });
+
+  it.each([
+    'chart_top_level_datasets',
+    'widget_html_preview',
+  ])('replays native canvas block contract case %s into the correct tab type', (caseId) => {
+    const fixtureCase = getNativeBlockFixtureCase(caseId);
+    const updatedContent = serializeNativeBlockContent(
+      fixtureCase.updatedContent ?? fixtureCase.content
+    );
+    const updatedTitle = fixtureCase.updatedTitle ?? `${fixtureCase.title} Updated`;
+
+    replayCanvasEventsFromTimeline([
+      {
+        id: `${caseId}-create`,
+        type: 'canvas_updated',
+        eventTimeUs: 1,
+        eventCounter: 1,
+        timestamp: 1,
+        action: 'created',
+        block_id: `block-${caseId}`,
+        block: {
+          id: `block-${caseId}`,
+          block_type: fixtureCase.blockType,
+          title: fixtureCase.title,
+          content: serializeNativeBlockContent(fixtureCase.content),
+          metadata: {},
+          version: 1,
+        },
+      } as any,
+      {
+        id: `${caseId}-update`,
+        type: 'canvas_updated',
+        eventTimeUs: 2,
+        eventCounter: 2,
+        timestamp: 2,
+        action: 'updated',
+        block_id: `block-${caseId}`,
+        block: {
+          id: `block-${caseId}`,
+          block_type: fixtureCase.blockType,
+          title: updatedTitle,
+          content: updatedContent,
+          metadata: {},
+          version: 2,
+        },
+      } as any,
+    ]);
+
+    const tab = useCanvasStore.getState().tabs.find((item) => item.id === `block-${caseId}`);
+    expect(tab?.type).toBe(fixtureCase.expected.frontendTabType);
+    expect(tab?.title).toBe(updatedTitle);
+    expect(tab?.content).toBe(updatedContent);
+    expect(useLayoutModeStore.getState().mode).toBe('canvas');
+  });
+
+  it.each([
+    'chart_top_level_datasets',
+    'widget_html_preview',
+  ])('opens a native tab from replay when only an updated event exists for %s', (caseId) => {
+    const fixtureCase = getNativeBlockFixtureCase(caseId);
+    const updatedContent = serializeNativeBlockContent(
+      fixtureCase.updatedContent ?? fixtureCase.content
+    );
+    const updatedTitle = fixtureCase.updatedTitle ?? `${fixtureCase.title} Updated`;
+
+    replayCanvasEventsFromTimeline([
+      {
+        id: `${caseId}-update-only`,
+        type: 'canvas_updated',
+        eventTimeUs: 1,
+        eventCounter: 1,
+        timestamp: 1,
+        action: 'updated',
+        block_id: `block-${caseId}-update-only`,
+        block: {
+          id: `block-${caseId}-update-only`,
+          block_type: fixtureCase.blockType,
+          title: updatedTitle,
+          content: updatedContent,
+          metadata: {},
+          version: 2,
+        },
+      } as any,
+    ]);
+
+    const tab = useCanvasStore.getState().tabs.find(
+      (item) => item.id === `block-${caseId}-update-only`
+    );
+    expect(tab?.type).toBe(fixtureCase.expected.frontendTabType);
+    expect(tab?.title).toBe(updatedTitle);
+    expect(tab?.content).toBe(updatedContent);
+    expect(useLayoutModeStore.getState().mode).toBe('canvas');
   });
 });

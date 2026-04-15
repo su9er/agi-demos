@@ -63,6 +63,54 @@ def test_build_timeline_includes_a2ui_action_asked() -> None:
     ]
 
 
+def test_build_timeline_preserves_canvas_updated_payload_shape() -> None:
+    timeline = _build_timeline(
+        events=[
+            _StubEvent(
+                event_type="canvas_updated",
+                event_data={
+                    "action": "updated",
+                    "block_id": "block-chart-1",
+                    "block": {
+                        "id": "block-chart-1",
+                        "block_type": "chart",
+                        "title": "Sales Chart",
+                        "content": '{"labels":["Jan"],"datasets":[{"label":"Sales","data":[12]}]}',
+                        "metadata": {"mime_type": "application/json"},
+                        "version": 2,
+                    },
+                },
+            )
+        ],
+        tool_exec_map={},
+        hitl_answered_map={},
+        hitl_status_map={},
+        artifact_ready_map={},
+        artifact_error_map={},
+        completion_map={},
+    )
+
+    assert timeline == [
+        {
+            "id": "canvas_updated-1000-0",
+            "type": "canvas_updated",
+            "eventTimeUs": 1_000,
+            "eventCounter": 0,
+            "timestamp": 1,
+            "action": "updated",
+            "block_id": "block-chart-1",
+            "block": {
+                "id": "block-chart-1",
+                "block_type": "chart",
+                "title": "Sales Chart",
+                "content": '{"labels":["Jan"],"datasets":[{"label":"Sales","data":[12]}]}',
+                "metadata": {"mime_type": "application/json"},
+                "version": 2,
+            },
+        }
+    ]
+
+
 def test_build_timeline_merges_complete_metadata_into_assistant_message() -> None:
     assistant_event = _StubEvent(
         event_type="assistant_message",

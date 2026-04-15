@@ -569,6 +569,32 @@ class TestSharedA2UIContractFixtures:
         assert error is not None
         assert "Invalid A2UI payload" in error
 
+    @pytest.mark.parametrize(
+        ("case_id", "expected_fragment"),
+        [
+            (
+                "invalid_tabs_missing_child_reference",
+                "Tabs.tabItems[*].child must reference existing component ids",
+            ),
+            (
+                "invalid_modal_missing_content_reference",
+                "Modal entryPointChild/contentChild must reference existing component ids",
+            ),
+        ],
+    )
+    def test_invalid_reference_cases_report_actionable_errors(
+        self,
+        case_id: str,
+        expected_fragment: str,
+    ) -> None:
+        case = get_a2ui_contract_case(case_id)
+        payload = contract_case_jsonl(case)
+
+        error = validate_a2ui_messages(payload, require_initial_render=True)
+
+        assert error is not None
+        assert expected_fragment in error
+
     def test_accepts_empty_children_lists(self) -> None:
         payload = "\n".join(
             [

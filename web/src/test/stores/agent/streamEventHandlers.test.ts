@@ -3,6 +3,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createStreamEventHandlers } from '../../../stores/agent/streamEventHandlers';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { useLayoutModeStore } from '../../../stores/layoutMode';
+import { getA2UIContractCase, getA2UIContractMessages } from '../../fixtures/a2uiContractFixtures';
+import {
+  getNativeBlockFixtureCase,
+  serializeNativeBlockContent,
+} from '../../fixtures/canvasNativeBlockFixtures';
 import { appendSSEEventToTimeline } from '../../../utils/sseEventAdapter';
 
 import type {
@@ -733,6 +738,78 @@ describe('streamEventHandlers', () => {
     expect(tab?.a2uiHitlRequestId).toBeUndefined();
   });
 
+  it('should preserve surface continuity when a post-interaction update clears the HITL marker', () => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    const contractCase = getA2UIContractCase('identity_interactive_request');
+    const initialContent = getA2UIContractMessages(contractCase.id);
+    const incrementalContent = JSON.stringify({
+      dataModelUpdate: {
+        surfaceId: contractCase.identity?.surfaceId,
+        path: '/',
+        contents: [
+          { key: 'status', valueString: 'done' },
+          { key: 'approved', valueBoolean: true },
+        ],
+      },
+    });
+
+    handlers.onA2UIActionAsked!({
+      type: 'a2ui_action_asked',
+      data: {
+        request_id: contractCase.identity?.hitlRequestId,
+        conversation_id: conversationId,
+        block_id: 'block-1',
+      } as any,
+    });
+
+    handlers.onCanvasUpdated!({
+      type: 'canvas_updated',
+      data: {
+        conversation_id: conversationId,
+        block_id: 'block-1',
+        action: 'created',
+        block: {
+          id: 'block-1',
+          block_type: 'a2ui_surface',
+          title: 'Surface',
+          content: initialContent,
+          metadata: {
+            surface_id: contractCase.identity?.metadataSurfaceId,
+            hitl_request_id: contractCase.identity?.hitlRequestId,
+          },
+          version: 1,
+        },
+      } as any,
+    });
+
+    handlers.onCanvasUpdated!({
+      type: 'canvas_updated',
+      data: {
+        conversation_id: conversationId,
+        block_id: 'block-1',
+        action: 'updated',
+        block: {
+          id: 'block-1',
+          block_type: 'a2ui_surface',
+          title: 'Surface',
+          content: incrementalContent,
+          metadata: {
+            surface_id: contractCase.identity?.metadataSurfaceId,
+            hitl_request_id: '',
+          },
+          version: 2,
+        },
+      } as any,
+    });
+
+    const tab = useCanvasStore.getState().tabs.find((item) => item.id === 'block-1');
+    expect(tab?.a2uiSurfaceId).toBe(contractCase.identity?.metadataSurfaceId);
+    expect(tab?.a2uiHitlRequestId).toBeUndefined();
+    expect(tab?.a2uiMessages).toContain('"dataModelUpdate"');
+    expect(tab?.a2uiSnapshot?.data).toEqual({ status: 'done', approved: true });
+    expect(tab?.a2uiSnapshot?.root).toBe('root-1');
+  });
+
   it('should append a2ui_action_asked to the timeline', () => {
     const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
 
@@ -822,6 +899,100 @@ describe('streamEventHandlers', () => {
 
     const tab = useCanvasStore.getState().tabs.find((item) => item.id === 'block-shared');
     expect(tab?.a2uiHitlRequestId).toBeUndefined();
+  });
+
+  it.each([
+    'chart_top_level_datasets',
+    'widget_html_preview',
+  ])(
+    'should map native canvas block contract case %s into the expected tab type and update path',
+    (caseId) => {
+      const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+      const fixtureCase = getNativeBlockFixtureCase(caseId);
+      const blockId = `block-${caseId}`;
+      const updatedContent = serializeNativeBlockContent(
+        fixtureCase.updatedContent ?? fixtureCase.content
+      );
+      const updatedTitle = fixtureCase.updatedTitle ?? `${fixtureCase.title} Updated`;
+
+      handlers.onCanvasUpdated!({
+        type: 'canvas_updated',
+        data: {
+          conversation_id: conversationId,
+          block_id: blockId,
+          action: 'created',
+          block: {
+            id: blockId,
+            block_type: fixtureCase.blockType,
+            title: fixtureCase.title,
+            content: serializeNativeBlockContent(fixtureCase.content),
+            metadata: {},
+            version: 1,
+          },
+        } as any,
+      });
+
+      handlers.onCanvasUpdated!({
+        type: 'canvas_updated',
+        data: {
+          conversation_id: conversationId,
+          block_id: blockId,
+          action: 'updated',
+          block: {
+            id: blockId,
+            block_type: fixtureCase.blockType,
+            title: updatedTitle,
+            content: updatedContent,
+            metadata: {},
+            version: 2,
+          },
+        } as any,
+      });
+
+      const tab = useCanvasStore.getState().tabs.find((item) => item.id === blockId);
+      expect(tab?.type).toBe(fixtureCase.expected.frontendTabType);
+      expect(tab?.title).toBe(updatedTitle);
+      expect(tab?.content).toBe(updatedContent);
+      expect(mockState.timeline.some((item: any) => item.type === 'canvas_updated')).toBe(true);
+      expect(useLayoutModeStore.getState().mode).toBe('canvas');
+    }
+  );
+
+  it.each([
+    'chart_top_level_datasets',
+    'widget_html_preview',
+  ])('should open a native tab from update-only canvas events for %s', (caseId) => {
+    const handlers = createStreamEventHandlers(conversationId, undefined, mockDeps);
+    const fixtureCase = getNativeBlockFixtureCase(caseId);
+    const blockId = `block-${caseId}-update-only`;
+    const updatedContent = serializeNativeBlockContent(
+      fixtureCase.updatedContent ?? fixtureCase.content
+    );
+    const updatedTitle = fixtureCase.updatedTitle ?? `${fixtureCase.title} Updated`;
+
+    handlers.onCanvasUpdated!({
+      type: 'canvas_updated',
+      data: {
+        conversation_id: conversationId,
+        block_id: blockId,
+        action: 'updated',
+        block: {
+          id: blockId,
+          block_type: fixtureCase.blockType,
+          title: updatedTitle,
+          content: updatedContent,
+          metadata: {},
+          version: 2,
+        },
+      } as any,
+    });
+
+    const tab = useCanvasStore.getState().tabs.find((item) => item.id === blockId);
+    expect(tab?.type).toBe(fixtureCase.expected.frontendTabType);
+    expect(tab?.title).toBe(updatedTitle);
+    expect(tab?.content).toBe(updatedContent);
+    expect(mockState.timeline.some((item: any) => item.type === 'canvas_updated')).toBe(true);
+    expect(useLayoutModeStore.getState().mode).toBe('canvas');
   });
 
   it('should buffer and flush onThoughtDelta', () => {

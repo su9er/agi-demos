@@ -440,6 +440,275 @@
       }
     },
     {
+      "id": "tier1_canonical_data_binding",
+      "tier": "tier1",
+      "targets": [
+        "backend",
+        "frontend"
+      ],
+      "description": "Canonical data binding emitted as its own top-level dataModelUpdate JSONL line.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "binding-surface",
+            "root": "success-card"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "binding-surface",
+            "components": [
+              {
+                "id": "success-card",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literalString": "Saved"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "dataModelUpdate": {
+            "surfaceId": "binding-surface",
+            "path": "/",
+            "contents": [
+              {
+                "key": "status",
+                "valueString": "success"
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": "tier1_canonical_data_binding",
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "binding-surface",
+        "metadataSurfaceId": "binding-surface"
+      }
+    },
+    {
+      "id": "tier2_nested_data_model_update",
+      "tier": "tier2",
+      "targets": [
+        "backend",
+        "frontend"
+      ],
+      "description": "Compatibility-only nested surfaceUpdate.dataModelUpdate payload that must be hoisted and canonicalized into a top-level dataModelUpdate line.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "binding-surface",
+            "root": "success-card"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "binding-surface",
+            "dataModelUpdate": {
+              "path": "/",
+              "contents": [
+                {
+                  "key": "status",
+                  "valueString": "success"
+                }
+              ]
+            },
+            "components": [
+              {
+                "id": "success-card",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literal": "Saved"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": "tier1_canonical_data_binding",
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "binding-surface",
+        "metadataSurfaceId": "binding-surface"
+      }
+    },
+    {
+      "id": "tier1_repeated_data_model_updates",
+      "tier": "tier1",
+      "targets": [
+        "backend",
+        "frontend"
+      ],
+      "description": "Canonical repeated top-level dataModelUpdate envelopes remain valid for incremental replay and persistence.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "multi-update-surface",
+            "root": "status-text"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "multi-update-surface",
+            "components": [
+              {
+                "id": "status-text",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literalString": "Progress"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "dataModelUpdate": {
+            "surfaceId": "multi-update-surface",
+            "path": "/",
+            "contents": [
+              {
+                "key": "status",
+                "valueString": "queued"
+              }
+            ]
+          }
+        },
+        {
+          "dataModelUpdate": {
+            "surfaceId": "multi-update-surface",
+            "path": "/progress",
+            "contents": [
+              {
+                "key": "current",
+                "valueNumber": 2
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": "tier1_repeated_data_model_updates",
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "multi-update-surface",
+        "metadataSurfaceId": "multi-update-surface"
+      }
+    },
+    {
+      "id": "tier1_tabs_modal_complete",
+      "tier": "tier1",
+      "targets": [
+        "backend",
+        "frontend"
+      ],
+      "description": "Canonical Tabs and Modal payload with valid child references defined in the same surface.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "references-surface",
+            "root": "layout-1"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "references-surface",
+            "components": [
+              {
+                "id": "layout-1",
+                "component": {
+                  "Column": {
+                    "children": {
+                      "explicitList": [
+                        "tabs-1",
+                        "tab-panel-1",
+                        "modal-1",
+                        "modal-trigger-1",
+                        "modal-body-1"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": "tabs-1",
+                "component": {
+                  "Tabs": {
+                    "tabItems": [
+                      {
+                        "title": {
+                          "literalString": "Overview"
+                        },
+                        "child": "tab-panel-1"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "tab-panel-1",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literalString": "Overview body"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "modal-1",
+                "component": {
+                  "Modal": {
+                    "entryPointChild": "modal-trigger-1",
+                    "contentChild": "modal-body-1"
+                  }
+                }
+              },
+              {
+                "id": "modal-trigger-1",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literalString": "Open"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "modal-body-1",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literalString": "Modal body"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": "tier1_tabs_modal_complete",
+      "shouldRender": true,
+      "shouldReject": false,
+      "identity": {
+        "surfaceId": "references-surface",
+        "metadataSurfaceId": "references-surface"
+      }
+    },
+    {
       "id": "tier3_historical_snapshot_object_components",
       "tier": "tier3",
       "targets": [
@@ -555,6 +824,100 @@
       "identity": {
         "surfaceId": "invalid-surface",
         "metadataSurfaceId": "invalid-surface"
+      }
+    },
+    {
+      "id": "invalid_tabs_missing_child_reference",
+      "tier": "tier2",
+      "targets": [
+        "backend"
+      ],
+      "description": "Tabs payloads must reject missing child references with an actionable error.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "invalid-tabs-surface",
+            "root": "tabs-1"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "invalid-tabs-surface",
+            "components": [
+              {
+                "id": "tabs-1",
+                "component": {
+                  "Tabs": {
+                    "tabItems": [
+                      {
+                        "title": {
+                          "literalString": "Review"
+                        },
+                        "child": "missing-body"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": null,
+      "shouldRender": false,
+      "shouldReject": true,
+      "identity": {
+        "surfaceId": "invalid-tabs-surface",
+        "metadataSurfaceId": "invalid-tabs-surface"
+      }
+    },
+    {
+      "id": "invalid_modal_missing_content_reference",
+      "tier": "tier2",
+      "targets": [
+        "backend"
+      ],
+      "description": "Modal payloads must reject missing content references with an actionable error.",
+      "records": [
+        {
+          "beginRendering": {
+            "surfaceId": "invalid-modal-surface",
+            "root": "modal-1"
+          }
+        },
+        {
+          "surfaceUpdate": {
+            "surfaceId": "invalid-modal-surface",
+            "components": [
+              {
+                "id": "modal-1",
+                "component": {
+                  "Modal": {
+                    "entryPointChild": "trigger-1",
+                    "contentChild": "missing-content"
+                  }
+                }
+              },
+              {
+                "id": "trigger-1",
+                "component": {
+                  "Text": {
+                    "text": {
+                      "literalString": "Open"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "canonicalizes_to": null,
+      "shouldRender": false,
+      "shouldReject": true,
+      "identity": {
+        "surfaceId": "invalid-modal-surface",
+        "metadataSurfaceId": "invalid-modal-surface"
       }
     },
     {

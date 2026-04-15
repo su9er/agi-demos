@@ -1,11 +1,13 @@
 """Unit tests for HITL tool handler answered events."""
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.domain.events.agent_events import (
+    AgentA2UIActionAnsweredEvent,
     AgentA2UIActionAskedEvent,
     AgentCanvasUpdatedEvent,
     AgentClarificationAnsweredEvent,
@@ -835,6 +837,82 @@ async def test_a2ui_tool_uses_shared_fixture_identity_contract() -> None:
     assert canvas_event.block["metadata"]["hitl_request_id"] == identity["hitlRequestId"]
     assert asked_event.request_id == identity["hitlRequestId"]
     assert asked_event.block_id == canvas_event.block_id
+
+    configure_canvas(None)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_a2ui_tool_preserves_surface_metadata_and_action_result_after_interaction() -> None:
+    case = get_a2ui_contract_case("identity_interactive_request")
+    identity = case["identity"]
+    coordinator = MagicMock()
+    coordinator.conversation_id = "conv-a2ui"
+    coordinator.prepare_request = AsyncMock(return_value=identity["hitlRequestId"])
+    coordinator.wait_for_response = AsyncMock(
+        return_value={
+            "action_name": "approve",
+            "source_component_id": "button-1",
+            "context": {"approved": True, "reason": "fixture"},
+        }
+    )
+    tool_part = _make_tool_part("call-a2ui", "canvas_create_interactive")
+    manager = CanvasManager()
+    configure_canvas(manager)
+
+    events = [
+        event
+        async for event in handle_a2ui_action_tool(
+            coordinator=coordinator,
+            call_id="call-a2ui",
+            tool_name="canvas_create_interactive",
+            arguments={"title": "Review", "components": contract_case_jsonl(case)},
+            tool_part=tool_part,
+        )
+    ]
+
+    canvas_events = [event for event in events if isinstance(event, AgentCanvasUpdatedEvent)]
+    asked_event = next(event for event in events if isinstance(event, AgentA2UIActionAskedEvent))
+    answered_event = next(
+        event for event in events if isinstance(event, AgentA2UIActionAnsweredEvent)
+    )
+    observe_event = next(event for event in events if isinstance(event, AgentObserveEvent))
+
+    assert len(canvas_events) == 2
+    assert canvas_events[0].block is not None
+    assert canvas_events[0].block["metadata"] == {
+        "surface_id": identity["metadataSurfaceId"],
+        "hitl_request_id": identity["hitlRequestId"],
+    }
+    assert canvas_events[1].block is not None
+    assert canvas_events[1].block["metadata"] == {
+        "surface_id": identity["metadataSurfaceId"],
+        "hitl_request_id": "",
+    }
+
+    assert asked_event.request_id == identity["hitlRequestId"]
+    assert asked_event.block_id == canvas_events[0].block_id
+    assert answered_event.request_id == identity["hitlRequestId"]
+    assert answered_event.action_name == "approve"
+    assert answered_event.source_component_id == "button-1"
+    assert answered_event.context == {"approved": True, "reason": "fixture"}
+
+    assert observe_event.result == {
+        "action_name": "approve",
+        "source_component_id": "button-1",
+        "context": {"approved": True, "reason": "fixture"},
+        "cancelled": False,
+        "block_id": canvas_events[0].block_id,
+    }
+    assert tool_part.status == ToolState.COMPLETED
+    assert json.loads(tool_part.output or "{}") == observe_event.result
+
+    persisted_block = manager.get_block("conv-a2ui", canvas_events[0].block_id)
+    assert persisted_block.metadata == {
+        "surface_id": identity["metadataSurfaceId"],
+        "hitl_request_id": "",
+    }
+    assert persisted_block.content == contract_case_jsonl(case)
 
     configure_canvas(None)
 

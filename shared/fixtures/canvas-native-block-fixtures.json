@@ -1,0 +1,125 @@
+{
+  "contractVersion": 1,
+  "blockTypes": {
+    "chart": {
+      "frontendTabType": "data",
+      "description": "Opaque chart payloads are stored as-is; the frontend attempts chart-model parsing and falls back to JSON data rendering when parsing fails."
+    },
+    "widget": {
+      "frontendTabType": "preview",
+      "description": "Opaque widget payloads are stored as-is; the frontend renders them through preview semantics such as isolated HTML, media, or file previews."
+    }
+  },
+  "cases": [
+    {
+      "id": "chart_top_level_datasets",
+      "blockType": "chart",
+      "targets": ["backend", "frontend_render", "frontend_stream", "frontend_replay"],
+      "description": "Canonical top-level labels plus datasets render as a chart preview and map to a data tab.",
+      "title": "Sales Chart",
+      "updatedTitle": "Updated Sales Chart",
+      "content": {
+        "labels": ["Jan", "Feb"],
+        "datasets": [
+          {
+            "label": "Sales",
+            "data": [12, 20],
+            "backgroundColor": "#16a34a"
+          }
+        ]
+      },
+      "updatedContent": {
+        "labels": ["Jan", "Feb", "Mar"],
+        "datasets": [
+          {
+            "label": "Sales",
+            "data": [12, 20, 18],
+            "backgroundColor": "#16a34a"
+          }
+        ]
+      },
+      "expected": {
+        "frontendTabType": "data",
+        "renderMode": "chart",
+        "labels": ["Jan", "Feb"],
+        "datasetLabels": ["Sales"]
+      }
+    },
+    {
+      "id": "chart_series_alias_generated_labels",
+      "blockType": "chart",
+      "targets": ["frontend_render"],
+      "description": "Series alias payloads normalize numeric strings, pad sparse series, and generate default labels when explicit labels are missing.",
+      "title": "Series Chart",
+      "content": {
+        "series": [
+          {
+            "name": "Revenue",
+            "values": ["10", "oops", 30],
+            "color": "#0f766e"
+          },
+          {
+            "name": "Cost",
+            "y": [4, 5]
+          }
+        ]
+      },
+      "expected": {
+        "frontendTabType": "data",
+        "renderMode": "chart",
+        "labels": ["1", "2", "3"],
+        "datasetLabels": ["Revenue", "Cost"]
+      }
+    },
+    {
+      "id": "chart_invalid_payload_json_fallback",
+      "blockType": "chart",
+      "targets": ["frontend_render"],
+      "description": "Invalid chart payloads fall back to pretty-printed JSON instead of attempting a broken preview.",
+      "title": "Broken Chart",
+      "content": {
+        "datasets": [
+          {
+            "label": "Broken",
+            "data": ["oops", null]
+          }
+        ]
+      },
+      "expected": {
+        "frontendTabType": "data",
+        "renderMode": "json",
+        "textContains": ["\"label\": \"Broken\"", "\"oops\""]
+      }
+    },
+    {
+      "id": "widget_html_preview",
+      "blockType": "widget",
+      "targets": ["backend", "frontend_render", "frontend_stream", "frontend_replay"],
+      "description": "Widget HTML payloads map to preview tabs and render through the isolated iframe preview path.",
+      "title": "Status Widget",
+      "updatedTitle": "Updated Status Widget",
+      "content": "<section><h1>Status Widget</h1><p>Queued</p></section>",
+      "updatedContent": "<section><h1>Status Widget</h1><p>Complete</p></section>",
+      "expected": {
+        "frontendTabType": "preview",
+        "renderMode": "iframe"
+      }
+    },
+    {
+      "id": "widget_image_preview",
+      "blockType": "widget",
+      "targets": ["frontend_render"],
+      "description": "Widget image payloads reuse preview media rendering and preserve safe image URLs.",
+      "title": "Widget Image",
+      "content": {
+        "url": "https://example.com/widget-preview.png",
+        "mime_type": "image/png"
+      },
+      "expected": {
+        "frontendTabType": "preview",
+        "renderMode": "image",
+        "imageSrc": "https://example.com/widget-preview.png"
+      }
+    }
+  ]
+}

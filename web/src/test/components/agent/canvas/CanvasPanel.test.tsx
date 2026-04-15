@@ -5,6 +5,11 @@ import { CanvasPanel } from '@/components/agent/canvas/CanvasPanel';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useLayoutModeStore } from '@/stores/layoutMode';
 
+import {
+  getNativeBlockFixtureCase,
+  serializeNativeBlockContent,
+} from '../../../fixtures/canvasNativeBlockFixtures';
+
 vi.mock('@/components/mcp-app/StandardMCPAppRenderer', () => ({
   StandardMCPAppRenderer: () => null,
 }));
@@ -41,14 +46,12 @@ describe('CanvasPanel block rendering', () => {
   });
 
   it('renders chart-style data payload as chart preview', () => {
+    const fixtureCase = getNativeBlockFixtureCase('chart_top_level_datasets');
     useCanvasStore.getState().openTab({
       id: 'chart-tab',
-      title: 'Chart Block',
-      type: 'data',
-      content: JSON.stringify({
-        labels: ['Jan', 'Feb'],
-        datasets: [{ label: 'Sales', data: [12, 20] }],
-      }),
+      title: fixtureCase.title,
+      type: fixtureCase.expected.frontendTabType,
+      content: serializeNativeBlockContent(fixtureCase.content),
     });
 
     render(<CanvasPanel />);
@@ -110,5 +113,67 @@ describe('CanvasPanel block rendering', () => {
     expect(screen.getByText('Email')).toBeInTheDocument();
     expect(screen.getByText('Plan')).toBeInTheDocument();
     expect(screen.getByText('Read-only form preview')).toBeInTheDocument();
+  });
+
+  it('normalizes chart series aliases and generates fallback labels', () => {
+    const fixtureCase = getNativeBlockFixtureCase('chart_series_alias_generated_labels');
+    useCanvasStore.getState().openTab({
+      id: 'series-chart-tab',
+      title: fixtureCase.title,
+      type: fixtureCase.expected.frontendTabType,
+      content: serializeNativeBlockContent(fixtureCase.content),
+    });
+
+    render(<CanvasPanel />);
+
+    expect(screen.getByText('Revenue')).toBeInTheDocument();
+    expect(screen.getByText('Cost')).toBeInTheDocument();
+    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+  });
+
+  it('falls back to pretty-printed JSON when chart payloads are not renderable', () => {
+    const fixtureCase = getNativeBlockFixtureCase('chart_invalid_payload_json_fallback');
+    useCanvasStore.getState().openTab({
+      id: 'broken-chart-tab',
+      title: fixtureCase.title,
+      type: fixtureCase.expected.frontendTabType,
+      content: serializeNativeBlockContent(fixtureCase.content),
+    });
+
+    render(<CanvasPanel />);
+
+    expect(screen.getByText(/"label": "Broken"/)).toBeInTheDocument();
+    expect(screen.getByText(/"oops"/)).toBeInTheDocument();
+  });
+
+  it('renders widget HTML payloads in the isolated preview iframe path', () => {
+    const fixtureCase = getNativeBlockFixtureCase('widget_html_preview');
+    useCanvasStore.getState().openTab({
+      id: 'widget-html-tab',
+      title: fixtureCase.title,
+      type: fixtureCase.expected.frontendTabType,
+      content: serializeNativeBlockContent(fixtureCase.content),
+    });
+
+    render(<CanvasPanel />);
+
+    expect(screen.getByTitle(fixtureCase.title)).toBeInTheDocument();
+  });
+
+  it('renders widget image payloads through preview media handling', () => {
+    const fixtureCase = getNativeBlockFixtureCase('widget_image_preview');
+    useCanvasStore.getState().openTab({
+      id: 'widget-image-tab',
+      title: fixtureCase.title,
+      type: fixtureCase.expected.frontendTabType,
+      content: serializeNativeBlockContent(fixtureCase.content),
+    });
+
+    render(<CanvasPanel />);
+
+    const image = screen.getByRole('img', { name: fixtureCase.title });
+    expect(image).toHaveAttribute('src', fixtureCase.expected.imageSrc);
   });
 });
