@@ -54,7 +54,12 @@ class CreateMemoryUseCase:
             relationships=command.relationships or [],
             collaborators=command.collaborators or [],
             is_public=command.is_public,
-            metadata=command.metadata or {},
+            metadata={
+                **(command.metadata or {}),
+                "tenant_id": command.tenant_id,
+                "project_id": command.project_id,
+                "user_id": command.author_id,
+            },
         )
 
         # Save to primary repository (DB)

@@ -309,7 +309,7 @@ class MemoryFlushService:
                 content=content,
                 content_hash=hashlib.sha256(content.encode()).hexdigest(),
                 embedding=embedding,
-                metadata={"flush": True},
+                metadata_={"flush": True},
                 importance=0.7,
                 category=category,
             )

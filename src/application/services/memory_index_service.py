@@ -31,7 +31,7 @@ class MemoryIndexService:
     def __init__(
         self,
         chunk_repo: SqlChunkRepository,
-        embedding_service: EmbeddingService,
+        embedding_service: EmbeddingService | None,
     ) -> None:
         self._chunk_repo = chunk_repo
         self._embedding = embedding_service
@@ -42,6 +42,7 @@ class MemoryIndexService:
         content: str,
         project_id: str,
         category: str = "other",
+        metadata: dict[str, Any] | None = None,
         max_tokens: int = 400,
     ) -> int:
         """Index a memory's content as chunks.
@@ -63,7 +64,14 @@ class MemoryIndexService:
         await self._chunk_repo.delete_by_source("memory", memory_id, project_id)
 
         chunks = chunk_text(content, max_tokens=max_tokens)
-        return await self._index_chunks(chunks, "memory", memory_id, project_id, category)
+        return await self._index_chunks(
+            chunks,
+            "memory",
+            memory_id,
+            project_id,
+            category,
+            metadata=metadata,
+        )
 
     async def index_conversation(
         self,
@@ -140,6 +148,7 @@ class MemoryIndexService:
         source_id: str,
         project_id: str,
         category: str,
+        metadata: dict[str, Any] | None = None,
     ) -> int:
         """Common chunk indexing logic with batch operations."""
         if not chunks:
@@ -152,7 +161,13 @@ class MemoryIndexService:
 
         embeddings = await self._embed_chunks(new_chunks)
         db_chunks = self._build_chunk_models(
-            new_chunks, embeddings, project_id, source_type, source_id, category
+            new_chunks,
+            embeddings,
+            project_id,
+            source_type,
+            source_id,
+            category,
+            extra_metadata=metadata,
         )
         await self._save_chunks(db_chunks)
 
@@ -165,17 +180,22 @@ class MemoryIndexService:
         chunks: list[TextChunk],
         project_id: str,
     ) -> list[TextChunk]:
-        """Filter out chunks that already exist in the repository."""
-        all_hashes = [c.content_hash for c in chunks]
-        existing_hashes: set[str] = set()
-        if hasattr(self._chunk_repo, "find_existing_hashes"):
-            existing_hashes = await self._chunk_repo.find_existing_hashes(all_hashes, project_id)
-        else:
-            for h in all_hashes:
-                if await self._chunk_repo.find_by_hash(h, project_id):
-                    existing_hashes.add(h)
+        """Filter duplicate chunks within a single source payload.
 
-        return [c for c in chunks if c.content_hash not in existing_hashes]
+        We intentionally do not deduplicate across other sources in the same
+        project because `memory_chunks` are scoped by `source_type/source_id`.
+        Cross-source dedup would make one memory lose its searchable chunks if
+        another memory happened to contain identical text.
+        """
+        _ = project_id
+        seen_hashes: set[str] = set()
+        unique_chunks: list[TextChunk] = []
+        for chunk in chunks:
+            if chunk.content_hash in seen_hashes:
+                continue
+            seen_hashes.add(chunk.content_hash)
+            unique_chunks.append(chunk)
+        return unique_chunks
 
     async def _embed_chunks(
         self,
@@ -184,6 +204,8 @@ class MemoryIndexService:
         """Compute embeddings for a list of chunks."""
         texts = [c.text for c in chunks]
         embeddings: list[list[float] | None] = [None] * len(texts)
+        if self._embedding is None:
+            return embeddings
         try:
             if hasattr(self._embedding, "embed_batch_safe"):
                 embeddings = await self._embedding.embed_batch_safe(texts)
@@ -207,6 +229,7 @@ class MemoryIndexService:
         source_type: str,
         source_id: str,
         category: str,
+        extra_metadata: dict[str, Any] | None = None,
     ) -> list[Any]:
         """Build MemoryChunk ORM instances from chunks and embeddings."""
         from src.infrastructure.adapters.secondary.persistence.models import MemoryChunk
@@ -224,6 +247,7 @@ class MemoryIndexService:
                 metadata_={
                     "start_line": chunk.start_line,
                     "end_line": chunk.end_line,
+                    **(extra_metadata or {}),
                 },
                 category=category,
             )

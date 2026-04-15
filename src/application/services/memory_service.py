@@ -71,6 +71,13 @@ class MemoryService:
         Returns:
             Created memory with processing_status=PENDING
         """
+        persisted_metadata = {
+            **(metadata or {}),
+            "tenant_id": tenant_id,
+            "project_id": project_id,
+            "user_id": user_id,
+        }
+
         # Create memory entity
         memory = Memory(
             id=Memory.generate_id(),
@@ -83,7 +90,7 @@ class MemoryService:
             is_public=is_public,
             status="ENABLED",
             processing_status=ProcessingStatus.PENDING.value,
-            metadata=metadata or {},
+            metadata=persisted_metadata,
             created_at=datetime.now(UTC),
         )
 
@@ -317,12 +324,12 @@ class MemoryService:
         # This ensures orphaned entities and edges are cleaned up
         graph_cleanup_failed = False
         try:
-            await self._graph_service.remove_episode(memory_id)
-            logger.info(f"Removed episode from graph with proper cleanup for memory {memory_id}")
+            await self._graph_service.delete_episode_by_memory_id(memory_id)
+            logger.info(f"Removed graph state with proper cleanup for memory {memory_id}")
         except Exception as e:
             graph_cleanup_failed = True
             logger.warning(
-                f"Failed to remove episode from graph for memory {memory_id}: {e}. "
+                f"Failed to remove graph state for memory {memory_id}: {e}. "
                 "Orphaned data may remain in Neo4j. Continuing with database deletion."
             )
 

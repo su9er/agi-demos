@@ -133,15 +133,14 @@ class TestMemoryService:
             created_at=datetime.now(UTC),
         )
 
-        # Mock the remove_episode method (new proper cleanup method)
-        mock_graphiti_client.remove_episode = AsyncMock(return_value=True)
+        # Mock the canonical memory-id cleanup method.
+        mock_graphiti_client.delete_episode_by_memory_id = AsyncMock(return_value=True)
 
         # Act
         await service.delete_memory(memory_id)
 
         # Assert
-        # Should call remove_episode (the proper cleanup method), not delete_episode_by_memory_id
-        mock_graphiti_client.remove_episode.assert_called_once_with(memory_id)
+        mock_graphiti_client.delete_episode_by_memory_id.assert_called_once_with(memory_id)
         mock_memory_repo.delete.assert_called_once_with(memory_id)
 
     async def test_delete_memory_continues_on_graph_error(
@@ -162,8 +161,8 @@ class TestMemoryService:
             created_at=datetime.now(UTC),
         )
 
-        # Mock remove_episode to raise an error
-        mock_graphiti_client.remove_episode = AsyncMock(
+        # Mock canonical graph cleanup to raise an error
+        mock_graphiti_client.delete_episode_by_memory_id = AsyncMock(
             side_effect=Exception("Graph deletion failed")
         )
 
@@ -172,6 +171,28 @@ class TestMemoryService:
 
         # Assert - DB deletion should still happen
         mock_memory_repo.delete.assert_called_once_with(memory_id)
+
+    async def test_create_memory_persists_system_metadata(
+        self, mock_memory_repo, mock_graphiti_client
+    ):
+        """Service-created memories should retain routing metadata for later reprocessing."""
+        service = MemoryService(mock_memory_repo, mock_graphiti_client)
+        mock_memory_repo.save = AsyncMock()
+        mock_graphiti_client.add_episode = AsyncMock()
+
+        memory = await service.create_memory(
+            title="Test Memory",
+            content="Remember this",
+            project_id="project-1",
+            user_id="user-1",
+            tenant_id="tenant-1",
+            metadata={"category": "fact"},
+        )
+
+        assert memory.metadata["tenant_id"] == "tenant-1"
+        assert memory.metadata["project_id"] == "project-1"
+        assert memory.metadata["user_id"] == "user-1"
+        assert memory.metadata["category"] == "fact"
 
     async def test_delete_memory_not_found(self, mock_memory_repo, mock_graphiti_client):
         """Test deletion of non-existent memory raises error."""

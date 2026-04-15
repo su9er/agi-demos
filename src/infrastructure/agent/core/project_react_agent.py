@@ -449,7 +449,7 @@ class ProjectReActAgent:
             session_factory = self._get_session_factory()
             embedding_service = getattr(graph_service, "embedder", None)
 
-            if embedding_service and redis_client:
+            if embedding_service and session_factory:
                 cached_embedding = CachedEmbeddingService(embedding_service, redis_client)
                 chunk_search = ChunkHybridSearch(
                     cast("EmbeddingService", cached_embedding),
@@ -461,10 +461,10 @@ class ProjectReActAgent:
                 )
                 logger.info(f"ProjectReActAgent[{self.project_key}]: Memory recall enabled")
 
-            if llm_client:
+            if llm_client and session_factory:
                 cached_emb = (
                     CachedEmbeddingService(embedding_service, redis_client)
-                    if embedding_service and redis_client
+                    if embedding_service
                     else None
                 )
                 memory_capture = MemoryCapturePostprocessor(

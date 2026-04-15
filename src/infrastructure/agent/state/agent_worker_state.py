@@ -805,47 +805,58 @@ def _add_memory_tools(
         from src.infrastructure.adapters.secondary.persistence.database import (
             async_session_factory as mem_session_factory,
         )
+        from src.infrastructure.agent.tools.memory_tools import (
+            configure_memory_create,
+            configure_memory_get,
+            configure_memory_search,
+            memory_delete_tool,
+            memory_update_tool,
+        )
         from src.infrastructure.graph.embedding.embedding_service import EmbeddingService
         from src.infrastructure.memory.cached_embedding import CachedEmbeddingService
         from src.infrastructure.memory.chunk_search import ChunkHybridSearch
 
         embedding_service = getattr(graph_service, "embedder", None)
-        if embedding_service and redis_client:
-            cached_emb = CachedEmbeddingService(embedding_service, redis_client)
+        cached_emb = (
+            CachedEmbeddingService(embedding_service, redis_client)
+            if embedding_service
+            else None
+        )
+
+        configure_memory_get(
+            session_factory=mem_session_factory,
+            project_id=project_id,
+        )
+        configure_memory_create(
+            session_factory=mem_session_factory,
+            graph_service=graph_service,
+            project_id=project_id,
+            tenant_id=tenant_id,
+            embedding_service=cached_emb,
+        )
+
+        # memory_update and memory_delete are @tool_define ToolInfo instances.
+        # They reuse _memcreate_* globals set by configure_memory_create().
+        tools["memory_update"] = memory_update_tool
+        tools["memory_delete"] = memory_delete_tool
+
+        if cached_emb is not None:
             chunk_search = ChunkHybridSearch(
                 cast(EmbeddingService, cached_emb), mem_session_factory
             )
-
-            from src.infrastructure.agent.tools.memory_tools import (
-                configure_memory_create,
-                configure_memory_get,
-                configure_memory_search,
-                memory_delete_tool,
-                memory_update_tool,
-            )
-
             configure_memory_search(
                 chunk_search=chunk_search,
                 graph_service=graph_service,
                 project_id=project_id,
             )
-            configure_memory_get(
-                session_factory=mem_session_factory,
-                project_id=project_id,
-            )
-            configure_memory_create(
-                session_factory=mem_session_factory,
+        else:
+            configure_memory_search(
+                chunk_search=None,
                 graph_service=graph_service,
                 project_id=project_id,
-                tenant_id=tenant_id,
-                embedding_service=cached_emb,
             )
 
-            # memory_update and memory_delete are @tool_define ToolInfo instances.
-            # They reuse _memcreate_* globals set by configure_memory_create().
-            tools["memory_update"] = memory_update_tool
-            tools["memory_delete"] = memory_delete_tool
-            logger.info(f"Agent Worker: Memory tools configured for project {project_id}")
+        logger.info(f"Agent Worker: Memory tools configured for project {project_id}")
     except Exception as e:
         logger.debug(f"Agent Worker: Memory tools not available: {e}")
 

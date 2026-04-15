@@ -5,11 +5,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.domain.ports.services.graph_service_port import GraphServicePort
 from src.domain.ports.services.workflow_engine_port import WorkflowEnginePort
@@ -38,13 +38,107 @@ async def _background_index_memory(
     content: str,
     project_id: str,
     category: str = "other",
+    metadata: dict[str, Any] | None = None,
+    graph_service: GraphServicePort | None = None,
+    session_factory: Any | None = None,
 ) -> None:
     """Index a memory's content as chunks in the background."""
     try:
-        # Skip embedding in background task - will be indexed on next access
-        logger.info(f"Skipping background indexing for memory {memory_id} - will index on demand")
+        from src.infrastructure.adapters.secondary.persistence.sql_chunk_repository import (
+            SqlChunkRepository,
+        )
+        from src.infrastructure.memory.chunk_sync import (
+            normalize_memory_chunk_category,
+            upsert_memory_chunks,
+        )
+
+        if session_factory is None:
+            from src.infrastructure.adapters.secondary.persistence.database import (
+                async_session_factory as default_session_factory,
+            )
+
+            session_factory = default_session_factory
+        if session_factory is None:
+            raise RuntimeError("Background memory indexing requires a session factory")
+
+        embedding_service = getattr(graph_service, "embedder", None) if graph_service else None
+        async with session_factory() as session:
+            chunk_repo = SqlChunkRepository(session)
+            indexed = await upsert_memory_chunks(
+                chunk_repo,
+                memory_id=memory_id,
+                content=content,
+                project_id=project_id,
+                category=normalize_memory_chunk_category(category),
+                metadata=metadata,
+                embedding_service=embedding_service,
+            )
+            await session.commit()
+            logger.info(f"Indexed {indexed} memory chunks for memory {memory_id}")
     except Exception as e:
         logger.warning(f"Background memory indexing failed for {memory_id}: {e}")
+
+
+async def _delete_memory_chunks_for_request(
+    db: AsyncSession,
+    memory_id: str,
+    project_id: str,
+) -> int:
+    """Delete a memory's chunks using the shared sync helper."""
+    from src.infrastructure.adapters.secondary.persistence.sql_chunk_repository import (
+        SqlChunkRepository,
+    )
+    from src.infrastructure.memory.chunk_sync import delete_memory_chunks
+
+    chunk_repo = SqlChunkRepository(db)
+    return await delete_memory_chunks(
+        chunk_repo,
+        memory_id=memory_id,
+        project_id=project_id,
+    )
+
+
+def _build_request_session_factory(
+    db: AsyncSession,
+) -> async_sessionmaker[AsyncSession]:
+    """Build a background-safe session factory from the current request engine."""
+    return async_sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
+
+
+async def _get_memory_write_project(
+    project_id: str,
+    current_user: User,
+    db: AsyncSession,
+) -> Project:
+    """Load a project after verifying the current user can create memories in it."""
+    membership_result = await db.execute(
+        select(UserProject).where(
+            UserProject.user_id == current_user.id,
+            UserProject.project_id == project_id,
+        )
+    )
+    user_project = membership_result.scalar_one_or_none()
+
+    project_result = await db.execute(select(Project).where(Project.id == project_id))
+    project = project_result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    if user_project is None:
+        if project.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this project",
+            )
+        return project
+
+    if user_project.role == "viewer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Viewers cannot create memories",
+        )
+
+    return project
 
 
 router = APIRouter(prefix="/api/v1", tags=["memories"])
@@ -201,11 +295,11 @@ async def extract_relationships(
 @router.post("/memories/", response_model=MemoryResponse, status_code=status.HTTP_201_CREATED)
 async def create_memory(
     memory_data: MemoryCreate,
-    request: Request,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     graphiti_client: Any = Depends(get_graphiti_client),
+    graph_service: GraphServicePort | None = Depends(get_graph_service),
     workflow_engine: WorkflowEnginePort = Depends(get_workflow_engine),
 ) -> Any:
     """Create a new memory.
@@ -216,34 +310,8 @@ async def create_memory(
     """
     try:
         project_id = memory_data.project_id
-        # Verify project access
-        result = await db.execute(
-            select(UserProject).where(
-                UserProject.user_id == current_user.id,
-                UserProject.project_id == project_id,
-            )
-        )
-        user_project = result.scalar_one_or_none()
-
-        project = None
-        if not user_project:
-            # Check if project is public or user is owner
-            project_result = await db.execute(select(Project).where(Project.id == project_id))
-            project = project_result.scalar_one_or_none()
-            if not project or project.owner_id != current_user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You do not have access to this project",
-                )
-        else:
-            if user_project.role == "viewer":
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Viewers cannot create memories",
-                )
-            if not project:
-                project_result = await db.execute(select(Project).where(Project.id == project_id))
-                project = project_result.scalar_one()
+        task_session_factory = _build_request_session_factory(db)
+        project = await _get_memory_write_project(project_id, current_user, db)
 
         # Create memory
         memory_id = str(uuid4())
@@ -305,9 +373,6 @@ async def create_memory(
             )
 
             # Submit to Temporal workflow for processing
-            from src.infrastructure.adapters.secondary.persistence.database import (
-                async_session_factory,
-            )
             from src.infrastructure.adapters.secondary.persistence.models import TaskLog
 
             task_id = str(uuid4())
@@ -326,7 +391,7 @@ async def create_memory(
             }
 
             # Create TaskLog record
-            async with async_session_factory() as task_session, task_session.begin():
+            async with task_session_factory() as task_session, task_session.begin():
                 task_log = TaskLog(
                     id=task_id,
                     group_id=project_id,
@@ -379,6 +444,10 @@ async def create_memory(
             memory_id=memory.id,
             content=memory_data.content,
             project_id=project_id,
+            category=(memory.meta or {}).get("category", "other"),
+            metadata=memory.meta,
+            graph_service=graph_service,
+            session_factory=task_session_factory,
         )
 
         return MemoryResponse.from_orm(memory)
@@ -518,8 +587,8 @@ async def delete_memory(
     try:
         if graph_service is None:
             raise HTTPException(status_code=503, detail="Graph service not available")
-        await graph_service.remove_episode(memory_id)
-        logger.info(f"Deleted episode {memory_id} from graph with proper cleanup")
+        await graph_service.delete_episode_by_memory_id(memory_id)
+        logger.info(f"Deleted graph state for memory {memory_id} with proper cleanup")
     except Exception as e:
         graph_cleanup_failed = True
         logger.error(
@@ -532,14 +601,38 @@ async def delete_memory(
     await db.delete(memory)
     await db.commit()
 
-    if graph_cleanup_failed:
-        logger.warning(f"Memory {memory_id} deleted from database but graph cleanup failed")
+    # 5. Delete searchable chunks via the shared helper.
+    chunk_cleanup_failed = False
+    try:
+        await _delete_memory_chunks_for_request(db, memory_id, memory.project_id)
+        await db.commit()
+    except Exception as e:
+        chunk_cleanup_failed = True
+        await db.rollback()
+        logger.error(
+            "Failed to delete memory chunks for %s: %s. Searchable chunks may remain stale.",
+            memory_id,
+            e,
+            exc_info=True,
+        )
+
+    if graph_cleanup_failed or chunk_cleanup_failed:
+        logger.warning(
+            "Memory %s deleted from database with partial cleanup "
+            "(graph_failed=%s, chunk_failed=%s)",
+            memory_id,
+            graph_cleanup_failed,
+            chunk_cleanup_failed,
+        )
         # Return 207 Multi-Status to indicate partial success
         return JSONResponse(
             status_code=207,
             content={
                 "status": "partial_success",
-                "message": "Memory deleted from database but graph cleanup failed. Some orphaned data may remain in Neo4j.",
+                "message": (
+                    "Memory deleted from database, but one or more cleanup steps failed. "
+                    "Some graph or searchable chunk data may remain stale."
+                ),
             },
         )
 
@@ -594,7 +687,8 @@ async def reprocess_memory(
     # 3. Clean up old episode data before reprocessing
     try:
         logger.info(f"Cleaning up old episode data for memory {memory_id} before reprocessing")
-        await graph_service.remove_episode_by_memory_id(memory_id)  # type: ignore[union-attr]  # method exists at runtime
+        if graph_service is not None:
+            await graph_service.delete_episode_by_memory_id(memory_id)
     except Exception as e:
         logger.warning(f"Failed to clean up old episode data for memory {memory_id}: {e}")
         # Continue with reprocessing even if cleanup fails
@@ -780,8 +874,10 @@ async def _submit_reprocessing_workflow(
 async def update_memory(
     memory_id: str,
     memory_data: MemoryUpdate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    graph_service: GraphServicePort | None = Depends(get_graph_service),
     workflow_engine: WorkflowEnginePort = Depends(get_workflow_engine),
 ) -> Any:
     """Update an existing memory with optimistic locking."""
@@ -801,6 +897,9 @@ async def update_memory(
             status_code=status.HTTP_409_CONFLICT,
             detail="Version conflict: Memory was modified by another user. Please refresh and try again.",
         )
+
+    original_content = memory.content
+    original_meta = dict(memory.meta or {})
 
     # Check if content needs reprocessing
     should_reprocess = (memory_data.title is not None and memory_data.title != memory.title) or (
@@ -831,6 +930,23 @@ async def update_memory(
     # 7. Save to database
     await db.commit()
     await db.refresh(memory)
+
+    should_sync_chunks = (
+        memory.content != original_content
+        or dict(memory.meta or {}) != original_meta
+    )
+    if should_sync_chunks:
+        task_session_factory = _build_request_session_factory(db)
+        background_tasks.add_task(
+            _background_index_memory,
+            memory_id=memory.id,
+            content=memory.content,
+            project_id=memory.project_id,
+            category=(memory.meta or {}).get("category", "other"),
+            metadata=memory.meta,
+            graph_service=graph_service,
+            session_factory=task_session_factory,
+        )
 
     logger.info(f"Updated memory {memory_id} to version {memory.version}")
 
