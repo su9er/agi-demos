@@ -66,6 +66,7 @@ help: ## Show this help message
 	@echo "  lint      - Lint all code"
 	@echo "  format    - Format all code"
 	@echo "  check     - Run format + lint + test"
+	@echo "  guard-refresh-select - Check wrapped execute(select(...)) usage"
 	@echo "  plugin-template-build - Build standalone plugin template wheel"
 	@echo "  plugin-feishu-validate - Validate local Feishu plugin discovery"
 	@echo ""
@@ -134,6 +135,7 @@ help-full: ## Show all available commands
 	@echo "  lint             - Lint all code"
 	@echo "  lint-backend     - Lint Python"
 	@echo "  lint-web         - Lint TypeScript"
+	@echo "  guard-refresh-select - Check wrapped execute(select(...)) usage"
 	@echo "  check            - Run format + lint + test"
 	@echo ""
 	@echo " Database:"
@@ -483,10 +485,16 @@ lint: lint-backend lint-web ## Lint all code
 
 lint-backend: ## Lint Python code
 	@echo " Linting Python code..."
+	uv run python scripts/check_refresh_select_execute.py
 	uv run ruff check src/ sdk/
 	uv run mypy src/ --ignore-missing-imports
 	uv run pyright
 	@echo " Python code linted"
+
+guard-refresh-select: ## Check wrapped execute(select(...)) usage
+	@echo " Checking wrapped ORM select execute usage..."
+	uv run python scripts/check_refresh_select_execute.py
+	@echo " Wrapped ORM select execute usage verified"
 
 lint-web: ## Lint TypeScript code
 	@echo " Linting TypeScript code..."
@@ -521,7 +529,7 @@ generate-event-types: ## Generate TypeScript event types from Python
 # =============================================================================
 # Git Hooks
 # =============================================================================
-.PHONY: hooks-install hooks-uninstall
+.PHONY: hooks-install hooks-uninstall guard-refresh-select
 
 hooks-install: ## Install git hooks (requires git)
 	@echo " Installing git hooks..."

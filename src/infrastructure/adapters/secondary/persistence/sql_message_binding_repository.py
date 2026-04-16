@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,7 +40,7 @@ class SqlMessageBindingRepository:
         )
 
         result = await self._session.execute(
-            select(MessageBindingModel).where(MessageBindingModel.id == binding_id)
+            refresh_select_statement(select(MessageBindingModel).where(MessageBindingModel.id == binding_id))
         )
         db_binding = result.scalar_one_or_none()
         return self._to_domain(db_binding) if db_binding else None
@@ -53,10 +55,10 @@ class SqlMessageBindingRepository:
         )
 
         result = await self._session.execute(
-            select(MessageBindingModel)
+            refresh_select_statement(select(MessageBindingModel)
             .where(MessageBindingModel.scope == scope.value)
             .where(MessageBindingModel.scope_id == scope_id)
-            .order_by(MessageBindingModel.priority.asc())
+            .order_by(MessageBindingModel.priority.asc()))
         )
         db_bindings = result.scalars().all()
         return [self._to_domain(b) for b in db_bindings]
@@ -67,7 +69,7 @@ class SqlMessageBindingRepository:
         )
 
         result = await self._session.execute(
-            select(MessageBindingModel).where(MessageBindingModel.id == binding_id)
+            refresh_select_statement(select(MessageBindingModel).where(MessageBindingModel.id == binding_id))
         )
         db_binding = result.scalar_one_or_none()
         if db_binding is not None:

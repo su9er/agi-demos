@@ -3,8 +3,10 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.domain.model.agent.agent_source import AgentSource
+from src.infrastructure.adapters.secondary.persistence.models import AgentDefinitionModel
 from src.infrastructure.adapters.secondary.persistence.sql_agent_registry import (
     SqlAgentRegistryRepository,
 )
@@ -88,3 +90,57 @@ class TestSqlAgentRegistryRepository:
         agents = await repo.list_by_project("proj-1", tenant_id="tenant-1")
 
         assert [agent.id for agent in agents] == ["builtin:sisyphus", "custom-1"]
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_refreshes_existing_identity_map_rows(
+        self,
+        db_session: AsyncSession,
+        test_tenant_db,
+        test_project_db,
+    ) -> None:
+        agent_id = "agent-refresh-test"
+        db_session.add(
+            AgentDefinitionModel(
+                id=agent_id,
+                tenant_id=test_tenant_db.id,
+                project_id=test_project_db.id,
+                name="refresh-test-agent",
+                display_name="Refresh Test Agent",
+                system_prompt="You are a refresh test agent.",
+                trigger_description="Refresh test trigger",
+                allowed_tools=[],
+                allowed_skills=[],
+                allowed_mcp_servers=[],
+                source="database",
+                max_iterations=10,
+            )
+        )
+        await db_session.commit()
+
+        repo = SqlAgentRegistryRepository(db_session)
+        first = await repo.get_by_id(
+            agent_id,
+            tenant_id=test_tenant_db.id,
+            project_id=test_project_db.id,
+        )
+        assert first is not None
+        assert first.max_iterations == 10
+
+        session_factory = async_sessionmaker(
+            db_session.bind,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+        async with session_factory() as other_session:
+            row = await other_session.get(AgentDefinitionModel, agent_id)
+            assert row is not None
+            row.max_iterations = 42
+            await other_session.commit()
+
+        refreshed = await repo.get_by_id(
+            agent_id,
+            tenant_id=test_tenant_db.id,
+            project_id=test_project_db.id,
+        )
+        assert refreshed is not None
+        assert refreshed.max_iterations == 42

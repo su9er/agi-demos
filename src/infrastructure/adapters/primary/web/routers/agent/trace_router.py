@@ -14,6 +14,7 @@ from src.domain.model.auth.user import User
 from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import (
     Conversation as DBConversation,
@@ -85,7 +86,7 @@ async def _get_conversation(
     conversation_id: str,
 ) -> DBConversation | None:
     """Load one conversation row for trace authorization."""
-    result = await db.execute(select(DBConversation).where(DBConversation.id == conversation_id))
+    result = await db.execute(refresh_select_statement(select(DBConversation).where(DBConversation.id == conversation_id)))
     return result.scalar_one_or_none()
 
 
@@ -135,7 +136,7 @@ async def _list_accessible_tenant_conversation_ids(
     if not await has_tenant_admin_access(db, current_user, tenant_id):
         query = query.where(DBConversation.user_id == current_user_id)
 
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     return list(result.scalars().all())
 
 
@@ -153,7 +154,7 @@ async def _list_user_conversation_ids(
             & (DBUserTenant.tenant_id == DBConversation.tenant_id),
         )
 
-    result = await db.execute(query.distinct())
+    result = await db.execute(refresh_select_statement(query.distinct()))
     return list(result.scalars().all())
 
 

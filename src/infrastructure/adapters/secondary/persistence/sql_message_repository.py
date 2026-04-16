@@ -22,7 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent import Message, MessageRole, MessageType, ToolCall, ToolResult
 from src.domain.ports.repositories.agent_repository import MessageRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     Conversation as DBConversation,
     Message as DBMessage,
@@ -100,9 +103,10 @@ class SqlMessageRepository(BaseRepository[Message, DBMessage], MessageRepository
             )
         )
 
-        await self._session.execute(stmt)
+        await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         await self._session.flush()
         return message
+
     async def save_and_commit(self, message: Message) -> None:
         """Save a message and immediately commit to database."""
         await self.save(message)
@@ -116,11 +120,13 @@ class SqlMessageRepository(BaseRepository[Message, DBMessage], MessageRepository
     ) -> list[Message]:
         """List messages for a conversation in chronological order."""
         result = await self._session.execute(
-            select(DBMessage)
-            .where(DBMessage.conversation_id == conversation_id)
-            .order_by(DBMessage.created_at.asc())
-            .offset(offset)
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(DBMessage)
+                .where(DBMessage.conversation_id == conversation_id)
+                .order_by(DBMessage.created_at.asc())
+                .offset(offset)
+                .limit(limit)
+            ))
         )
         db_messages = result.scalars().all()
         return [d for m in db_messages if (d := self._to_domain(m)) is not None]
@@ -132,11 +138,13 @@ class SqlMessageRepository(BaseRepository[Message, DBMessage], MessageRepository
     ) -> list[Message]:
         """List recent messages across all conversations in a project."""
         result = await self._session.execute(
-            select(DBMessage)
-            .join(DBMessage.conversation)
-            .where(DBConversation.project_id == project_id)
-            .order_by(DBMessage.created_at.desc())
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(DBMessage)
+                .join(DBMessage.conversation)
+                .where(DBConversation.project_id == project_id)
+                .order_by(DBMessage.created_at.desc())
+                .limit(limit)
+            ))
         )
         db_messages = result.scalars().all()
         return [d for m in db_messages if (d := self._to_domain(m)) is not None]
@@ -144,16 +152,20 @@ class SqlMessageRepository(BaseRepository[Message, DBMessage], MessageRepository
     async def count_by_conversation(self, conversation_id: str) -> int:
         """Count messages in a conversation."""
         result = await self._session.execute(
-            select(func.count())
-            .select_from(DBMessage)
-            .where(DBMessage.conversation_id == conversation_id)
+            refresh_select_statement(self._refresh_statement(
+                select(func.count())
+                .select_from(DBMessage)
+                .where(DBMessage.conversation_id == conversation_id)
+            ))
         )
         return result.scalar() or 0
 
     async def delete_by_conversation(self, conversation_id: str) -> None:
         """Delete all messages in a conversation."""
         await self._session.execute(
-            delete(DBMessage).where(DBMessage.conversation_id == conversation_id)
+            refresh_select_statement(self._refresh_statement(
+                delete(DBMessage).where(DBMessage.conversation_id == conversation_id)
+            ))
         )
         await self._session.flush()
 

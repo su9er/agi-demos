@@ -21,7 +21,10 @@ from src.domain.model.sandbox.project_sandbox import (
 from src.domain.ports.repositories.project_sandbox_repository import (
     ProjectSandboxRepository,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +111,9 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
         )
 
         result = await self._session.execute(
-            select(ProjectSandboxORM).where(ProjectSandboxORM.id == association_id)
+            refresh_select_statement(self._refresh_statement(
+                select(ProjectSandboxORM).where(ProjectSandboxORM.id == association_id)
+            ))
         )
         orm = result.scalar_one_or_none()
         return self._to_domain(orm) if orm else None
@@ -120,7 +125,9 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
         )
 
         result = await self._session.execute(
-            select(ProjectSandboxORM).where(ProjectSandboxORM.project_id == project_id)
+            refresh_select_statement(self._refresh_statement(
+                select(ProjectSandboxORM).where(ProjectSandboxORM.project_id == project_id)
+            ))
         )
         orm = result.scalar_one_or_none()
         return self._to_domain(orm) if orm else None
@@ -132,7 +139,9 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
         )
 
         result = await self._session.execute(
-            select(ProjectSandboxORM).where(ProjectSandboxORM.sandbox_id == sandbox_id)
+            refresh_select_statement(self._refresh_statement(
+                select(ProjectSandboxORM).where(ProjectSandboxORM.sandbox_id == sandbox_id)
+            ))
         )
         orm = result.scalar_one_or_none()
         return self._to_domain(orm) if orm else None
@@ -157,7 +166,7 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
         query = query.order_by(ProjectSandboxORM.created_at.desc())
         query = query.offset(offset).limit(limit)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         orms = result.scalars().all()
         return [self._to_domain(orm) for orm in orms]
 
@@ -180,7 +189,7 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
             .limit(limit)
         )
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         orms = result.scalars().all()
         return [self._to_domain(orm) for orm in orms]
 
@@ -204,7 +213,7 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
             .limit(limit)
         )
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         orms = result.scalars().all()
         return [self._to_domain(orm) for orm in orms]
 
@@ -228,7 +237,9 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
         )
 
         result = await self._session.execute(
-            select(ProjectSandboxORM).where(ProjectSandboxORM.project_id == project_id)
+            refresh_select_statement(self._refresh_statement(
+                select(ProjectSandboxORM).where(ProjectSandboxORM.project_id == project_id)
+            ))
         )
         orm = result.scalar_one_or_none()
         if orm:
@@ -244,7 +255,9 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
         )
 
         result = await self._session.execute(
-            select(ProjectSandboxORM).where(ProjectSandboxORM.project_id == project_id)
+            refresh_select_statement(self._refresh_statement(
+                select(ProjectSandboxORM).where(ProjectSandboxORM.project_id == project_id)
+            ))
         )
         return result.scalar_one_or_none() is not None
 
@@ -267,7 +280,7 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
         if status:
             query = query.where(ProjectSandboxORM.status == status.value)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         return result.scalar() or 0
 
     def _project_lock_id(self, project_id: str) -> int:
@@ -320,10 +333,12 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
                 # Use SET SESSION instead of SET LOCAL since we're managing session-level locks
                 # and want the timeout to persist for this session
                 await self._session.execute(
-                    text(f"SET SESSION lock_timeout = '{timeout_seconds}s'")
+                    refresh_select_statement(self._refresh_statement(
+                        text(f"SET SESSION lock_timeout = '{timeout_seconds}s'")
+                    ))
                 )
                 await self._session.execute(
-                    text("SELECT pg_advisory_lock(:lock_id)"),
+                    refresh_select_statement(self._refresh_statement(text("SELECT pg_advisory_lock(:lock_id)"))),
                     {"lock_id": lock_id},
                 )
                 return True
@@ -337,7 +352,9 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
                     logger.debug(f"Post-lock-failure rollback for {project_id}: {rb_err}")
                 # Reset lock timeout to default (0 = no timeout) on failure
                 try:
-                    await self._session.execute(text("SET SESSION lock_timeout = '0'"))
+                    await self._session.execute(
+                        refresh_select_statement(self._refresh_statement(text("SET SESSION lock_timeout = '0'")))
+                    )
                 except Exception as lt_err:
                     logger.debug(f"Lock timeout reset failed for {project_id}: {lt_err}")
                 return False
@@ -345,7 +362,7 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
             # pg_try_advisory_lock returns immediately
             try:
                 result = await self._session.execute(
-                    text("SELECT pg_try_advisory_lock(:lock_id)"),
+                    refresh_select_statement(self._refresh_statement(text("SELECT pg_try_advisory_lock(:lock_id)"))),
                     {"lock_id": lock_id},
                 )
                 return result.scalar() or False
@@ -369,12 +386,14 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
                 logger.debug(f"Pre-unlock rollback for {project_id}: {e}")
 
             await self._session.execute(
-                text("SELECT pg_advisory_unlock(:lock_id)"),
+                refresh_select_statement(self._refresh_statement(text("SELECT pg_advisory_unlock(:lock_id)"))),
                 {"lock_id": lock_id},
             )
             # Reset lock timeout to default (0 = no timeout)
             try:
-                await self._session.execute(text("SET SESSION lock_timeout = '0'"))
+                await self._session.execute(
+                    refresh_select_statement(self._refresh_statement(text("SET SESSION lock_timeout = '0'")))
+                )
             except Exception as e:
                 logger.debug(f"Lock timeout reset failed for {project_id}: {e}")
         except Exception as e:
@@ -393,9 +412,11 @@ class SqlProjectSandboxRepository(BaseRepository[ProjectSandbox, object], Projec
         )
 
         result = await self._session.execute(
-            select(ProjectSandboxORM)
-            .where(ProjectSandboxORM.project_id == project_id)
-            .with_for_update(nowait=False)  # Wait for lock if held by another tx
+            refresh_select_statement(self._refresh_statement(
+                select(ProjectSandboxORM)
+                .where(ProjectSandboxORM.project_id == project_id)
+                .with_for_update(nowait=False)
+            ))  # Wait for lock if held by another tx
         )
         orm = result.scalar_one_or_none()
         return self._to_domain(orm) if orm else None

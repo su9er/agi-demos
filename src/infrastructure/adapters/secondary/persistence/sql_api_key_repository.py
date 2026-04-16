@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.auth.api_key import APIKey
 from src.domain.ports.repositories.api_key_repository import APIKeyRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import APIKey as DBAPIKey
 
 logger = logging.getLogger(__name__)
@@ -34,14 +37,14 @@ class SqlAPIKeyRepository(BaseRepository[APIKey, DBAPIKey], APIKeyRepository):
     async def find_by_hash(self, key_hash: str) -> APIKey | None:
         """Find an API key by its hash."""
         query = select(DBAPIKey).where(DBAPIKey.key_hash == key_hash)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_key = result.scalar_one_or_none()
         return self._to_domain(db_key)
 
     async def find_by_user(self, user_id: str, limit: int = 50, offset: int = 0) -> list[APIKey]:
         """List all API keys for a user."""
         query = select(DBAPIKey).where(DBAPIKey.user_id == user_id).offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_keys = result.scalars().all()
         return [d for k in db_keys if (d := self._to_domain(k)) is not None]
 
@@ -53,6 +56,7 @@ class SqlAPIKeyRepository(BaseRepository[APIKey, DBAPIKey], APIKeyRepository):
             await self._session.flush()
             return True
         return False
+
     async def update_last_used(self, key_id: str, timestamp: datetime) -> None:
         """Update the last_used_at timestamp."""
         db_key = await self._find_db_model_by_id(key_id)

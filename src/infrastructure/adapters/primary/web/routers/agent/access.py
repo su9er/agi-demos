@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.auth.roles import RoleDefinition
 from src.domain.model.auth.user import User
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     Role,
     Tenant,
@@ -74,14 +75,14 @@ async def has_global_admin_access(
     user_id = _get_user_id(current_user)
 
     role_result = await db.execute(
-        select(Role.id)
+        refresh_select_statement(select(Role.id)
         .join(UserRole, UserRole.role_id == Role.id)
         .where(
             UserRole.user_id == user_id,
             UserRole.tenant_id.is_(None),
             Role.name == RoleDefinition.SYSTEM_ADMIN,
         )
-        .limit(1)
+        .limit(1))
     )
     return role_result.scalar_one_or_none() is not None
 
@@ -91,7 +92,7 @@ async def _ensure_tenant_exists(
     tenant_id: str,
 ) -> None:
     """Raise when the requested tenant does not exist."""
-    result = await db.execute(select(Tenant.id).where(Tenant.id == tenant_id))
+    result = await db.execute(refresh_select_statement(select(Tenant.id).where(Tenant.id == tenant_id)))
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
@@ -109,10 +110,10 @@ async def get_tenant_role(
 
     user_id = _get_user_id(current_user)
     result = await db.execute(
-        select(UserTenant.role).where(
+        refresh_select_statement(select(UserTenant.role).where(
             UserTenant.user_id == user_id,
             UserTenant.tenant_id == tenant_id,
-        )
+        ))
     )
     role = result.scalar_one_or_none()
     return str(role) if role is not None else None

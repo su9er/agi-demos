@@ -20,7 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.project.project import Project
 from src.domain.ports.repositories.project_repository import ProjectRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import Project as DBProject
 
 logger = logging.getLogger(__name__)
@@ -66,7 +69,7 @@ class SqlProjectRepository(BaseRepository[Project, DBProject], ProjectRepository
         )
         query = query.offset(offset).limit(limit)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_projects = result.scalars().all()
         return [d for p in db_projects if (d := self._to_domain(p)) is not None]
 

@@ -5,7 +5,7 @@ Tests for V2 SqlTenantAgentConfigRepository using BaseRepository.
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.domain.model.agent.tenant_agent_config import (
     ConfigType,
@@ -142,6 +142,51 @@ class TestSqlTenantAgentConfigRepositoryFind:
         """Test getting config for a tenant that doesn't exist returns None."""
         result = await v2_config_repo.get_by_tenant("non-existent")
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_by_tenant_refreshes_existing_identity_map_rows(
+        self,
+        v2_config_repo: SqlTenantAgentConfigRepository,
+        v2_db_session: AsyncSession,
+    ):
+        """Re-reading with the same session should observe external updates."""
+        config = TenantAgentConfig(
+            id="config-refresh-1",
+            tenant_id="tenant-refresh",
+            config_type=ConfigType.CUSTOM,
+            llm_model="gpt-4",
+            llm_temperature=0.7,
+            pattern_learning_enabled=True,
+            multi_level_thinking_enabled=True,
+            max_work_plan_steps=10,
+            tool_timeout_seconds=30,
+            enabled_tools=[],
+            disabled_tools=[],
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        await v2_config_repo.save(config)
+
+        first = await v2_config_repo.get_by_tenant("tenant-refresh")
+        assert first is not None
+        assert first.max_work_plan_steps == 10
+
+        session_factory = async_sessionmaker(
+            v2_db_session.bind,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+        async with session_factory() as other_session:
+            other_repo = SqlTenantAgentConfigRepository(other_session)
+            current = await other_repo.get_by_tenant("tenant-refresh")
+            assert current is not None
+            current.max_work_plan_steps = 33
+            current.updated_at = datetime.now(UTC)
+            await other_repo.save(current)
+
+        refreshed = await v2_config_repo.get_by_tenant("tenant-refresh")
+        assert refreshed is not None
+        assert refreshed.max_work_plan_steps == 33
 
 
 class TestSqlTenantAgentConfigRepositoryDelete:

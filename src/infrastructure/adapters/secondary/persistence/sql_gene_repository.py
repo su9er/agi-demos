@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domain.model.gene.enums import ContentVisibility, GeneReviewStatus, GeneSource
 from src.domain.model.gene.gene import Gene
 from src.domain.ports.repositories.gene_repository import GeneRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     GeneMarketModel,
 )
@@ -53,7 +56,7 @@ class SqlGeneRepository(BaseRepository[Gene, GeneMarketModel], GeneRepository):
                 )
             )
         stmt = stmt.offset(offset).limit(limit)
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         db_genes = result.scalars().all()
         return [d for g in db_genes if (d := self._to_domain(g)) is not None]
 

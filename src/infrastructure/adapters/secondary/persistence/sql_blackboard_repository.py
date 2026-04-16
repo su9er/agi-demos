@@ -6,14 +6,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domain.model.workspace.blackboard_post import BlackboardPost, BlackboardPostStatus
 from src.domain.model.workspace.blackboard_reply import BlackboardReply
 from src.domain.ports.repositories.workspace.blackboard_repository import BlackboardRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     BlackboardPostModel,
     BlackboardReplyModel,
 )
 
 
-class SqlBlackboardRepository(BaseRepository[BlackboardPost, BlackboardPostModel], BlackboardRepository):
+class SqlBlackboardRepository(
+    BaseRepository[BlackboardPost, BlackboardPostModel], BlackboardRepository
+):
     """SQLAlchemy implementation of BlackboardRepository."""
 
     _model_class = BlackboardPostModel
@@ -41,7 +46,7 @@ class SqlBlackboardRepository(BaseRepository[BlackboardPost, BlackboardPostModel
             .offset(offset)
             .limit(limit)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [p for row in rows if (p := self._to_domain(row)) is not None]
 
@@ -80,7 +85,7 @@ class SqlBlackboardRepository(BaseRepository[BlackboardPost, BlackboardPostModel
             .offset(offset)
             .limit(limit)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [self._reply_to_domain(row) for row in rows]
 

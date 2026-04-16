@@ -18,7 +18,10 @@ from src.domain.model.agent.hitl_request import (
 from src.domain.ports.repositories.hitl_request_repository import (
     HITLRequestRepositoryPort,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +84,9 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         )
 
         result = await self._session.execute(
-            select(HITLRequestRecord).where(HITLRequestRecord.id == request_id)
+            refresh_select_statement(self._refresh_statement(
+                select(HITLRequestRecord).where(HITLRequestRecord.id == request_id)
+            ))
         )
         db_record = result.scalar_one_or_none()
 
@@ -97,9 +102,11 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         )
 
         result = await self._session.execute(
-            select(HITLRequestRecord)
-            .where(HITLRequestRecord.conversation_id == conversation_id)
-            .order_by(HITLRequestRecord.created_at.desc())
+            refresh_select_statement(self._refresh_statement(
+                select(HITLRequestRecord)
+                .where(HITLRequestRecord.conversation_id == conversation_id)
+                .order_by(HITLRequestRecord.created_at.desc())
+            ))
         )
 
         return [self._to_domain(r) for r in result.scalars().all()]
@@ -140,9 +147,11 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
             )
 
         result = await self._session.execute(
-            select(HITLRequestRecord)
-            .where(*conditions)
-            .order_by(HITLRequestRecord.created_at.desc())
+            refresh_select_statement(self._refresh_statement(
+                select(HITLRequestRecord)
+                .where(*conditions)
+                .order_by(HITLRequestRecord.created_at.desc())
+            ))
         )
 
         return [self._to_domain(r) for r in result.scalars().all()]
@@ -159,14 +168,16 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         )
 
         result = await self._session.execute(
-            select(HITLRequestRecord)
-            .where(
-                HITLRequestRecord.tenant_id == tenant_id,
-                HITLRequestRecord.project_id == project_id,
-                HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
-            )
-            .order_by(HITLRequestRecord.created_at.desc())
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(HITLRequestRecord)
+                .where(
+                    HITLRequestRecord.tenant_id == tenant_id,
+                    HITLRequestRecord.project_id == project_id,
+                    HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
+                )
+                .order_by(HITLRequestRecord.created_at.desc())
+                .limit(limit)
+            ))
         )
 
         return [self._to_domain(r) for r in result.scalars().all()]
@@ -185,23 +196,25 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         )
 
         result = await self._session.execute(
-            select(HITLRequestRecord)
-            .join(Conversation, Conversation.id == HITLRequestRecord.conversation_id)
-            .where(
-                HITLRequestRecord.tenant_id == tenant_id,
-                HITLRequestRecord.project_id == project_id,
-                HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
-                Conversation.tenant_id == tenant_id,
-                or_(
-                    HITLRequestRecord.user_id == user_id,
-                    and_(
-                        HITLRequestRecord.user_id.is_(None),
-                        Conversation.user_id == user_id,
+            refresh_select_statement(self._refresh_statement(
+                select(HITLRequestRecord)
+                .join(Conversation, Conversation.id == HITLRequestRecord.conversation_id)
+                .where(
+                    HITLRequestRecord.tenant_id == tenant_id,
+                    HITLRequestRecord.project_id == project_id,
+                    HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
+                    Conversation.tenant_id == tenant_id,
+                    or_(
+                        HITLRequestRecord.user_id == user_id,
+                        and_(
+                            HITLRequestRecord.user_id.is_(None),
+                            Conversation.user_id == user_id,
+                        ),
                     ),
-                ),
-            )
-            .order_by(HITLRequestRecord.created_at.desc())
-            .limit(limit)
+                )
+                .order_by(HITLRequestRecord.created_at.desc())
+                .limit(limit)
+            ))
         )
 
         return [self._to_domain(r) for r in result.scalars().all()]
@@ -220,19 +233,21 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         now = datetime.now(UTC)
 
         result = await self._session.execute(
-            update(HITLRequestRecord)
-            .where(
-                HITLRequestRecord.id == request_id,
-                HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
-                (HITLRequestRecord.expires_at.is_(None)) | (HITLRequestRecord.expires_at > now),
-            )
-            .values(
-                status=HITLRequestStatus.ANSWERED.value,
-                response=response,
-                response_metadata=response_metadata,
-                answered_at=now,
-            )
-            .returning(HITLRequestRecord)
+            refresh_select_statement(self._refresh_statement(
+                update(HITLRequestRecord)
+                .where(
+                    HITLRequestRecord.id == request_id,
+                    HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
+                    (HITLRequestRecord.expires_at.is_(None)) | (HITLRequestRecord.expires_at > now),
+                )
+                .values(
+                    status=HITLRequestStatus.ANSWERED.value,
+                    response=response,
+                    response_metadata=response_metadata,
+                    answered_at=now,
+                )
+                .returning(HITLRequestRecord)
+            ))
         )
 
         db_record = result.scalar_one_or_none()
@@ -249,18 +264,20 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         )
 
         result = await self._session.execute(
-            update(HITLRequestRecord)
-            .where(
-                HITLRequestRecord.id == request_id,
-                HITLRequestRecord.status == HITLRequestStatus.ANSWERED.value,
-            )
-            .values(
-                status=HITLRequestStatus.PENDING.value,
-                response=None,
-                response_metadata=None,
-                answered_at=None,
-            )
-            .returning(HITLRequestRecord)
+            refresh_select_statement(self._refresh_statement(
+                update(HITLRequestRecord)
+                .where(
+                    HITLRequestRecord.id == request_id,
+                    HITLRequestRecord.status == HITLRequestStatus.ANSWERED.value,
+                )
+                .values(
+                    status=HITLRequestStatus.PENDING.value,
+                    response=None,
+                    response_metadata=None,
+                    answered_at=None,
+                )
+                .returning(HITLRequestRecord)
+            ))
         )
 
         db_record = result.scalar_one_or_none()
@@ -283,17 +300,19 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         response_metadata = {"is_default": True} if default_response else None
 
         result = await self._session.execute(
-            update(HITLRequestRecord)
-            .where(
-                HITLRequestRecord.id == request_id,
-                HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
-            )
-            .values(
-                status=HITLRequestStatus.TIMEOUT.value,
-                response=default_response,
-                response_metadata=response_metadata,
-            )
-            .returning(HITLRequestRecord)
+            refresh_select_statement(self._refresh_statement(
+                update(HITLRequestRecord)
+                .where(
+                    HITLRequestRecord.id == request_id,
+                    HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
+                )
+                .values(
+                    status=HITLRequestStatus.TIMEOUT.value,
+                    response=default_response,
+                    response_metadata=response_metadata,
+                )
+                .returning(HITLRequestRecord)
+            ))
         )
 
         db_record = result.scalar_one_or_none()
@@ -310,13 +329,15 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         )
 
         result = await self._session.execute(
-            update(HITLRequestRecord)
-            .where(
-                HITLRequestRecord.id == request_id,
-                HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
-            )
-            .values(status=HITLRequestStatus.CANCELLED.value)
-            .returning(HITLRequestRecord)
+            refresh_select_statement(self._refresh_statement(
+                update(HITLRequestRecord)
+                .where(
+                    HITLRequestRecord.id == request_id,
+                    HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
+                )
+                .values(status=HITLRequestStatus.CANCELLED.value)
+                .returning(HITLRequestRecord)
+            ))
         )
 
         db_record = result.scalar_one_or_none()
@@ -351,13 +372,15 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
             )
 
         result = await self._session.execute(
-            update(HITLRequestRecord)
-            .where(
-                HITLRequestRecord.id == request_id,
-                completion_condition,
-            )
-            .values(status=HITLRequestStatus.COMPLETED.value)
-            .returning(HITLRequestRecord)
+            refresh_select_statement(self._refresh_statement(
+                update(HITLRequestRecord)
+                .where(
+                    HITLRequestRecord.id == request_id,
+                    completion_condition,
+                )
+                .values(status=HITLRequestStatus.COMPLETED.value)
+                .returning(HITLRequestRecord)
+            ))
         )
 
         db_record = result.scalar_one_or_none()
@@ -366,9 +389,11 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
                 getattr(db_record, "response_metadata", None)
             )
             await self._session.execute(
-                update(HITLRequestRecord)
-                .where(HITLRequestRecord.id == request_id)
-                .values(response_metadata=cleared_metadata)
+                refresh_select_statement(self._refresh_statement(
+                    update(HITLRequestRecord)
+                    .where(HITLRequestRecord.id == request_id)
+                    .values(response_metadata=cleared_metadata)
+                ))
             )
             logger.info(f"Marked HITL request as completed: {request_id}")
             return self._to_domain(db_record)
@@ -389,13 +414,15 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
 
         now = datetime.now(UTC)
         result = await self._session.execute(
-            update(HITLRequestRecord)
-            .where(
-                HITLRequestRecord.id == request_id,
-                HITLRequestRecord.status == HITLRequestStatus.ANSWERED.value,
-            )
-            .values(status=HITLRequestStatus.PROCESSING.value)
-            .returning(HITLRequestRecord)
+            refresh_select_statement(self._refresh_statement(
+                update(HITLRequestRecord)
+                .where(
+                    HITLRequestRecord.id == request_id,
+                    HITLRequestRecord.status == HITLRequestStatus.ANSWERED.value,
+                )
+                .values(status=HITLRequestStatus.PROCESSING.value)
+                .returning(HITLRequestRecord)
+            ))
         )
 
         db_record = result.scalar_one_or_none()
@@ -406,9 +433,11 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
                 lease_owner=lease_owner,
             )
             await self._session.execute(
-                update(HITLRequestRecord)
-                .where(HITLRequestRecord.id == request_id)
-                .values(response_metadata=lease_metadata)
+                refresh_select_statement(self._refresh_statement(
+                    update(HITLRequestRecord)
+                    .where(HITLRequestRecord.id == request_id)
+                    .values(response_metadata=lease_metadata)
+                ))
             )
             logger.info("Claimed HITL request for processing: %s", request_id)
             return self._to_domain(db_record)
@@ -428,10 +457,12 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         from src.infrastructure.agent.hitl.utils import merge_processing_lease_metadata
 
         result = await self._session.execute(
-            select(HITLRequestRecord).where(
-                HITLRequestRecord.id == request_id,
-                HITLRequestRecord.status == HITLRequestStatus.PROCESSING.value,
-            )
+            refresh_select_statement(self._refresh_statement(
+                select(HITLRequestRecord).where(
+                    HITLRequestRecord.id == request_id,
+                    HITLRequestRecord.status == HITLRequestStatus.PROCESSING.value,
+                )
+            ))
         )
         db_record = result.scalar_one_or_none()
         if db_record is None:
@@ -494,10 +525,12 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
             )
 
         result = await self._session.execute(
-            update(HITLRequestRecord)
-            .where(*conditions)
-            .values(status=HITLRequestStatus.ANSWERED.value)
-            .returning(HITLRequestRecord)
+            refresh_select_statement(self._refresh_statement(
+                update(HITLRequestRecord)
+                .where(*conditions)
+                .values(status=HITLRequestStatus.ANSWERED.value)
+                .returning(HITLRequestRecord)
+            ))
         )
 
         db_record = result.scalar_one_or_none()
@@ -506,9 +539,11 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
                 getattr(db_record, "response_metadata", None)
             )
             await self._session.execute(
-                update(HITLRequestRecord)
-                .where(HITLRequestRecord.id == request_id)
-                .values(response_metadata=cleared_metadata)
+                refresh_select_statement(self._refresh_statement(
+                    update(HITLRequestRecord)
+                    .where(HITLRequestRecord.id == request_id)
+                    .values(response_metadata=cleared_metadata)
+                ))
             )
             logger.info("Reverted HITL request to answered: %s", request_id)
             return self._to_domain(db_record)
@@ -537,12 +572,14 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         )
 
         result = await self._session.execute(
-            select(HITLRequestRecord)
-            .where(
-                HITLRequestRecord.status == HITLRequestStatus.ANSWERED.value,
-            )
-            .order_by(HITLRequestRecord.answered_at.asc())
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(HITLRequestRecord)
+                .where(
+                    HITLRequestRecord.status == HITLRequestStatus.ANSWERED.value,
+                )
+                .order_by(HITLRequestRecord.answered_at.asc())
+                .limit(limit)
+            ))
         )
 
         requests = [self._to_domain(r) for r in result.scalars().all()]
@@ -563,12 +600,14 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         from src.infrastructure.agent.hitl.utils import is_processing_lease_stale
 
         result = await self._session.execute(
-            select(HITLRequestRecord)
-            .where(
-                HITLRequestRecord.status == HITLRequestStatus.PROCESSING.value,
-            )
-            .order_by(HITLRequestRecord.answered_at.asc())
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(HITLRequestRecord)
+                .where(
+                    HITLRequestRecord.status == HITLRequestStatus.PROCESSING.value,
+                )
+                .order_by(HITLRequestRecord.answered_at.asc())
+                .limit(limit)
+            ))
         )
 
         requests = [
@@ -587,12 +626,14 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         )
 
         result = await self._session.execute(
-            update(HITLRequestRecord)
-            .where(
-                HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
-                HITLRequestRecord.expires_at < before,
-            )
-            .values(status=HITLRequestStatus.TIMEOUT.value)
+            refresh_select_statement(self._refresh_statement(
+                update(HITLRequestRecord)
+                .where(
+                    HITLRequestRecord.status == HITLRequestStatus.PENDING.value,
+                    HITLRequestRecord.expires_at < before,
+                )
+                .values(status=HITLRequestStatus.TIMEOUT.value)
+            ))
         )
 
         count = cast(CursorResult[Any], result).rowcount
@@ -608,7 +649,9 @@ class SqlHITLRequestRepository(BaseRepository[HITLRequest, object], HITLRequestR
         )
 
         result = await self._session.execute(
-            select(HITLRequestRecord).where(HITLRequestRecord.id == request_id)
+            refresh_select_statement(self._refresh_statement(
+                select(HITLRequestRecord).where(HITLRequestRecord.id == request_id)
+            ))
         )
         db_record = result.scalar_one_or_none()
 

@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from src.domain.model.channels.message import ChannelAdapter, ChatType, Message, MessageType
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -599,7 +600,7 @@ class ChannelMessageRouter:
                     ChannelMessageModel.channel_message_id == channel_message_id,
                     ChannelMessageModel.direction == "inbound",
                 )
-                dedupe_result = await session.execute(dedupe_query)
+                dedupe_result = await session.execute(refresh_select_statement(dedupe_query))
                 if dedupe_result.scalar_one_or_none():
                     logger.debug(
                         "[MessageRouter] Duplicate inbound message skipped: "

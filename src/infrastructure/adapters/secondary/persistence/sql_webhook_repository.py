@@ -7,7 +7,10 @@ from sqlalchemy import select
 
 from src.domain.model.tenant.webhook import Webhook
 from src.domain.ports.repositories.webhook_repository import WebhookRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import WebhookModel
 
 
@@ -57,7 +60,7 @@ class SqlWebhookRepository(BaseRepository[Webhook, WebhookModel], WebhookReposit
             .where(WebhookModel.tenant_id == tenant_id, WebhookModel.deleted_at.is_(None))
             .order_by(WebhookModel.created_at.desc())
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         return [d for row in result.scalars().all() if (d := self._to_domain(row)) is not None]
 
     @override
@@ -66,7 +69,7 @@ class SqlWebhookRepository(BaseRepository[Webhook, WebhookModel], WebhookReposit
         stmt = select(WebhookModel).where(
             WebhookModel.id == webhook_id, WebhookModel.deleted_at.is_(None)
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         db_model = result.scalar_one_or_none()
         if not db_model:
             return False

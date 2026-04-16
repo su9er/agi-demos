@@ -12,6 +12,7 @@ from src.domain.ports.repositories.workspace.cyber_gene_repository import (
 )
 from src.infrastructure.adapters.secondary.common.base_repository import (
     BaseRepository,
+    refresh_select_statement,
 )
 from src.infrastructure.adapters.secondary.persistence.models import (
     CyberGeneModel,
@@ -41,7 +42,7 @@ class SqlCyberGeneRepository(
         if is_active is not None:
             query = query.where(CyberGeneModel.is_active == is_active)
         query = query.order_by(CyberGeneModel.created_at.asc()).offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [obj for row in rows if (obj := self._to_domain(row)) is not None]
 

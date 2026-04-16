@@ -10,7 +10,10 @@ from src.domain.model.deploy.enums import DeployAction, DeployStatus
 from src.domain.ports.repositories.deploy_record_repository import (
     DeployRecordRepository,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     DeployRecordModel,
 )
@@ -38,7 +41,7 @@ class SqlDeployRecordRepository(
             order_desc=True,
         )
         query = query.offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_records = result.scalars().all()
         return [d for r in db_records if (d := self._to_domain(r)) is not None]
 
@@ -50,7 +53,7 @@ class SqlDeployRecordRepository(
             order_desc=True,
         )
         query = query.limit(1)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_record = result.scalar_one_or_none()
         return self._to_domain(db_record)
 

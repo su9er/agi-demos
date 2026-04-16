@@ -31,7 +31,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domain.model.agent.skill import Skill, SkillScope, SkillStatus, TriggerPattern, TriggerType
 from src.domain.model.agent.skill_source import SkillSource
 from src.domain.ports.repositories.skill_repository import SkillRepositoryPort
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import Skill as DBSkill
 
 logger = logging.getLogger(__name__)
@@ -91,7 +94,15 @@ class SqlSkillRepository(BaseRepository[Skill, DBSkill], SkillRepositoryPort):
 
     async def get_by_id(self, skill_id: str) -> Skill | None:
         """Get a skill by its ID."""
-        return await self.find_by_id(skill_id)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(
+                select(DBSkill)
+                .where(DBSkill.id == skill_id)
+                .execution_options(populate_existing=True)
+            ))
+        )
+        db_skill = result.scalar_one_or_none()
+        return self._to_domain(db_skill)
 
     async def get_by_name(
         self,
@@ -105,7 +116,9 @@ class SqlSkillRepository(BaseRepository[Skill, DBSkill], SkillRepositoryPort):
         if scope:
             query = query.where(DBSkill.scope == scope.value)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
 
         db_skill = result.scalar_one_or_none()
 
@@ -113,7 +126,13 @@ class SqlSkillRepository(BaseRepository[Skill, DBSkill], SkillRepositoryPort):
 
     async def update(self, skill: Skill) -> Skill:
         """Update an existing skill."""
-        result = await self._session.execute(select(DBSkill).where(DBSkill.id == skill.id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(
+                select(DBSkill)
+                .where(DBSkill.id == skill.id)
+                .execution_options(populate_existing=True)
+            ))
+        )
         db_skill = result.scalar_one_or_none()
 
         if not db_skill:
@@ -143,7 +162,9 @@ class SqlSkillRepository(BaseRepository[Skill, DBSkill], SkillRepositoryPort):
 
     async def delete(self, skill_id: str) -> bool:
         """Delete a skill by ID."""
-        result = await self._session.execute(delete(DBSkill).where(DBSkill.id == skill_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(delete(DBSkill).where(DBSkill.id == skill_id)))
+        )
 
         if cast(CursorResult[Any], result).rowcount == 0:
             raise ValueError(f"Skill not found: {skill_id}")
@@ -168,7 +189,9 @@ class SqlSkillRepository(BaseRepository[Skill, DBSkill], SkillRepositoryPort):
 
         query = query.order_by(DBSkill.created_at.desc()).limit(limit).offset(offset)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
         db_skills = result.scalars().all()
 
         return [d for s in db_skills if (d := self._to_domain(s)) is not None]
@@ -190,7 +213,9 @@ class SqlSkillRepository(BaseRepository[Skill, DBSkill], SkillRepositoryPort):
 
         query = query.order_by(DBSkill.created_at.desc())
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
         db_skills = result.scalars().all()
 
         return [d for s in db_skills if (d := self._to_domain(s)) is not None]
@@ -245,7 +270,7 @@ class SqlSkillRepository(BaseRepository[Skill, DBSkill], SkillRepositoryPort):
         if scope:
             query = query.where(DBSkill.scope == scope.value)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         return result.scalar() or 0
 
     # === Conversion methods ===

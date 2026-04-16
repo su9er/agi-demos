@@ -12,6 +12,7 @@ from typing import Any, TypedDict
 from pydantic import BaseModel, Field, create_model
 from sqlalchemy import select
 
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import async_session_factory
 from src.infrastructure.adapters.secondary.persistence.models import (
     EdgeType,
@@ -120,7 +121,7 @@ def _build_typed_fields(schema: dict[str, Any]) -> dict[str, Any]:
 async def _fetch_entity_types(session: Any, project_id: str) -> dict[str, Any]:
     """Fetch and build entity type models from the database."""
     entity_types: dict[str, Any] = {}
-    result = await session.execute(select(EntityType).where(EntityType.project_id == project_id))
+    result = await session.execute(refresh_select_statement(select(EntityType).where(EntityType.project_id == project_id)))
     for et in result.scalars().all():
         fields = _build_typed_fields(et.schema)
         model = create_model(et.name, **fields, __base__=BaseModel)
@@ -133,7 +134,7 @@ async def _fetch_entity_types(session: Any, project_id: str) -> dict[str, Any]:
 async def _fetch_edge_types(session: Any, project_id: str) -> dict[str, Any]:
     """Fetch and build edge type models from the database."""
     edge_types: dict[str, Any] = {}
-    result = await session.execute(select(EdgeType).where(EdgeType.project_id == project_id))
+    result = await session.execute(refresh_select_statement(select(EdgeType).where(EdgeType.project_id == project_id)))
     for et in result.scalars().all():
         fields = _build_typed_fields(et.schema)
         edge_types[et.name] = create_model(et.name, **fields, __base__=BaseModel)
@@ -143,7 +144,7 @@ async def _fetch_edge_types(session: Any, project_id: str) -> dict[str, Any]:
 async def _fetch_edge_maps(session: Any, project_id: str) -> dict[tuple[str, str], list[str]]:
     """Fetch edge type maps from the database."""
     edge_type_map: dict[tuple[str, str], list[str]] = {}
-    result = await session.execute(select(EdgeTypeMap).where(EdgeTypeMap.project_id == project_id))
+    result = await session.execute(refresh_select_statement(select(EdgeTypeMap).where(EdgeTypeMap.project_id == project_id)))
     for em in result.scalars().all():
         key = (em.source_type, em.target_type)
         if key not in edge_type_map:
@@ -272,9 +273,9 @@ async def _ensure_default_types_initialized(project_id: str) -> None:
     async with async_session_factory() as session:
         # Check if any default types exist for this project
         result = await session.execute(
-            select(EntityType.name).where(
+            refresh_select_statement(select(EntityType.name).where(
                 EntityType.project_id == project_id, EntityType.source == "system"
-            )
+            ))
         )
         existing_system_types = {row[0] for row in result.fetchall()}
 
@@ -371,9 +372,9 @@ async def get_project_schema_context(project_id: str | None = None) -> SchemaCon
     async with async_session_factory() as session:
         # Fetch ALL Entity Types from database (including defaults)
         result = await session.execute(
-            select(EntityType)
+            refresh_select_statement(select(EntityType)
             .where(EntityType.project_id == project_id)
-            .order_by(EntityType.created_at)
+            .order_by(EntityType.created_at))
         )
         db_entity_types = list(result.scalars().all())
 
@@ -393,7 +394,7 @@ async def get_project_schema_context(project_id: str | None = None) -> SchemaCon
 
         # Fetch Edge Type Maps
         result = await session.execute(
-            select(EdgeTypeMap).where(EdgeTypeMap.project_id == project_id)
+            refresh_select_statement(select(EdgeTypeMap).where(EdgeTypeMap.project_id == project_id))
         )
         for em in result.scalars().all():
             key = (em.source_type, em.target_type)  # type: ignore[attr-defined]
@@ -483,7 +484,7 @@ async def initialize_default_types_for_project(project_id: str) -> dict[str, int
     async with async_session_factory() as session:
         # Check existing types for this project
         result = await session.execute(
-            select(EntityType.name).where(EntityType.project_id == project_id)
+            refresh_select_statement(select(EntityType.name).where(EntityType.project_id == project_id))
         )
         existing_names = {row[0] for row in result.fetchall()}
 
@@ -545,9 +546,9 @@ async def save_discovered_entity_type(
     async with async_session_factory() as session:
         # Check if type already exists
         result = await session.execute(
-            select(EntityType.id).where(
+            refresh_select_statement(select(EntityType.id).where(
                 EntityType.project_id == project_id, EntityType.name == name
-            )
+            ))
         )
         existing = result.scalar_one_or_none()
 
@@ -598,7 +599,7 @@ async def save_discovered_edge_type(
     async with async_session_factory() as session:
         # Check if type already exists
         result = await session.execute(
-            select(EdgeType.id).where(EdgeType.project_id == project_id, EdgeType.name == name)
+            refresh_select_statement(select(EdgeType.id).where(EdgeType.project_id == project_id, EdgeType.name == name))
         )
         existing = result.scalar_one_or_none()
 
@@ -651,12 +652,12 @@ async def save_discovered_edge_type_map(
     async with async_session_factory() as session:
         # Check if mapping already exists
         result = await session.execute(
-            select(EdgeTypeMap.id).where(
+            refresh_select_statement(select(EdgeTypeMap.id).where(
                 EdgeTypeMap.project_id == project_id,
                 EdgeTypeMap.source_type == source_type,
                 EdgeTypeMap.target_type == target_type,
                 EdgeTypeMap.edge_type == edge_type,
-            )
+            ))
         )
         existing = result.scalar_one_or_none()
 
@@ -719,21 +720,21 @@ async def save_discovered_types_batch(
     async with async_session_factory() as session:
         # Get existing entity types
         result = await session.execute(
-            select(EntityType.name).where(EntityType.project_id == project_id)
+            refresh_select_statement(select(EntityType.name).where(EntityType.project_id == project_id))
         )
         existing_entity_types = {row[0] for row in result.fetchall()}
 
         # Get existing edge types
         result = await session.execute(
-            select(EdgeType.name).where(EdgeType.project_id == project_id)
+            refresh_select_statement(select(EdgeType.name).where(EdgeType.project_id == project_id))
         )
         existing_edge_types = {row[0] for row in result.fetchall()}
 
         # Get existing edge type maps
         result = await session.execute(
-            select(EdgeTypeMap.source_type, EdgeTypeMap.target_type, EdgeTypeMap.edge_type).where(
+            refresh_select_statement(select(EdgeTypeMap.source_type, EdgeTypeMap.target_type, EdgeTypeMap.edge_type).where(
                 EdgeTypeMap.project_id == project_id
-            )
+            ))
         )
         existing_maps = {(r[0], r[1], r[2]) for r in result.fetchall()}
 

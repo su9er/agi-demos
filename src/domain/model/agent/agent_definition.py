@@ -23,6 +23,8 @@ from src.domain.model.agent.tool_policy import ToolPolicy
 from src.domain.model.agent.workspace_config import WorkspaceConfig
 
 _RESERVED_AGENT_REFS = frozenset({"__system__"})
+LEGACY_DEFAULT_MAX_ITERATIONS = 10
+MAX_ITERATIONS_EXPLICIT_METADATA_KEY = "max_iterations_explicit"
 
 
 @dataclass
@@ -200,6 +202,19 @@ class Agent:
             and self.agent_to_agent_enabled
             and self.agent_to_agent_allowlist is None
         )
+
+    def has_explicit_max_iterations(self) -> bool:
+        """Return whether max_iterations is explicitly configured for this agent.
+
+        Legacy agent records were created with a default ``max_iterations=10``
+        even when the user never intended to override tenant execution guardrails.
+        Treat that legacy default as implicit unless metadata explicitly marks it.
+        """
+        metadata = self.metadata or {}
+        explicit = metadata.get(MAX_ITERATIONS_EXPLICIT_METADATA_KEY)
+        if isinstance(explicit, bool):
+            return explicit
+        return self.max_iterations != LEGACY_DEFAULT_MAX_ITERATIONS
 
     def is_enabled(self) -> bool:
         """Check if agent is enabled."""

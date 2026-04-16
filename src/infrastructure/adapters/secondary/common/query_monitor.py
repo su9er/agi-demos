@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
+
 logger = logging.getLogger(__name__)
 
 _bg_tasks: set[asyncio.Task[Any]] = set()
@@ -322,7 +324,7 @@ class QueryMonitor:
 
         try:
             # Execute query
-            result = await session.execute(query, params or {})
+            result = await session.execute(refresh_select_statement(query), params or {})
 
             # Calculate duration
             actual_duration_ms = duration_ms or (time.time() - start_time) * 1000

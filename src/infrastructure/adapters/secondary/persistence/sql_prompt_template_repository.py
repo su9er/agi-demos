@@ -12,6 +12,7 @@ from src.domain.model.agent.prompt_template import (
 from src.domain.ports.repositories.prompt_template_repository import (
     PromptTemplateRepository,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     PromptTemplateModel,
 )
@@ -51,7 +52,7 @@ class SqlPromptTemplateRepository(PromptTemplateRepository):
 
     async def find_by_id(self, template_id: str) -> PromptTemplate | None:
         result = await self._session.execute(
-            select(PromptTemplateModel).where(PromptTemplateModel.id == template_id)
+            refresh_select_statement(select(PromptTemplateModel).where(PromptTemplateModel.id == template_id))
         )
         db_model = result.scalar_one_or_none()
         return self._to_domain(db_model) if db_model else None
@@ -67,7 +68,7 @@ class SqlPromptTemplateRepository(PromptTemplateRepository):
         if category:
             query = query.where(PromptTemplateModel.category == category)
         query = query.order_by(PromptTemplateModel.usage_count.desc()).offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         return [self._to_domain(m) for m in result.scalars().all()]
 
     async def list_by_project(
@@ -83,7 +84,7 @@ class SqlPromptTemplateRepository(PromptTemplateRepository):
             .offset(offset)
             .limit(limit)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         return [self._to_domain(m) for m in result.scalars().all()]
 
     async def delete(self, template_id: str) -> bool:
@@ -96,9 +97,9 @@ class SqlPromptTemplateRepository(PromptTemplateRepository):
 
     async def increment_usage(self, template_id: str) -> None:
         await self._session.execute(
-            update(PromptTemplateModel)
+            refresh_select_statement(update(PromptTemplateModel)
             .where(PromptTemplateModel.id == template_id)
-            .values(usage_count=PromptTemplateModel.usage_count + 1)
+            .values(usage_count=PromptTemplateModel.usage_count + 1))
         )
         await self._session.flush()
 

@@ -29,7 +29,10 @@ from src.domain.model.agent.attachment import (
     AttachmentStatus,
 )
 from src.domain.ports.repositories.attachment_repository import AttachmentRepositoryPort
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.attachment_model import AttachmentModel
 
 logger = logging.getLogger(__name__)
@@ -72,7 +75,9 @@ class SqlAttachmentRepository(
         try:
             # Check if exists
             result = await self._session.execute(
-                select(AttachmentModel).where(AttachmentModel.id == attachment.id)
+                refresh_select_statement(self._refresh_statement(
+                    select(AttachmentModel).where(AttachmentModel.id == attachment.id)
+                ))
             )
             existing = result.scalar_one_or_none()
 
@@ -111,7 +116,7 @@ class SqlAttachmentRepository(
             query = query.where(AttachmentModel.status == status.value)
         query = query.order_by(AttachmentModel.created_at)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         models = result.scalars().all()
         return [d for m in models if (d := self._to_domain(m)) is not None]
 
@@ -121,7 +126,9 @@ class SqlAttachmentRepository(
             return []
 
         result = await self._session.execute(
-            select(AttachmentModel).where(AttachmentModel.id.in_(attachment_ids))
+            refresh_select_statement(self._refresh_statement(
+                select(AttachmentModel).where(AttachmentModel.id.in_(attachment_ids))
+            ))
         )
         models = result.scalars().all()
         return [d for m in models if (d := self._to_domain(m)) is not None]
@@ -129,7 +136,9 @@ class SqlAttachmentRepository(
     async def delete(self, attachment_id: str) -> bool:
         """Delete an attachment."""
         result = await self._session.execute(
-            delete(AttachmentModel).where(AttachmentModel.id == attachment_id)
+            refresh_select_statement(self._refresh_statement(
+                delete(AttachmentModel).where(AttachmentModel.id == attachment_id)
+            ))
         )
         await self._session.commit()
         deleted = cast(CursorResult[Any], result).rowcount > 0
@@ -141,10 +150,12 @@ class SqlAttachmentRepository(
         """Delete all expired attachments."""
         now = datetime.now(UTC)
         result = await self._session.execute(
-            delete(AttachmentModel).where(
-                AttachmentModel.expires_at.isnot(None),
-                AttachmentModel.expires_at < now,
-            )
+            refresh_select_statement(self._refresh_statement(
+                delete(AttachmentModel).where(
+                    AttachmentModel.expires_at.isnot(None),
+                    AttachmentModel.expires_at < now,
+                )
+            ))
         )
         await self._session.commit()
         count = cast(CursorResult[Any], result).rowcount
@@ -164,9 +175,11 @@ class SqlAttachmentRepository(
             update_values["error_message"] = error_message
 
         result = await self._session.execute(
-            update(AttachmentModel)
-            .where(AttachmentModel.id == attachment_id)
-            .values(**update_values)
+            refresh_select_statement(self._refresh_statement(
+                update(AttachmentModel)
+                .where(AttachmentModel.id == attachment_id)
+                .values(**update_values)
+            ))
         )
         await self._session.commit()
         return cast(CursorResult[Any], result).rowcount > 0
@@ -178,9 +191,11 @@ class SqlAttachmentRepository(
     ) -> bool:
         """Update the multipart upload progress."""
         result = await self._session.execute(
-            update(AttachmentModel)
-            .where(AttachmentModel.id == attachment_id)
-            .values(uploaded_parts=uploaded_parts)
+            refresh_select_statement(self._refresh_statement(
+                update(AttachmentModel)
+                .where(AttachmentModel.id == attachment_id)
+                .values(uploaded_parts=uploaded_parts)
+            ))
         )
         await self._session.commit()
         return cast(CursorResult[Any], result).rowcount > 0
@@ -192,9 +207,11 @@ class SqlAttachmentRepository(
     ) -> bool:
         """Update the sandbox path after import."""
         result = await self._session.execute(
-            update(AttachmentModel)
-            .where(AttachmentModel.id == attachment_id)
-            .values(sandbox_path=sandbox_path, status=AttachmentStatus.READY.value)
+            refresh_select_statement(self._refresh_statement(
+                update(AttachmentModel)
+                .where(AttachmentModel.id == attachment_id)
+                .values(sandbox_path=sandbox_path, status=AttachmentStatus.READY.value)
+            ))
         )
         await self._session.commit()
         return cast(CursorResult[Any], result).rowcount > 0

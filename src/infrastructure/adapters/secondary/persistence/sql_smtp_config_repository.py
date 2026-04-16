@@ -10,6 +10,7 @@ from src.domain.model.smtp.smtp_config import SmtpConfig
 from src.domain.ports.repositories.smtp_config_repository import (
     SmtpConfigRepository,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     SmtpConfigModel,
 )
@@ -22,10 +23,10 @@ class SqlSmtpConfigRepository(SmtpConfigRepository):
     @override
     async def find_by_tenant(self, tenant_id: str) -> SmtpConfig | None:
         result = await self._session.execute(
-            select(SmtpConfigModel).where(
+            refresh_select_statement(select(SmtpConfigModel).where(
                 SmtpConfigModel.tenant_id == tenant_id,
                 SmtpConfigModel.deleted_at.is_(None),
-            )
+            ))
         )
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
@@ -33,7 +34,7 @@ class SqlSmtpConfigRepository(SmtpConfigRepository):
     @override
     async def save(self, config: SmtpConfig) -> SmtpConfig:
         result = await self._session.execute(
-            select(SmtpConfigModel).where(SmtpConfigModel.id == config.id)
+            refresh_select_statement(select(SmtpConfigModel).where(SmtpConfigModel.id == config.id))
         )
         existing = result.scalar_one_or_none()
         if existing:
@@ -66,9 +67,9 @@ class SqlSmtpConfigRepository(SmtpConfigRepository):
     @override
     async def soft_delete(self, config_id: str) -> None:
         await self._session.execute(
-            update(SmtpConfigModel)
+            refresh_select_statement(update(SmtpConfigModel)
             .where(SmtpConfigModel.id == config_id)
-            .values(deleted_at=datetime.now(UTC))
+            .values(deleted_at=datetime.now(UTC)))
         )
         await self._session.flush()
 

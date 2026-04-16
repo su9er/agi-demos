@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.task.task_log import TaskLog, TaskLogStatus
 from src.domain.ports.repositories.task_repository import TaskRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import TaskLog as DBTaskLog
 
 logger = logging.getLogger(__name__)
@@ -25,7 +28,9 @@ class SqlTaskRepository(BaseRepository[TaskLog, DBTaskLog], TaskRepository):
 
     async def save(self, task: TaskLog) -> TaskLog:
         """Save a task log (create or update)."""
-        result = await self._session.execute(select(DBTaskLog).where(DBTaskLog.id == task.id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(select(DBTaskLog).where(DBTaskLog.id == task.id)))
+        )
         db_task = result.scalar_one_or_none()
 
         if db_task:
@@ -53,14 +58,14 @@ class SqlTaskRepository(BaseRepository[TaskLog, DBTaskLog], TaskRepository):
         """List all tasks in a group."""
         query = select(DBTaskLog).where(DBTaskLog.group_id == group_id)
         query = query.offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_tasks = result.scalars().all()
         return [d for t in db_tasks if (d := self._to_domain(t)) is not None]
 
     async def list_recent(self, limit: int = 100) -> list[TaskLog]:
         """List recent tasks across all groups."""
         query = select(DBTaskLog).order_by(DBTaskLog.created_at.desc()).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_tasks = result.scalars().all()
         return [d for t in db_tasks if (d := self._to_domain(t)) is not None]
 
@@ -68,7 +73,7 @@ class SqlTaskRepository(BaseRepository[TaskLog, DBTaskLog], TaskRepository):
         """List tasks by status."""
         query = select(DBTaskLog).where(DBTaskLog.status == status)
         query = query.offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_tasks = result.scalars().all()
         return [d for t in db_tasks if (d := self._to_domain(t)) is not None]
 

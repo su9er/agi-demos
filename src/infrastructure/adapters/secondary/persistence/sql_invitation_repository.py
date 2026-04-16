@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.invitation.invitation import Invitation
 from src.domain.ports.repositories.invitation_repository import InvitationRepository
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     InvitationModel,
 )
@@ -27,14 +28,14 @@ class SqlInvitationRepository(InvitationRepository):
     @override
     async def find_by_id(self, invitation_id: str) -> Invitation | None:
         stmt = select(InvitationModel).where(InvitationModel.id == invitation_id)
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
     @override
     async def find_by_token(self, token: str) -> Invitation | None:
         stmt = select(InvitationModel).where(InvitationModel.token == token)
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
@@ -57,7 +58,7 @@ class SqlInvitationRepository(InvitationRepository):
             .limit(limit)
             .offset(offset)
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return [self._to_domain(row) for row in result.scalars().all()]
 
     @override
@@ -71,7 +72,7 @@ class SqlInvitationRepository(InvitationRepository):
                 InvitationModel.deleted_at.is_(None),
             )
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         count: Any = result.scalar_one()
         return int(count)
 
@@ -87,7 +88,7 @@ class SqlInvitationRepository(InvitationRepository):
             InvitationModel.status == "pending",
             InvitationModel.deleted_at.is_(None),
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
@@ -98,7 +99,7 @@ class SqlInvitationRepository(InvitationRepository):
             .where(InvitationModel.id == invitation_id)
             .values(deleted_at=deleted_at, status="cancelled")
         )
-        await self._session.execute(stmt)
+        await self._session.execute(refresh_select_statement(stmt))
         await self._session.flush()
 
     @override
@@ -113,7 +114,7 @@ class SqlInvitationRepository(InvitationRepository):
         if accepted_by is not None:
             values["accepted_by"] = accepted_by
         stmt = update(InvitationModel).where(InvitationModel.id == invitation_id).values(**values)
-        await self._session.execute(stmt)
+        await self._session.execute(refresh_select_statement(stmt))
         await self._session.flush()
 
     @staticmethod

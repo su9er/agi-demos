@@ -25,6 +25,7 @@ from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user,
     get_current_user_tenant,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.sql_conversation_repository import (
     SqlConversationRepository,
@@ -62,7 +63,7 @@ async def _user_has_hitl_access(
         Conversation.tenant_id == tenant_id,
         Conversation.user_id == user_id,
     )
-    conversation_result = await db.execute(conversation_query)
+    conversation_result = await db.execute(refresh_select_statement(conversation_query))
     return conversation_result.scalar_one_or_none() is not None
 
 
@@ -79,7 +80,7 @@ async def _user_has_project_access(
         UserProject.user_id == user_id,
         UserProject.project_id == project_id,
     )
-    project_membership = await db.execute(project_membership_query)
+    project_membership = await db.execute(refresh_select_statement(project_membership_query))
     return project_membership.scalar_one_or_none() is not None
 
 

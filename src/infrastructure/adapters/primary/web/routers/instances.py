@@ -26,6 +26,7 @@ from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user,
     get_current_user_tenant,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import (
     User as UserModel,
@@ -558,7 +559,7 @@ async def add_member(
         )
         await db.commit()
 
-        user_row = await db.execute(select(UserModel).where(UserModel.id == data.user_id))
+        user_row = await db.execute(refresh_select_statement(select(UserModel).where(UserModel.id == data.user_id)))
         user = user_row.scalar_one_or_none()
         return InstanceMemberResponse(
             id=result.id,
@@ -609,7 +610,7 @@ async def search_users(
             pattern = f"%{q}%"
             query = query.where(UserModel.email.ilike(pattern) | UserModel.full_name.ilike(pattern))
         query = query.limit(limit)
-        result = await db.execute(query)
+        result = await db.execute(refresh_select_statement(query))
         users = result.scalars().all()
         return [
             UserSearchResult(
@@ -653,7 +654,7 @@ async def update_member_role(
         )
         await db.commit()
 
-        user_row = await db.execute(select(UserModel).where(UserModel.id == result.user_id))
+        user_row = await db.execute(refresh_select_statement(select(UserModel).where(UserModel.id == result.user_id)))
         user = user_row.scalar_one_or_none()
         return InstanceMemberResponse(
             id=result.id,
@@ -737,7 +738,7 @@ async def list_members(
         user_ids = [m.user_id for m in members]
         user_map: dict[str, UserModel] = {}
         if user_ids:
-            user_result = await db.execute(select(UserModel).where(UserModel.id.in_(user_ids)))
+            user_result = await db.execute(refresh_select_statement(select(UserModel).where(UserModel.id.in_(user_ids))))
             for u in user_result.scalars().all():
                 user_map[u.id] = u
 

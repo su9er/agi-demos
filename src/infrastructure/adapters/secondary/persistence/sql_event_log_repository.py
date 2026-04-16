@@ -6,7 +6,10 @@ from typing import override
 from sqlalchemy import func, select
 
 from src.domain.model.tenant.event_log import EventLog
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import TenantEventLogModel
 
 
@@ -61,7 +64,7 @@ class SqlEventLogRepository(BaseRepository[EventLog, TenantEventLogModel]):
 
         # Count
         count_stmt = select(func.count()).select_from(base_stmt.subquery())
-        count_result = await self._session.execute(count_stmt)
+        count_result = await self._session.execute(refresh_select_statement(self._refresh_statement(count_stmt)))
         total = count_result.scalar_one()
 
         # Fetch
@@ -70,7 +73,7 @@ class SqlEventLogRepository(BaseRepository[EventLog, TenantEventLogModel]):
             .limit(page_size)
             .offset(offset)
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         items = [d for row in result.scalars().all() if (d := self._to_domain(row)) is not None]
 
         return items, total
@@ -82,5 +85,5 @@ class SqlEventLogRepository(BaseRepository[EventLog, TenantEventLogModel]):
             .distinct()
             .order_by(TenantEventLogModel.event_type)
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         return [row[0] for row in result.all()]

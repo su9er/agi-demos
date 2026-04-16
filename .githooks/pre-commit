@@ -7,6 +7,7 @@ cd "$REPO_ROOT"
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
 PY_FILES=()
 WEB_FILES=()
+RUN_REFRESH_SELECT_GUARD=0
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
   if [[ "$f" == *.py ]]; then
@@ -14,7 +15,16 @@ while IFS= read -r f; do
   elif [[ "$f" =~ ^web/.*\.(ts|tsx|js|jsx)$ ]]; then
     WEB_FILES+=("${f#web/}")
   fi
+
+  if [[ "$f" == src/application/services/* || "$f" == src/infrastructure/adapters/* || "$f" == scripts/check_refresh_select_execute.py || "$f" == .githooks/pre-commit || "$f" == Makefile ]]; then
+    RUN_REFRESH_SELECT_GUARD=1
+  fi
 done <<< "$STAGED_FILES"
+
+if [[ $RUN_REFRESH_SELECT_GUARD -eq 1 ]]; then
+  echo "Running wrapped execute(select(...)) guard..."
+  uv run python scripts/check_refresh_select_execute.py
+fi
 
 # --- Python checks ---
 if [[ ${#PY_FILES[@]} -gt 0 ]]; then

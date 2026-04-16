@@ -10,7 +10,10 @@ from src.domain.model.gene.instance_gene import EvolutionEvent
 from src.domain.ports.repositories.evolution_event_repository import (
     EvolutionEventRepository,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     EvolutionEventModel,
 )
@@ -38,7 +41,7 @@ class SqlEvolutionEventRepository(
             order_desc=True,
         )
         query = query.offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_events = result.scalars().all()
         return [d for e in db_events if (d := self._to_domain(e)) is not None]
 
@@ -52,7 +55,7 @@ class SqlEvolutionEventRepository(
             order_desc=True,
         )
         query = query.offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_events = result.scalars().all()
         return [d for e in db_events if (d := self._to_domain(e)) is not None]
 

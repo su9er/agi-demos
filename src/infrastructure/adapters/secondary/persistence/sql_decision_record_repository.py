@@ -11,6 +11,7 @@ from src.domain.model.trust.decision_record import DecisionRecord
 from src.domain.ports.repositories.decision_record_repository import (
     DecisionRecordRepository,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     DecisionRecordModel,
 )
@@ -35,7 +36,7 @@ class SqlDecisionRecordRepository(DecisionRecordRepository):
             DecisionRecordModel.id == record_id,
             DecisionRecordModel.deleted_at.is_(None),
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         row = result.scalars().first()
         return self._to_domain(row) if row else None
 
@@ -58,7 +59,7 @@ class SqlDecisionRecordRepository(DecisionRecordRepository):
         if decision_type is not None:
             stmt = stmt.where(DecisionRecordModel.decision_type == decision_type)
         stmt = stmt.order_by(DecisionRecordModel.created_at.desc())
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return [self._to_domain(row) for row in result.scalars().all()]
 
     @override

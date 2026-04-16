@@ -18,7 +18,7 @@ Key features tested:
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.domain.model.agent.skill import Skill, SkillScope, SkillStatus, TriggerPattern, TriggerType
 from src.domain.model.agent.skill_source import SkillSource
@@ -151,6 +151,39 @@ class TestSqlSkillRepositoryFind:
     async def test_exists_false(self, v2_skill_repo: SqlSkillRepository):
         """Test exists returns False for non-existent skill."""
         assert await v2_skill_repo.exists("non-existent") is False
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_refreshes_existing_identity_map_rows(
+        self,
+        v2_skill_repo: SqlSkillRepository,
+        db_session: AsyncSession,
+    ):
+        """Re-reading with the same session should observe external updates."""
+        skill = create_test_skill("skill-refresh-1", name="refresh-skill")
+        await v2_skill_repo.create(skill)
+        await db_session.commit()
+
+        first = await v2_skill_repo.get_by_id("skill-refresh-1")
+        assert first is not None
+        assert first.name == "refresh-skill"
+
+        session_factory = async_sessionmaker(
+            db_session.bind,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+        async with session_factory() as other_session:
+            other_repo = SqlSkillRepository(other_session)
+            current = await other_repo.get_by_id("skill-refresh-1")
+            assert current is not None
+            current.name = "refresh-skill-updated"
+            current.updated_at = datetime.now(UTC)
+            await other_repo.update(current)
+            await other_session.commit()
+
+        refreshed = await v2_skill_repo.get_by_id("skill-refresh-1")
+        assert refreshed is not None
+        assert refreshed.name == "refresh-skill-updated"
 
 
 class TestSqlSkillRepositoryUpdate:

@@ -12,6 +12,7 @@ from src.domain.ports.repositories.workspace.cyber_objective_repository import (
 )
 from src.infrastructure.adapters.secondary.common.base_repository import (
     BaseRepository,
+    refresh_select_statement,
 )
 from src.infrastructure.adapters.secondary.persistence.models import (
     CyberObjectiveModel,
@@ -41,7 +42,7 @@ class SqlCyberObjectiveRepository(
         if parent_id is not None:
             query = query.where(CyberObjectiveModel.parent_id == parent_id)
         query = query.order_by(CyberObjectiveModel.created_at.asc()).offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [obj for row in rows if (obj := self._to_domain(row)) is not None]
 

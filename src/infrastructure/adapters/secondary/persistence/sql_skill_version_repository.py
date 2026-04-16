@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent.skill.skill_version import SkillVersion
 from src.domain.ports.repositories.skill_version_repository import SkillVersionRepositoryPort
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     SkillVersion as DBSkillVersion,
 )
@@ -48,7 +49,7 @@ class SqlSkillVersionRepository(SkillVersionRepositoryPort):
             .where(DBSkillVersion.skill_id == skill_id)
             .where(DBSkillVersion.version_number == version_number)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         db_version = result.scalar_one_or_none()
         return self._to_domain(db_version)
 
@@ -63,7 +64,7 @@ class SqlSkillVersionRepository(SkillVersionRepositoryPort):
             .limit(limit)
             .offset(offset)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         db_versions = result.scalars().all()
         return [d for v in db_versions if (d := self._to_domain(v)) is not None]
 
@@ -75,7 +76,7 @@ class SqlSkillVersionRepository(SkillVersionRepositoryPort):
             .order_by(DBSkillVersion.version_number.desc())
             .limit(1)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         db_version = result.scalar_one_or_none()
         return self._to_domain(db_version)
 
@@ -84,14 +85,14 @@ class SqlSkillVersionRepository(SkillVersionRepositoryPort):
         query = select(func.max(DBSkillVersion.version_number)).where(
             DBSkillVersion.skill_id == skill_id
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         max_num = result.scalar()
         return max_num or 0
 
     async def count_by_skill(self, skill_id: str) -> int:
         """Count versions for a skill."""
         query = select(func.count(DBSkillVersion.id)).where(DBSkillVersion.skill_id == skill_id)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         return result.scalar() or 0
 
     def _to_domain(self, db_version: DBSkillVersion | None) -> SkillVersion | None:

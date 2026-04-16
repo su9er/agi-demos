@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domain.model.workspace.topology_edge import TopologyEdge
 from src.domain.model.workspace.topology_node import TopologyNode, TopologyNodeType
 from src.domain.ports.repositories.workspace.topology_repository import TopologyRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     TopologyEdgeModel,
     TopologyNodeModel,
@@ -44,7 +47,7 @@ class SqlTopologyRepository(BaseRepository[TopologyNode, TopologyNodeModel], Top
             .offset(offset)
             .limit(limit)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [n for row in rows if (n := self._to_domain(row)) is not None]
 
@@ -54,7 +57,7 @@ class SqlTopologyRepository(BaseRepository[TopologyNode, TopologyNodeModel], Top
             .where(TopologyNodeModel.workspace_id == workspace_id)
             .order_by(TopologyNodeModel.created_at.asc())
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [n for row in rows if (n := self._to_domain(row)) is not None]
 
@@ -73,7 +76,7 @@ class SqlTopologyRepository(BaseRepository[TopologyNode, TopologyNodeModel], Top
             )
             .order_by(TopologyNodeModel.created_at.asc())
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [n for row in rows if (n := self._to_domain(row)) is not None]
 
@@ -88,7 +91,7 @@ class SqlTopologyRepository(BaseRepository[TopologyNode, TopologyNodeModel], Top
             return
         lock_id = self._workspace_hex_lock_id(workspace_id, hex_q, hex_r)
         await self._session.execute(
-            text("SELECT pg_advisory_xact_lock(:lock_id)"),
+            refresh_select_statement(self._refresh_statement(text("SELECT pg_advisory_xact_lock(:lock_id)"))),
             {"lock_id": lock_id},
         )
 
@@ -145,7 +148,7 @@ class SqlTopologyRepository(BaseRepository[TopologyNode, TopologyNodeModel], Top
             .offset(offset)
             .limit(limit)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [self._edge_to_domain(row) for row in rows]
 
@@ -155,7 +158,7 @@ class SqlTopologyRepository(BaseRepository[TopologyNode, TopologyNodeModel], Top
             .where(TopologyEdgeModel.workspace_id == workspace_id)
             .order_by(TopologyEdgeModel.created_at.asc())
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [self._edge_to_domain(row) for row in rows]
 
@@ -175,7 +178,7 @@ class SqlTopologyRepository(BaseRepository[TopologyNode, TopologyNodeModel], Top
             )
             .order_by(TopologyEdgeModel.created_at.asc())
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [self._edge_to_domain(row) for row in rows]
 
@@ -188,20 +191,24 @@ class SqlTopologyRepository(BaseRepository[TopologyNode, TopologyNodeModel], Top
     ) -> None:
         now = datetime.now(UTC)
         await self._session.execute(
-            update(TopologyEdgeModel)
-            .where(
-                TopologyEdgeModel.workspace_id == workspace_id,
-                TopologyEdgeModel.source_node_id == node_id,
-            )
-            .values(source_hex_q=hex_q, source_hex_r=hex_r, updated_at=now)
+            refresh_select_statement(self._refresh_statement(
+                update(TopologyEdgeModel)
+                .where(
+                    TopologyEdgeModel.workspace_id == workspace_id,
+                    TopologyEdgeModel.source_node_id == node_id,
+                )
+                .values(source_hex_q=hex_q, source_hex_r=hex_r, updated_at=now)
+            ))
         )
         await self._session.execute(
-            update(TopologyEdgeModel)
-            .where(
-                TopologyEdgeModel.workspace_id == workspace_id,
-                TopologyEdgeModel.target_node_id == node_id,
-            )
-            .values(target_hex_q=hex_q, target_hex_r=hex_r, updated_at=now)
+            refresh_select_statement(self._refresh_statement(
+                update(TopologyEdgeModel)
+                .where(
+                    TopologyEdgeModel.workspace_id == workspace_id,
+                    TopologyEdgeModel.target_node_id == node_id,
+                )
+                .values(target_hex_q=hex_q, target_hex_r=hex_r, updated_at=now)
+            ))
         )
         await self._session.flush()
 

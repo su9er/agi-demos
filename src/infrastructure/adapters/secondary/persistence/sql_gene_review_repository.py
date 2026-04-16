@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.gene.instance_gene import GeneReview
 from src.domain.ports.repositories.gene_review_repository import GeneReviewRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import GeneReviewModel
 
 logger = logging.getLogger(__name__)
@@ -69,14 +72,14 @@ class SqlGeneReviewRepository(BaseRepository[GeneReview, GeneReviewModel], GeneR
 
         # Count
         count_query = select(func.count()).select_from(base_query.subquery())
-        count_result = await self._session.execute(count_query)
+        count_result = await self._session.execute(refresh_select_statement(self._refresh_statement(count_query)))
         total = count_result.scalar_one()
 
         # Fetch items
         items_query = (
             base_query.order_by(GeneReviewModel.created_at.desc()).offset(offset).limit(page_size)
         )
-        items_result = await self._session.execute(items_query)
+        items_result = await self._session.execute(refresh_select_statement(self._refresh_statement(items_query)))
         items = [d for r in items_result.scalars().all() if (d := self._to_domain(r)) is not None]
 
         return items, total
@@ -88,7 +91,7 @@ class SqlGeneReviewRepository(BaseRepository[GeneReview, GeneReviewModel], GeneR
             .where(GeneReviewModel.id == entity_id)
             .where(GeneReviewModel.deleted_at.is_(None))
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_review = result.scalar_one_or_none()
         if db_review is None:
             return None
@@ -97,7 +100,7 @@ class SqlGeneReviewRepository(BaseRepository[GeneReview, GeneReviewModel], GeneR
     @override
     async def save(self, domain_entity: GeneReview) -> GeneReview:
         query = select(GeneReviewModel).where(GeneReviewModel.id == domain_entity.id).limit(1)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         existing = result.scalar_one_or_none()
         if existing is not None:
             self._update_fields(existing, domain_entity)
@@ -116,5 +119,5 @@ class SqlGeneReviewRepository(BaseRepository[GeneReview, GeneReviewModel], GeneR
             .where(GeneReviewModel.deleted_at.is_(None))
             .values(deleted_at=datetime.now(UTC))
         )
-        await self._session.execute(stmt)
+        await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         await self._session.flush()

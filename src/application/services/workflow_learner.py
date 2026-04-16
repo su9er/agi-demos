@@ -22,6 +22,7 @@ from src.application.use_cases.agent.find_similar_pattern import (
 from src.application.use_cases.agent.learn_pattern import LearnPattern, LearnPatternRequest
 from src.domain.model.agent.workflow_pattern import WorkflowPattern
 from src.domain.ports.repositories.workflow_pattern_repository import WorkflowPatternRepositoryPort
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 
 logger = logging.getLogger(__name__)
 
@@ -173,12 +174,12 @@ class WorkflowLearner:
             limit=1,
         )
 
-        search_result = await self._find_similar_pattern.execute(search_request)
+        search_result = await self._find_similar_pattern.execute(refresh_select_statement(search_request))
 
         if search_result.matches:
             # Similar pattern exists - will be merged in LearnPattern
             similar_result = search_result.matches[0]
-            pattern = await self._learn_pattern.execute(analysis.to_learn_request())
+            pattern = await self._learn_pattern.execute(refresh_select_statement(analysis.to_learn_request()))
 
             return LearningResult(
                 action="updated",
@@ -187,7 +188,7 @@ class WorkflowLearner:
             )
         else:
             # Create new pattern
-            pattern = await self._learn_pattern.execute(analysis.to_learn_request())
+            pattern = await self._learn_pattern.execute(refresh_select_statement(analysis.to_learn_request()))
 
             return LearningResult(
                 action="created",

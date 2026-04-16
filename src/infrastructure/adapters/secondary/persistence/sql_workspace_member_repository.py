@@ -8,7 +8,10 @@ from src.domain.model.workspace.workspace_role import WorkspaceRole
 from src.domain.ports.repositories.workspace.workspace_member_repository import (
     WorkspaceMemberRepository,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import WorkspaceMemberModel
 
 
@@ -35,7 +38,7 @@ class SqlWorkspaceMemberRepository(
             .offset(offset)
             .limit(limit)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [m for row in rows if (m := self._to_domain(row)) is not None]
 
@@ -48,7 +51,7 @@ class SqlWorkspaceMemberRepository(
             WorkspaceMemberModel.workspace_id == workspace_id,
             WorkspaceMemberModel.user_id == user_id,
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 

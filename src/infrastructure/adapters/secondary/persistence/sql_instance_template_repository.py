@@ -14,7 +14,10 @@ from src.domain.model.instance_template.instance_template import (
 from src.domain.ports.repositories.instance_template_repository import (
     InstanceTemplateRepository,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     InstanceTemplateModel,
     TemplateItemModel,
@@ -50,7 +53,7 @@ class SqlInstanceTemplateRepository(
     @override
     async def save_item(self, item: TemplateItem) -> TemplateItem:
         query = select(TemplateItemModel).where(TemplateItemModel.id == item.id).limit(1)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         existing = result.scalar_one_or_none()
         if existing is not None:
             existing.item_type = item.item_type.value
@@ -78,14 +81,14 @@ class SqlInstanceTemplateRepository(
             .where(TemplateItemModel.template_id == template_id)
             .order_by(TemplateItemModel.display_order)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_items = result.scalars().all()
         return [self._item_to_domain(i) for i in db_items]
 
     @override
     async def delete_item(self, item_id: str) -> bool:
         query = select(TemplateItemModel).where(TemplateItemModel.id == item_id)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_item = result.scalar_one_or_none()
         if db_item is not None:
             await self._session.delete(db_item)

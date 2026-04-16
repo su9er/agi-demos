@@ -11,6 +11,7 @@ from src.domain.model.trust.trust_policy import TrustPolicy
 from src.domain.ports.repositories.trust_policy_repository import (
     TrustPolicyRepository,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     TrustPolicyModel,
 )
@@ -43,7 +44,7 @@ class SqlTrustPolicyRepository(TrustPolicyRepository):
         if agent_instance_id is not None:
             stmt = stmt.where(TrustPolicyModel.agent_instance_id == agent_instance_id)
         stmt = stmt.order_by(TrustPolicyModel.created_at.desc())
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return [self._to_domain(row) for row in result.scalars().all()]
 
     @override
@@ -60,7 +61,7 @@ class SqlTrustPolicyRepository(TrustPolicyRepository):
             TrustPolicyModel.grant_type == "always",
             TrustPolicyModel.deleted_at.is_(None),
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return result.scalars().first() is not None
 
     @staticmethod

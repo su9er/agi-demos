@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.tenant.tenant import Tenant
 from src.domain.ports.repositories.tenant_repository import TenantRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import Tenant as DBTenant
 
 logger = logging.getLogger(__name__)
@@ -39,14 +42,14 @@ class SqlTenantRepository(BaseRepository[Tenant, DBTenant], TenantRepository):
     async def find_by_owner(self, owner_id: str, limit: int = 50, offset: int = 0) -> list[Tenant]:
         """List all tenants owned by a user."""
         query = select(DBTenant).where(DBTenant.owner_id == owner_id).offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_tenants = result.scalars().all()
         return [d for t in db_tenants if (d := self._to_domain(t)) is not None]
 
     async def find_by_name(self, name: str) -> Tenant | None:
         """Find a tenant by name."""
         query = select(DBTenant).where(DBTenant.name == name)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_tenant = result.scalar_one_or_none()
         return self._to_domain(db_tenant)
 
@@ -62,6 +65,7 @@ class SqlTenantRepository(BaseRepository[Tenant, DBTenant], TenantRepository):
             await self._session.flush()
             return True
         return False
+
     # === Conversion methods ===
 
     def _to_domain(self, db_tenant: DBTenant | None) -> Tenant | None:

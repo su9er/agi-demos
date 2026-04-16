@@ -22,6 +22,7 @@ from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user_from_header_or_query,
     get_current_user_tenant,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import (
     User as DBUser,
@@ -283,7 +284,7 @@ async def stream_deploy_progress(
     """SSE endpoint for real-time deploy progress via Redis pub/sub."""
     # Derive tenant_id from user (supports both header and query-param auth for EventSource)
     result = await db.execute(
-        select(UserTenant.tenant_id).where(UserTenant.user_id == current_user.id).limit(1)
+        refresh_select_statement(select(UserTenant.tenant_id).where(UserTenant.user_id == current_user.id).limit(1))
     )
     tenant_id = result.scalar_one_or_none()
     if not tenant_id:

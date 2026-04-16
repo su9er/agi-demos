@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent.task import AgentTask, TaskPriority, TaskStatus
 from src.domain.ports.repositories.agent_task_repository import AgentTaskRepository
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import AgentTaskModel
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class SqlAgentTaskRepository(AgentTaskRepository):
         """Replace all tasks for a conversation (atomic)."""
         # Delete existing
         await self._session.execute(
-            delete(AgentTaskModel).where(AgentTaskModel.conversation_id == conversation_id)
+            refresh_select_statement(delete(AgentTaskModel).where(AgentTaskModel.conversation_id == conversation_id))
         )
         # Insert new
         for task in tasks:
@@ -58,7 +59,7 @@ class SqlAgentTaskRepository(AgentTaskRepository):
         if status:
             query = query.where(AgentTaskModel.status == status)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         rows = result.scalars().all()
         return [self._to_domain(r) for r in rows]
 
@@ -83,7 +84,7 @@ class SqlAgentTaskRepository(AgentTaskRepository):
     async def delete_by_conversation(self, conversation_id: str) -> None:
         """Delete all tasks for a conversation."""
         await self._session.execute(
-            delete(AgentTaskModel).where(AgentTaskModel.conversation_id == conversation_id)
+            refresh_select_statement(delete(AgentTaskModel).where(AgentTaskModel.conversation_id == conversation_id))
         )
         await self._session.flush()
 

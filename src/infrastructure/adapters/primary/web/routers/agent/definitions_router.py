@@ -11,7 +11,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.model.agent.agent_definition import Agent, AgentModel
+from src.domain.model.agent.agent_definition import (
+    LEGACY_DEFAULT_MAX_ITERATIONS,
+    MAX_ITERATIONS_EXPLICIT_METADATA_KEY,
+    Agent,
+    AgentModel,
+)
 from src.domain.model.agent.delegate_config import DelegateConfig
 from src.domain.model.agent.session_policy import SessionPolicy
 from src.domain.model.agent.subagent import AgentTrigger
@@ -35,6 +40,18 @@ from .utils import get_container_with_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _with_max_iterations_metadata(
+    metadata: dict[str, Any] | None,
+    *,
+    explicit: bool | None,
+) -> dict[str, Any] | None:
+    if explicit is None:
+        return metadata
+    merged = dict(metadata or {})
+    merged[MAX_ITERATIONS_EXPLICIT_METADATA_KEY] = explicit
+    return merged
 
 
 class CreateDefinitionBody(BaseModel):
@@ -152,7 +169,10 @@ async def create_definition(
             discoverable=body.discoverable,
             max_retries=body.max_retries,
             fallback_models=body.fallback_models,
-            metadata=body.metadata,
+            metadata=_with_max_iterations_metadata(
+                body.metadata,
+                explicit=body.max_iterations != LEGACY_DEFAULT_MAX_ITERATIONS,
+            ),
             session_policy=sp,
             delegate_config=dc,
         )
@@ -292,6 +312,11 @@ async def update_definition(
             raise HTTPException(status_code=403, detail="Access denied")
 
         updates = body.model_dump(exclude_unset=True)
+        if "max_iterations" in updates:
+            updates["metadata"] = _with_max_iterations_metadata(
+                updates.get("metadata", existing.metadata),
+                explicit=True,
+            )
         normalize_updated_agent_a2a(existing, updates)
         _apply_updates(existing, updates)
         existing.validate()

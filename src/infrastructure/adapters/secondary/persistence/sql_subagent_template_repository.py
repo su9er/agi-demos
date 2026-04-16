@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domain.ports.repositories.subagent_template_repository import (
     SubAgentTemplateRepositoryPort,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ class SqlSubAgentTemplateRepository(SubAgentTemplateRepositoryPort):
     async def get_by_id(self, template_id: str) -> dict[str, Any] | None:
         DBTemplate = self._get_model()
         query = select(DBTemplate).where(DBTemplate.id == template_id)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         row = result.scalar_one_or_none()
         return self._row_to_dict(row) if row else None
 
@@ -121,7 +122,7 @@ class SqlSubAgentTemplateRepository(SubAgentTemplateRepositoryPort):
         else:
             query = query.order_by(DBTemplate.created_at.desc())
         query = query.limit(1)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         row = result.scalar_one_or_none()
         return self._row_to_dict(row) if row else None
 
@@ -161,14 +162,14 @@ class SqlSubAgentTemplateRepository(SubAgentTemplateRepositoryPort):
         values["updated_at"] = datetime.now(UTC)
 
         stmt = update(DBTemplate).where(DBTemplate.id == template_id).values(**values)
-        await self._session.execute(stmt)
+        await self._session.execute(refresh_select_statement(stmt))
         await self._session.flush()
         return await self.get_by_id(template_id)
 
     async def delete(self, template_id: str) -> bool:
         DBTemplate = self._get_model()
         stmt = delete(DBTemplate).where(DBTemplate.id == template_id)
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return cast(CursorResult[Any], result).rowcount > 0
 
     async def list_templates(
@@ -196,7 +197,7 @@ class SqlSubAgentTemplateRepository(SubAgentTemplateRepositoryPort):
         stmt = stmt.order_by(DBTemplate.install_count.desc(), DBTemplate.created_at.desc())
         stmt = stmt.limit(limit).offset(offset)
 
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return [self._row_to_dict(row) for row in result.scalars().all()]
 
     async def count_templates(
@@ -212,7 +213,7 @@ class SqlSubAgentTemplateRepository(SubAgentTemplateRepositoryPort):
         if category:
             stmt = stmt.where(DBTemplate.category == category)
 
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return result.scalar_one()
 
     async def list_categories(self, tenant_id: str) -> list[str]:
@@ -226,7 +227,7 @@ class SqlSubAgentTemplateRepository(SubAgentTemplateRepositoryPort):
             .distinct()
             .order_by(DBTemplate.category)
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return [row[0] for row in result.all()]
 
     async def increment_install_count(self, template_id: str) -> None:
@@ -236,4 +237,4 @@ class SqlSubAgentTemplateRepository(SubAgentTemplateRepositoryPort):
             .where(DBTemplate.id == template_id)
             .values(install_count=DBTemplate.install_count + 1)
         )
-        await self._session.execute(stmt)
+        await self._session.execute(refresh_select_statement(stmt))

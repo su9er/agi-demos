@@ -26,6 +26,7 @@ from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user,
     verify_password,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import (
     APIKey as DBAPIKey,
@@ -50,7 +51,7 @@ async def _ensure_default_project(db: AsyncSession, user: DBUser) -> None:
     This is called after successful login to ensure first-time users have a project.
     """
     # Check if user already has any projects
-    result = await db.execute(select(UserProject).where(UserProject.user_id == user.id).limit(1))
+    result = await db.execute(refresh_select_statement(select(UserProject).where(UserProject.user_id == user.id).limit(1)))
     existing_project = result.scalar_one_or_none()
 
     if existing_project:
@@ -58,7 +59,7 @@ async def _ensure_default_project(db: AsyncSession, user: DBUser) -> None:
         return
 
     # Get user's first tenant (should exist from initialization)
-    result = await db.execute(select(UserTenant).where(UserTenant.user_id == user.id).limit(1))
+    result = await db.execute(refresh_select_statement(select(UserTenant).where(UserTenant.user_id == user.id).limit(1)))
     user_tenant = result.scalar_one_or_none()
 
     if not user_tenant:
@@ -66,7 +67,7 @@ async def _ensure_default_project(db: AsyncSession, user: DBUser) -> None:
         return
 
     # Get tenant details
-    tenant_result = await db.execute(select(Tenant).where(Tenant.id == user_tenant.tenant_id))
+    tenant_result = await db.execute(refresh_select_statement(select(Tenant).where(Tenant.id == user_tenant.tenant_id)))
     tenant = tenant_result.scalar_one_or_none()
 
     if not tenant:
@@ -114,9 +115,9 @@ async def login_for_access_token(
 
     # Query user
     result = await db.execute(
-        select(DBUser)
+        refresh_select_statement(select(DBUser)
         .where(DBUser.email == form_data.username)
-        .options(selectinload(DBUser.roles).selectinload(UserRole.role))
+        .options(selectinload(DBUser.roles).selectinload(UserRole.role)))
     )
     user = result.scalar_one_or_none()
 
@@ -226,7 +227,7 @@ async def list_api_keys(
     current_user: DBUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[Any]:
     """List all API keys for the current user."""
-    result = await db.execute(select(DBAPIKey).where(DBAPIKey.user_id == current_user.id))
+    result = await db.execute(refresh_select_statement(select(DBAPIKey).where(DBAPIKey.user_id == current_user.id)))
     keys = result.scalars().all()
 
     return [
@@ -250,7 +251,7 @@ async def revoke_api_key(
 ) -> None:
     """Revoke (delete) an API key."""
     result = await db.execute(
-        select(DBAPIKey).where(DBAPIKey.id == key_id, DBAPIKey.user_id == current_user.id)
+        refresh_select_statement(select(DBAPIKey).where(DBAPIKey.id == key_id, DBAPIKey.user_id == current_user.id))
     )
     key = result.scalar_one_or_none()
 
@@ -271,9 +272,9 @@ async def read_users_me(
 
     # Eager load roles to avoid lazy loading in async mode
     result = await db.execute(
-        select(DBUser)
+        refresh_select_statement(select(DBUser)
         .options(selectinload(DBUser.roles).selectinload(UserRole.role))
-        .where(DBUser.id == current_user.id)
+        .where(DBUser.id == current_user.id))
     )
     user_with_roles = result.scalar_one_or_none()
 

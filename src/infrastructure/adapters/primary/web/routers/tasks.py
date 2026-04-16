@@ -19,6 +19,7 @@ from src.application.use_cases.task import (
 )
 from src.configuration.di_container import DIContainer
 from src.domain.model.task.task_log import TaskLog, TaskLogStatus
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import TaskLog as DBTaskLog
 
@@ -253,7 +254,7 @@ async def get_recent_tasks(
 
     query = query.limit(limit).offset(offset)
 
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     db_tasks = result.scalars().all()
 
     # Convert to domain models for consistency
@@ -302,7 +303,7 @@ async def get_status_breakdown(db: AsyncSession = Depends(get_db)) -> dict[str, 
         .group_by(DBTaskLog.status)
     )
 
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     breakdown = {row[0]: row[1] for row in result.all()}
 
     return {
@@ -323,11 +324,11 @@ async def retry_task_endpoint(
 
     # Get the task first to check status
     task = await use_case.execute(
-        UpdateTaskCommand(
+        refresh_select_statement(UpdateTaskCommand(
             task_id=task_id,
             status="PENDING",
             error_message=None,
-        )
+        ))
     )
 
     if not task:
@@ -338,11 +339,11 @@ async def retry_task_endpoint(
 
     # Update task to pending
     task = await use_case.execute(
-        UpdateTaskCommand(
+        refresh_select_statement(UpdateTaskCommand(
             task_id=task_id,
             status="PENDING",
             error_message=None,
-        )
+        ))
     )
 
     return {"message": "Task retried successfully"}
@@ -359,7 +360,7 @@ async def stop_task_endpoint(
     update_use_case = container.update_task_use_case()
 
     # Get the task first
-    task = await get_use_case.execute(GetTaskQuery(task_id=task_id))
+    task = await get_use_case.execute(refresh_select_statement(GetTaskQuery(task_id=task_id)))
 
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -372,13 +373,13 @@ async def stop_task_endpoint(
     # Mark task as stopped
     now = datetime.now(UTC)
     await update_use_case.execute(
-        UpdateTaskCommand(
+        refresh_select_statement(UpdateTaskCommand(
             task_id=task_id,
             status="FAILED",
             error_message="Task stopped by user",
             completed_at=now,
             stopped_at=now,
-        )
+        ))
     )
     await db.commit()
 
@@ -430,7 +431,7 @@ async def _poll_task_updates(
         logger.info(f"Polling iteration {poll_iteration} for task {task_id}")
         try:
             async with async_session_factory() as session:
-                result = await session.execute(select(DBTaskLog).where(DBTaskLog.id == task_id))
+                result = await session.execute(refresh_select_statement(select(DBTaskLog).where(DBTaskLog.id == task_id)))
                 task = result.scalar_one_or_none()
 
                 if not task:
@@ -518,7 +519,7 @@ async def stream_task_status(
 
         try:
             async with async_session_factory() as session:
-                result = await session.execute(select(DBTaskLog).where(DBTaskLog.id == task_id))
+                result = await session.execute(refresh_select_statement(select(DBTaskLog).where(DBTaskLog.id == task_id)))
                 task = result.scalar_one_or_none()
 
                 if not task:
@@ -568,7 +569,7 @@ async def stream_task_status(
 @router.get("/{task_id}", response_model=TaskLogResponse)
 async def get_task_status(task_id: str, db: AsyncSession = Depends(get_db)) -> Any:
     """Get a single task by ID."""
-    result = await db.execute(select(DBTaskLog).where(DBTaskLog.id == task_id))
+    result = await db.execute(refresh_select_statement(select(DBTaskLog).where(DBTaskLog.id == task_id)))
     task = result.scalar_one_or_none()
 
     if not task:

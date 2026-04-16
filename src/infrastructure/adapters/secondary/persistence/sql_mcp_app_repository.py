@@ -18,6 +18,7 @@ from src.domain.model.mcp.app import (
     MCPAppUIMetadata,
 )
 from src.domain.ports.mcp.app_repository_port import MCPAppRepositoryPort
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import MCPAppModel
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ class SqlMCPAppRepository(MCPAppRepositoryPort):
 
     async def save(self, app: MCPApp) -> MCPApp:
         """Save or update an MCP App."""
-        result = await self._session.execute(select(MCPAppModel).where(MCPAppModel.id == app.id))
+        result = await self._session.execute(refresh_select_statement(select(MCPAppModel).where(MCPAppModel.id == app.id)))
         db_app = result.scalar_one_or_none()
 
         if db_app:
@@ -48,17 +49,17 @@ class SqlMCPAppRepository(MCPAppRepositoryPort):
 
     async def find_by_id(self, app_id: str) -> MCPApp | None:
         """Find an MCP App by its ID."""
-        result = await self._session.execute(select(MCPAppModel).where(MCPAppModel.id == app_id))
+        result = await self._session.execute(refresh_select_statement(select(MCPAppModel).where(MCPAppModel.id == app_id)))
         db_app = result.scalar_one_or_none()
         return self._to_domain(db_app) if db_app else None
 
     async def find_by_server_and_tool(self, server_id: str, tool_name: str) -> MCPApp | None:
         """Find an MCP App by server and tool name."""
         result = await self._session.execute(
-            select(MCPAppModel).where(
+            refresh_select_statement(select(MCPAppModel).where(
                 MCPAppModel.server_id == server_id,
                 MCPAppModel.tool_name == tool_name,
-            )
+            ))
         )
         db_app = result.scalar_one_or_none()
         return self._to_domain(db_app) if db_app else None
@@ -72,11 +73,11 @@ class SqlMCPAppRepository(MCPAppRepositoryPort):
         for reliable deduplication regardless of server_id changes.
         """
         result = await self._session.execute(
-            select(MCPAppModel).where(
+            refresh_select_statement(select(MCPAppModel).where(
                 MCPAppModel.project_id == project_id,
                 MCPAppModel.server_name == server_name,
                 MCPAppModel.tool_name == tool_name,
-            )
+            ))
         )
         db_app = result.scalar_one_or_none()
         return self._to_domain(db_app) if db_app else None
@@ -90,18 +91,18 @@ class SqlMCPAppRepository(MCPAppRepositoryPort):
             query = query.where(MCPAppModel.status != MCPAppStatus.DISABLED.value)
         query = query.order_by(MCPAppModel.created_at.desc())
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         return [self._to_domain(db) for db in result.scalars().all()]
 
     async def find_ready_by_project(self, project_id: str) -> list[MCPApp]:
         """Find all ready MCP Apps for a project."""
         result = await self._session.execute(
-            select(MCPAppModel)
+            refresh_select_statement(select(MCPAppModel)
             .where(
                 MCPAppModel.project_id == project_id,
                 MCPAppModel.status == MCPAppStatus.READY.value,
             )
-            .order_by(MCPAppModel.created_at.desc())
+            .order_by(MCPAppModel.created_at.desc()))
         )
         return [self._to_domain(db) for db in result.scalars().all()]
 
@@ -112,12 +113,12 @@ class SqlMCPAppRepository(MCPAppRepositoryPort):
             query = query.where(MCPAppModel.status != MCPAppStatus.DISABLED.value)
         query = query.order_by(MCPAppModel.created_at.desc())
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         return [self._to_domain(db) for db in result.scalars().all()]
 
     async def delete(self, app_id: str) -> bool:
         """Delete an MCP App."""
-        result = await self._session.execute(delete(MCPAppModel).where(MCPAppModel.id == app_id))
+        result = await self._session.execute(refresh_select_statement(delete(MCPAppModel).where(MCPAppModel.id == app_id)))
         if cast(CursorResult[Any], result).rowcount == 0:
             return False
         logger.info("Deleted MCP App: %s", app_id)
@@ -126,7 +127,7 @@ class SqlMCPAppRepository(MCPAppRepositoryPort):
     async def delete_by_server(self, server_id: str) -> int:
         """Delete all MCP Apps for a server."""
         result = await self._session.execute(
-            delete(MCPAppModel).where(MCPAppModel.server_id == server_id)
+            refresh_select_statement(delete(MCPAppModel).where(MCPAppModel.server_id == server_id))
         )
         count = cast(CursorResult[Any], result).rowcount
         if count > 0:
@@ -138,7 +139,7 @@ class SqlMCPAppRepository(MCPAppRepositoryPort):
         from sqlalchemy import update
 
         result = await self._session.execute(
-            update(MCPAppModel)
+            refresh_select_statement(update(MCPAppModel)
             .where(
                 MCPAppModel.server_id == server_id,
                 MCPAppModel.status != MCPAppStatus.DISABLED.value,
@@ -146,7 +147,7 @@ class SqlMCPAppRepository(MCPAppRepositoryPort):
             .values(
                 status=MCPAppStatus.DISABLED.value,
                 updated_at=datetime.now(UTC),
-            )
+            ))
         )
         count = cast(CursorResult[Any], result).rowcount
         if count > 0:
@@ -155,7 +156,7 @@ class SqlMCPAppRepository(MCPAppRepositoryPort):
 
     async def update_lifecycle_metadata(self, app_id: str, metadata: dict[str, Any]) -> bool:
         """Merge lifecycle metadata into existing app metadata."""
-        result = await self._session.execute(select(MCPAppModel).where(MCPAppModel.id == app_id))
+        result = await self._session.execute(refresh_select_statement(select(MCPAppModel).where(MCPAppModel.id == app_id)))
         db_app = result.scalar_one_or_none()
         if not db_app:
             return False

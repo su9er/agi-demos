@@ -5,7 +5,7 @@ Tests for V2 SqlMCPServerRepository using BaseRepository.
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.infrastructure.adapters.secondary.persistence.models import (
     Project as DBProject,
@@ -139,6 +139,45 @@ class TestSqlMCPServerRepositoryGet:
         """Test getting by non-existent name returns None."""
         server = await v2_mcp_repo.get_by_name(PROJECT_ID, "non-existent-name")
         assert server is None
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_refreshes_existing_identity_map_rows(
+        self,
+        v2_mcp_repo: SqlMCPServerRepository,
+        db_session: AsyncSession,
+    ):
+        """Re-reading with the same session should observe external updates."""
+        server_id = await v2_mcp_repo.create(
+            tenant_id=TENANT_ID,
+            project_id=PROJECT_ID,
+            name="Refresh Server",
+            description="Before refresh",
+            server_type="stdio",
+            transport_config={},
+        )
+        await db_session.commit()
+
+        first = await v2_mcp_repo.get_by_id(server_id)
+        assert first is not None
+        assert first.description == "Before refresh"
+
+        session_factory = async_sessionmaker(
+            db_session.bind,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+        async with session_factory() as other_session:
+            other_repo = SqlMCPServerRepository(other_session)
+            updated = await other_repo.update(
+                server_id=server_id,
+                description="After refresh",
+            )
+            assert updated is True
+            await other_session.commit()
+
+        refreshed = await v2_mcp_repo.get_by_id(server_id)
+        assert refreshed is not None
+        assert refreshed.description == "After refresh"
 
 
 class TestSqlMCPServerRepositoryList:

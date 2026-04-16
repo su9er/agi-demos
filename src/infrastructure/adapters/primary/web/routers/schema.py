@@ -17,6 +17,7 @@ from src.application.schemas.schema import (
     EntityTypeUpdate,
 )
 from src.infrastructure.adapters.primary.web.dependencies import get_current_user
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import (
     EdgeType,
@@ -41,7 +42,7 @@ async def verify_project_access(
     if required_role:
         query = query.where(UserProject.role.in_(required_role))
 
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     user_project = result.scalar_one_or_none()
 
     if not user_project:
@@ -61,7 +62,7 @@ async def list_entity_types(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     await verify_project_access(project_id, current_user, db)
-    result = await db.execute(select(EntityType).where(EntityType.project_id == project_id))
+    result = await db.execute(refresh_select_statement(select(EntityType).where(EntityType.project_id == project_id)))
     return result.scalars().all()
 
 
@@ -76,12 +77,12 @@ async def create_entity_type(
 
     # Check uniqueness
     existing = await db.execute(
-        select(EntityType).where(
+        refresh_select_statement(select(EntityType).where(
             and_(
                 EntityType.project_id == project_id,
                 EntityType.name == entity_data.name,
             )
-        )
+        ))
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Entity type with this name already exists")
@@ -149,7 +150,7 @@ async def list_edge_types(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     await verify_project_access(project_id, current_user, db)
-    result = await db.execute(select(EdgeType).where(EdgeType.project_id == project_id))
+    result = await db.execute(refresh_select_statement(select(EdgeType).where(EdgeType.project_id == project_id)))
     return result.scalars().all()
 
 
@@ -163,9 +164,9 @@ async def create_edge_type(
     await verify_project_access(project_id, current_user, db)
 
     existing = await db.execute(
-        select(EdgeType).where(
+        refresh_select_statement(select(EdgeType).where(
             and_(EdgeType.project_id == project_id, EdgeType.name == edge_data.name)
-        )
+        ))
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Edge type with this name already exists")
@@ -233,7 +234,7 @@ async def list_edge_maps(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     await verify_project_access(project_id, current_user, db)
-    result = await db.execute(select(EdgeTypeMap).where(EdgeTypeMap.project_id == project_id))
+    result = await db.execute(refresh_select_statement(select(EdgeTypeMap).where(EdgeTypeMap.project_id == project_id)))
     return result.scalars().all()
 
 
@@ -248,14 +249,14 @@ async def create_edge_map(
 
     # Check uniqueness
     existing = await db.execute(
-        select(EdgeTypeMap).where(
+        refresh_select_statement(select(EdgeTypeMap).where(
             and_(
                 EdgeTypeMap.project_id == project_id,
                 EdgeTypeMap.source_type == map_data.source_type,
                 EdgeTypeMap.target_type == map_data.target_type,
                 EdgeTypeMap.edge_type == map_data.edge_type,
             )
-        )
+        ))
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="This mapping already exists")

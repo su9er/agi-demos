@@ -22,7 +22,10 @@ from src.domain.model.agent.execution_status import AgentExecution, AgentExecuti
 from src.domain.ports.repositories.agent_execution_repository import (
     AgentExecutionRepositoryPort,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +105,11 @@ class SqlMessageExecutionStatusRepository(
         )
 
         result = await self._session.execute(
-            select(MessageExecutionStatusModel).where(
-                MessageExecutionStatusModel.id == execution_id
-            )
+            refresh_select_statement(self._refresh_statement(
+                select(MessageExecutionStatusModel).where(
+                    MessageExecutionStatusModel.id == execution_id
+                )
+            ))
         )
         model = result.scalar_one_or_none()
         return self._to_domain(model) if model else None
@@ -125,7 +130,7 @@ class SqlMessageExecutionStatusRepository(
         if conversation_id:
             query = query.where(MessageExecutionStatusModel.conversation_id == conversation_id)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         model = result.scalar_one_or_none()
         return self._to_domain(model) if model else None
 
@@ -139,11 +144,13 @@ class SqlMessageExecutionStatusRepository(
         )
 
         result = await self._session.execute(
-            select(MessageExecutionStatusModel)
-            .where(MessageExecutionStatusModel.conversation_id == conversation_id)
-            .where(MessageExecutionStatusModel.status == AgentExecutionStatus.RUNNING.value)
-            .order_by(MessageExecutionStatusModel.started_at.desc())
-            .limit(1)
+            refresh_select_statement(self._refresh_statement(
+                select(MessageExecutionStatusModel)
+                .where(MessageExecutionStatusModel.conversation_id == conversation_id)
+                .where(MessageExecutionStatusModel.status == AgentExecutionStatus.RUNNING.value)
+                .order_by(MessageExecutionStatusModel.started_at.desc())
+                .limit(1)
+            ))
         )
         model = result.scalar_one_or_none()
         return self._to_domain(model) if model else None
@@ -174,10 +181,12 @@ class SqlMessageExecutionStatusRepository(
             update_data["error_message"] = error_message
 
         result = await self._session.execute(
-            update(MessageExecutionStatusModel)
-            .where(MessageExecutionStatusModel.id == execution_id)
-            .values(**update_data)
-            .returning(MessageExecutionStatusModel)
+            refresh_select_statement(self._refresh_statement(
+                update(MessageExecutionStatusModel)
+                .where(MessageExecutionStatusModel.id == execution_id)
+                .values(**update_data)
+                .returning(MessageExecutionStatusModel)
+            ))
         )
         model = result.scalar_one_or_none()
 
@@ -199,11 +208,13 @@ class SqlMessageExecutionStatusRepository(
         )
 
         result = await self._session.execute(
-            update(MessageExecutionStatusModel)
-            .where(MessageExecutionStatusModel.id == execution_id)
-            .where(MessageExecutionStatusModel.last_event_sequence < sequence)
-            .values(last_event_sequence=sequence)
-            .returning(MessageExecutionStatusModel)
+            refresh_select_statement(self._refresh_statement(
+                update(MessageExecutionStatusModel)
+                .where(MessageExecutionStatusModel.id == execution_id)
+                .where(MessageExecutionStatusModel.last_event_sequence < sequence)
+                .values(last_event_sequence=sequence)
+                .returning(MessageExecutionStatusModel)
+            ))
         )
         model = result.scalar_one_or_none()
         return self._to_domain(model) if model else None
@@ -215,9 +226,11 @@ class SqlMessageExecutionStatusRepository(
         )
 
         result = await self._session.execute(
-            select(MessageExecutionStatusModel).where(
-                MessageExecutionStatusModel.id == execution_id
-            )
+            refresh_select_statement(self._refresh_statement(
+                select(MessageExecutionStatusModel).where(
+                    MessageExecutionStatusModel.id == execution_id
+                )
+            ))
         )
         model = result.scalar_one_or_none()
         if model:

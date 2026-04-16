@@ -10,6 +10,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.adapters.primary.web.dependencies import get_current_user
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import Notification, User
 
@@ -32,7 +33,7 @@ async def list_notifications(
 
     query = query.order_by(Notification.created_at.desc()).limit(limit)
 
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     notifications = result.scalars().all()
 
     # Filter out expired notifications
@@ -75,9 +76,9 @@ async def mark_notification_read(
 ) -> dict[str, Any]:
     """Mark a notification as read."""
     result = await db.execute(
-        select(Notification).where(
+        refresh_select_statement(select(Notification).where(
             and_(Notification.id == notification_id, Notification.user_id == current_user.id)
-        )
+        ))
     )
     notification = result.scalar_one_or_none()
 
@@ -97,9 +98,9 @@ async def mark_all_read(
 ) -> dict[str, Any]:
     """Mark all notifications as read for the current user."""
     result = await db.execute(
-        select(Notification).where(
+        refresh_select_statement(select(Notification).where(
             and_(Notification.user_id == current_user.id, Notification.is_read.is_(False))
-        )
+        ))
     )
     notifications = result.scalars().all()
 
@@ -119,9 +120,9 @@ async def delete_notification(
 ) -> dict[str, Any]:
     """Delete a notification."""
     result = await db.execute(
-        select(Notification).where(
+        refresh_select_statement(select(Notification).where(
             and_(Notification.id == notification_id, Notification.user_id == current_user.id)
-        )
+        ))
     )
     notification = result.scalar_one_or_none()
 

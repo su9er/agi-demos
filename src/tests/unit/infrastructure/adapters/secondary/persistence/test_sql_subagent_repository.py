@@ -5,7 +5,7 @@ Tests for V2 SqlSubAgentRepository using BaseRepository.
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.domain.model.agent.subagent import AgentModel, AgentTrigger, SubAgent
 from src.infrastructure.adapters.secondary.persistence.sql_subagent_repository import (
@@ -150,6 +150,38 @@ class TestSqlSubAgentRepositoryFind:
         results = await v2_subagent_repo.list_by_project("project-1")
         assert len(results) == 1
         assert results[0].project_id == "project-1"
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_refreshes_existing_identity_map_rows(
+        self,
+        v2_subagent_repo: SqlSubAgentRepository,
+        v2_db_session: AsyncSession,
+    ):
+        """Re-reading with the same session should observe external updates."""
+        subagent = make_subagent("subagent-refresh-1", "tenant-refresh", "refresh_me")
+        await v2_subagent_repo.create(subagent)
+        await v2_db_session.commit()
+
+        first = await v2_subagent_repo.get_by_id("subagent-refresh-1")
+        assert first is not None
+        assert first.max_iterations == 10
+
+        session_factory = async_sessionmaker(
+            v2_db_session.bind,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+        async with session_factory() as other_session:
+            other_repo = SqlSubAgentRepository(other_session)
+            current = await other_repo.get_by_id("subagent-refresh-1")
+            assert current is not None
+            current.max_iterations = 25
+            await other_repo.update(current)
+            await other_session.commit()
+
+        refreshed = await v2_subagent_repo.get_by_id("subagent-refresh-1")
+        assert refreshed is not None
+        assert refreshed.max_iterations == 25
 
 
 class TestSqlSubAgentRepositoryUpdate:

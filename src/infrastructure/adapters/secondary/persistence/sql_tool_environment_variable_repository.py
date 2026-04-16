@@ -16,7 +16,10 @@ from src.domain.model.agent.tool_environment_variable import (
 from src.domain.ports.repositories.tool_environment_variable_repository import (
     ToolEnvironmentVariableRepositoryPort,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +79,11 @@ class SqlToolEnvironmentVariableRepository(
         )
 
         result = await self._session.execute(
-            select(ToolEnvironmentVariableRecord).where(
-                ToolEnvironmentVariableRecord.id == env_var_id
-            )
+            refresh_select_statement(self._refresh_statement(
+                select(ToolEnvironmentVariableRecord).where(
+                    ToolEnvironmentVariableRecord.id == env_var_id
+                )
+            ))
         )
         db_record = result.scalar_one_or_none()
 
@@ -104,12 +109,14 @@ class SqlToolEnvironmentVariableRepository(
         if project_id:
             # First try project-level
             result = await self._session.execute(
-                select(ToolEnvironmentVariableRecord).where(
-                    ToolEnvironmentVariableRecord.tenant_id == tenant_id,
-                    ToolEnvironmentVariableRecord.project_id == project_id,
-                    ToolEnvironmentVariableRecord.tool_name == tool_name,
-                    ToolEnvironmentVariableRecord.variable_name == variable_name,
-                )
+                refresh_select_statement(self._refresh_statement(
+                    select(ToolEnvironmentVariableRecord).where(
+                        ToolEnvironmentVariableRecord.tenant_id == tenant_id,
+                        ToolEnvironmentVariableRecord.project_id == project_id,
+                        ToolEnvironmentVariableRecord.tool_name == tool_name,
+                        ToolEnvironmentVariableRecord.variable_name == variable_name,
+                    )
+                ))
             )
             db_record = result.scalar_one_or_none()
             if db_record:
@@ -117,12 +124,14 @@ class SqlToolEnvironmentVariableRepository(
 
         # Fall back to tenant-level (project_id is None)
         result = await self._session.execute(
-            select(ToolEnvironmentVariableRecord).where(
-                ToolEnvironmentVariableRecord.tenant_id == tenant_id,
-                ToolEnvironmentVariableRecord.project_id.is_(None),
-                ToolEnvironmentVariableRecord.tool_name == tool_name,
-                ToolEnvironmentVariableRecord.variable_name == variable_name,
-            )
+            refresh_select_statement(self._refresh_statement(
+                select(ToolEnvironmentVariableRecord).where(
+                    ToolEnvironmentVariableRecord.tenant_id == tenant_id,
+                    ToolEnvironmentVariableRecord.project_id.is_(None),
+                    ToolEnvironmentVariableRecord.tool_name == tool_name,
+                    ToolEnvironmentVariableRecord.variable_name == variable_name,
+                )
+            ))
         )
         db_record = result.scalar_one_or_none()
 
@@ -151,7 +160,7 @@ class SqlToolEnvironmentVariableRepository(
             conditions.append(ToolEnvironmentVariableRecord.project_id.is_(None))
 
         result = await self._session.execute(
-            select(ToolEnvironmentVariableRecord).where(*conditions)
+            refresh_select_statement(self._refresh_statement(select(ToolEnvironmentVariableRecord).where(*conditions)))
         )
         db_record = result.scalar_one_or_none()
         return self._to_domain(db_record) if db_record else None
@@ -178,7 +187,7 @@ class SqlToolEnvironmentVariableRepository(
             ToolEnvironmentVariableRecord.project_id.is_(None),
             ToolEnvironmentVariableRecord.tool_name == tool_name,
         )
-        tenant_result = await self._session.execute(tenant_query)
+        tenant_result = await self._session.execute(refresh_select_statement(self._refresh_statement(tenant_query)))
         tenant_vars = {r.variable_name: self._to_domain(r) for r in tenant_result.scalars().all()}
 
         if project_id:
@@ -188,7 +197,7 @@ class SqlToolEnvironmentVariableRepository(
                 ToolEnvironmentVariableRecord.project_id == project_id,
                 ToolEnvironmentVariableRecord.tool_name == tool_name,
             )
-            project_result = await self._session.execute(project_query)
+            project_result = await self._session.execute(refresh_select_statement(self._refresh_statement(project_query)))
             for r in project_result.scalars().all():
                 tenant_vars[r.variable_name] = self._to_domain(r)
 
@@ -216,7 +225,7 @@ class SqlToolEnvironmentVariableRepository(
             ToolEnvironmentVariableRecord.variable_name,
         )
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         return [d for r in result.scalars().all() if (d := self._to_domain(r)) is not None]
 
     async def list_by_project(
@@ -241,7 +250,7 @@ class SqlToolEnvironmentVariableRepository(
             )
         )
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         return [d for r in result.scalars().all() if (d := self._to_domain(r)) is not None]
 
     async def update(self, env_var: ToolEnvironmentVariable) -> ToolEnvironmentVariable:
@@ -251,9 +260,11 @@ class SqlToolEnvironmentVariableRepository(
         )
 
         result = await self._session.execute(
-            select(ToolEnvironmentVariableRecord).where(
-                ToolEnvironmentVariableRecord.id == env_var.id
-            )
+            refresh_select_statement(self._refresh_statement(
+                select(ToolEnvironmentVariableRecord).where(
+                    ToolEnvironmentVariableRecord.id == env_var.id
+                )
+            ))
         )
         db_record = result.scalar_one_or_none()
 
@@ -282,9 +293,11 @@ class SqlToolEnvironmentVariableRepository(
         )
 
         result = await self._session.execute(
-            delete(ToolEnvironmentVariableRecord).where(
-                ToolEnvironmentVariableRecord.id == env_var_id
-            )
+            refresh_select_statement(self._refresh_statement(
+                delete(ToolEnvironmentVariableRecord).where(
+                    ToolEnvironmentVariableRecord.id == env_var_id
+                )
+            ))
         )
 
         if cast(CursorResult[Any], result).rowcount == 0:
@@ -315,7 +328,7 @@ class SqlToolEnvironmentVariableRepository(
             conditions.append(ToolEnvironmentVariableRecord.project_id.is_(None))
 
         result = await self._session.execute(
-            delete(ToolEnvironmentVariableRecord).where(*conditions)
+            refresh_select_statement(self._refresh_statement(delete(ToolEnvironmentVariableRecord).where(*conditions)))
         )
 
         logger.info(

@@ -11,7 +11,10 @@ from src.domain.model.workspace.workspace_task import (
 from src.domain.ports.repositories.workspace.workspace_task_repository import (
     WorkspaceTaskRepository,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import WorkspaceTaskModel
 
 
@@ -36,7 +39,7 @@ class SqlWorkspaceTaskRepository(
         if status is not None:
             query = query.where(WorkspaceTaskModel.status == status.value)
         query = query.order_by(WorkspaceTaskModel.created_at.desc()).offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [t for row in rows if (t := self._to_domain(row)) is not None]
 
@@ -54,7 +57,7 @@ class SqlWorkspaceTaskRepository(
             .order_by(WorkspaceTaskModel.created_at.desc())
             .limit(1)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         return self._to_domain(result.scalar_one_or_none())
 
     async def find_by_root_goal_task_id(
@@ -65,11 +68,14 @@ class SqlWorkspaceTaskRepository(
         query = (
             select(WorkspaceTaskModel)
             .where(WorkspaceTaskModel.workspace_id == workspace_id)
-            .where(WorkspaceTaskModel.metadata_json["root_goal_task_id"].as_string() == root_goal_task_id)
+            .where(
+                WorkspaceTaskModel.metadata_json["root_goal_task_id"].as_string()
+                == root_goal_task_id
+            )
             .where(WorkspaceTaskModel.archived_at.is_(None))
             .order_by(WorkspaceTaskModel.created_at.asc())
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [t for row in rows if (t := self._to_domain(row)) is not None]
 

@@ -17,6 +17,7 @@ from src.infrastructure.adapters.primary.web.startup import (
     get_channel_manager,
     reload_channel_manager_connections,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.channel_models import (
     ChannelConfigModel,
     ChannelOutboxModel,
@@ -70,7 +71,7 @@ async def verify_project_access(
     if required_role:
         query = query.where(UserProject.role.in_(required_role))
 
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     user_project = result.scalar_one_or_none()
 
     if not user_project:
@@ -96,7 +97,7 @@ async def verify_tenant_access(
     if required_role:
         query = query.where(UserTenant.role.in_(required_role))
 
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     user_tenant = result.scalar_one_or_none()
     if not user_tenant:
         raise HTTPException(
@@ -109,7 +110,7 @@ async def verify_tenant_access(
 async def _resolve_project_tenant_id(project_id: str, db: AsyncSession) -> str | None:
     """Resolve tenant_id for project-scoped compatibility routes."""
     try:
-        result = await db.execute(select(Project.tenant_id).where(Project.id == project_id))
+        result = await db.execute(refresh_select_statement(select(Project.tenant_id).where(Project.id == project_id)))
     except Exception as exc:
         logger.warning("Failed to resolve tenant_id for project=%s: %s", project_id, exc)
         return None
@@ -1528,23 +1529,23 @@ async def get_project_channel_observability_summary(
     await verify_project_access(project_id, current_user, db, ["owner", "admin"])
 
     bindings_total_result = await db.execute(
-        select(func.count())
+        refresh_select_statement(select(func.count())
         .select_from(ChannelSessionBindingModel)
-        .where(ChannelSessionBindingModel.project_id == project_id)
+        .where(ChannelSessionBindingModel.project_id == project_id))
     )
     session_bindings_total = int(bindings_total_result.scalar() or 0)
 
     outbox_total_result = await db.execute(
-        select(func.count())
+        refresh_select_statement(select(func.count())
         .select_from(ChannelOutboxModel)
-        .where(ChannelOutboxModel.project_id == project_id)
+        .where(ChannelOutboxModel.project_id == project_id))
     )
     outbox_total = int(outbox_total_result.scalar() or 0)
 
     outbox_by_status_result = await db.execute(
-        select(ChannelOutboxModel.status, func.count())
+        refresh_select_statement(select(ChannelOutboxModel.status, func.count())
         .where(ChannelOutboxModel.project_id == project_id)
-        .group_by(ChannelOutboxModel.status)
+        .group_by(ChannelOutboxModel.status))
     )
     outbox_by_status: dict[str, int] = {
         status_name: int(status_count)
@@ -1552,7 +1553,7 @@ async def get_project_channel_observability_summary(
     }
 
     latest_error_result = await db.execute(
-        select(ChannelOutboxModel.last_error)
+        refresh_select_statement(select(ChannelOutboxModel.last_error)
         .where(
             ChannelOutboxModel.project_id == project_id,
             ChannelOutboxModel.last_error.isnot(None),
@@ -1561,7 +1562,7 @@ async def get_project_channel_observability_summary(
         .order_by(
             nullslast(desc(ChannelOutboxModel.updated_at)), desc(ChannelOutboxModel.created_at)
         )
-        .limit(1)
+        .limit(1))
     )
     latest_delivery_error = latest_error_result.scalar_one_or_none()
 
@@ -1613,10 +1614,10 @@ async def list_project_channel_outbox(
         count_query = count_query.where(ChannelOutboxModel.status == status_filter)
 
     query = query.order_by(desc(ChannelOutboxModel.created_at)).limit(limit).offset(offset)
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     items = result.scalars().all()
 
-    total_result = await db.execute(count_query)
+    total_result = await db.execute(refresh_select_statement(count_query))
     total = int(total_result.scalar() or 0)
 
     return ChannelOutboxListResponse(
@@ -1662,13 +1663,13 @@ async def list_project_channel_session_bindings(
         .limit(limit)
         .offset(offset)
     )
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     items = result.scalars().all()
 
     total_result = await db.execute(
-        select(func.count())
+        refresh_select_statement(select(func.count())
         .select_from(ChannelSessionBindingModel)
-        .where(ChannelSessionBindingModel.project_id == project_id)
+        .where(ChannelSessionBindingModel.project_id == project_id))
     )
     total = int(total_result.scalar() or 0)
 
@@ -1760,14 +1761,14 @@ async def list_all_connection_status(
     has_admin_role = False
     if not current_user.is_superuser:
         role_result = await db.execute(
-            select(func.count())
+            refresh_select_statement(select(func.count())
             .select_from(UserRole)
             .join(Role, UserRole.role_id == Role.id)
             .where(
                 UserRole.user_id == current_user.id,
                 Role.name.in_([RoleDefinition.SYSTEM_ADMIN, "admin", "super_admin"]),
                 UserRole.tenant_id.is_(None),
-            )
+            ))
         )
         has_admin_role = bool(role_result.scalar())
 
@@ -1836,9 +1837,9 @@ async def push_message_to_channel(
     """Push a message to the channel bound to a conversation."""
     # Verify conversation exists and user has access
     binding = await db.execute(
-        select(ChannelSessionBindingModel).where(
+        refresh_select_statement(select(ChannelSessionBindingModel).where(
             ChannelSessionBindingModel.conversation_id == conversation_id
-        )
+        ))
     )
     binding_row = binding.scalar_one_or_none()
     if not binding_row:
@@ -1849,7 +1850,7 @@ async def push_message_to_channel(
 
     # Verify user has access to the channel's project
     config = await db.execute(
-        select(ChannelConfigModel).where(ChannelConfigModel.id == binding_row.channel_config_id)
+        refresh_select_statement(select(ChannelConfigModel).where(ChannelConfigModel.id == binding_row.channel_config_id))
     )
     config_row = config.scalar_one_or_none()
     if config_row:

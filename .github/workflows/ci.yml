@@ -121,6 +121,10 @@ jobs:
           assert all(d.code != "plugin_discovery_failed" for d in diagnostics)
           print("Local Feishu plugin discovery verified")
           PY
+
+      - name: Guard wrapped ORM select execute usage
+        run: |
+          uv run python scripts/check_refresh_select_execute.py
       
       - name: Run linters
         run: |

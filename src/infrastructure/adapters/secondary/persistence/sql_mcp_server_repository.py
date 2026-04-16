@@ -14,7 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domain.model.mcp.server import MCPServer, MCPServerConfig
 from src.domain.model.mcp.transport import TransportType
 from src.domain.ports.repositories.mcp_server_repository import MCPServerRepositoryPort
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import MCPServer as DBMCPServer
 
 logger = logging.getLogger(__name__)
@@ -74,8 +77,12 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
 
     async def get_by_id(self, server_id: str) -> MCPServer | None:
         """Get an MCP server by its ID."""
-        query = select(DBMCPServer).where(DBMCPServer.id == server_id)
-        result = await self._session.execute(query)
+        query = (
+            select(DBMCPServer)
+            .where(DBMCPServer.id == server_id)
+            .execution_options(populate_existing=True)
+        )
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_server = result.scalar_one_or_none()
 
         return self._to_domain(db_server) if db_server else None
@@ -87,7 +94,9 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
             DBMCPServer.name == name,
         )
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
         db_server = result.scalar_one_or_none()
         return self._to_domain(db_server) if db_server else None
 
@@ -102,7 +111,13 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
         if enabled_only:
             query = query.where(DBMCPServer.enabled.is_(True))
 
-        result = await self._session.execute(query.order_by(DBMCPServer.created_at.desc()))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(
+                query.order_by(DBMCPServer.created_at.desc()).execution_options(
+                    populate_existing=True
+                )
+            ))
+        )
         db_servers = result.scalars().all()
 
         return [d for server in db_servers if (d := self._to_domain(server)) is not None]
@@ -118,7 +133,13 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
         if enabled_only:
             query = query.where(DBMCPServer.enabled.is_(True))
 
-        result = await self._session.execute(query.order_by(DBMCPServer.created_at.desc()))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(
+                query.order_by(DBMCPServer.created_at.desc()).execution_options(
+                    populate_existing=True
+                )
+            ))
+        )
         db_servers = result.scalars().all()
 
         return [d for server in db_servers if (d := self._to_domain(server)) is not None]
@@ -133,7 +154,13 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
         enabled: bool | None = None,
     ) -> bool:
         """Update an MCP server configuration."""
-        result = await self._session.execute(select(DBMCPServer).where(DBMCPServer.id == server_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(
+                select(DBMCPServer)
+                .where(DBMCPServer.id == server_id)
+                .execution_options(populate_existing=True)
+            ))
+        )
         db_server = result.scalar_one_or_none()
 
         if not db_server:
@@ -165,7 +192,13 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
         sync_error: str | None = None,
     ) -> bool:
         """Update the discovered tools for an MCP server."""
-        result = await self._session.execute(select(DBMCPServer).where(DBMCPServer.id == server_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(
+                select(DBMCPServer)
+                .where(DBMCPServer.id == server_id)
+                .execution_options(populate_existing=True)
+            ))
+        )
         db_server = result.scalar_one_or_none()
 
         if not db_server:
@@ -189,7 +222,13 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
         runtime_metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Update runtime status/metadata for MCP server lifecycle tracking."""
-        result = await self._session.execute(select(DBMCPServer).where(DBMCPServer.id == server_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(
+                select(DBMCPServer)
+                .where(DBMCPServer.id == server_id)
+                .execution_options(populate_existing=True)
+            ))
+        )
         db_server = result.scalar_one_or_none()
 
         if not db_server:
@@ -207,7 +246,9 @@ class SqlMCPServerRepository(BaseRepository[MCPServer, DBMCPServer], MCPServerRe
 
     async def delete(self, server_id: str) -> bool:
         """Delete an MCP server."""
-        result = await self._session.execute(delete(DBMCPServer).where(DBMCPServer.id == server_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(delete(DBMCPServer).where(DBMCPServer.id == server_id)))
+        )
 
         if cast(CursorResult[Any], result).rowcount == 0:
             logger.warning(f"MCP server not found: {server_id}")

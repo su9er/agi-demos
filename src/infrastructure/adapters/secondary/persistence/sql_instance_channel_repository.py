@@ -12,6 +12,7 @@ from src.domain.model.instance.instance_channel import InstanceChannelConfig
 from src.domain.ports.repositories.instance_channel_repository import (
     InstanceChannelRepository,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     InstanceChannelConfigModel,
 )
@@ -31,7 +32,7 @@ class SqlInstanceChannelRepository(InstanceChannelRepository):
             InstanceChannelConfigModel.id == channel_id,
             InstanceChannelConfigModel.deleted_at.is_(None),
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         db_model = result.scalar_one_or_none()
         if db_model is None:
             return None
@@ -47,7 +48,7 @@ class SqlInstanceChannelRepository(InstanceChannelRepository):
             )
             .order_by(InstanceChannelConfigModel.created_at.desc())
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         rows = result.scalars().all()
         return [self._to_domain(r) for r in rows]
 
@@ -71,7 +72,7 @@ class SqlInstanceChannelRepository(InstanceChannelRepository):
                 updated_at=entity.updated_at,
             )
         )
-        await self._session.execute(stmt)
+        await self._session.execute(refresh_select_statement(stmt))
         await self._session.flush()
         return entity
 
@@ -82,7 +83,7 @@ class SqlInstanceChannelRepository(InstanceChannelRepository):
             .where(InstanceChannelConfigModel.id == channel_id)
             .values(deleted_at=datetime.now(UTC))
         )
-        await self._session.execute(stmt)
+        await self._session.execute(refresh_select_statement(stmt))
         await self._session.flush()
 
     def _to_domain(self, db_model: InstanceChannelConfigModel) -> InstanceChannelConfig:

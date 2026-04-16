@@ -22,7 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.auth.user import User
 from src.domain.ports.repositories.user_repository import UserRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import User as DBUser
 
 logger = logging.getLogger(__name__)
@@ -54,7 +57,7 @@ class SqlUserRepository(BaseRepository[User, DBUser], UserRepository):
     async def find_by_email(self, email: str) -> User | None:
         """Find a user by email address."""
         query = select(DBUser).where(DBUser.email == email)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_user = result.scalar_one_or_none()
         return self._to_domain(db_user)
 

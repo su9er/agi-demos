@@ -16,7 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent import ExecutionCheckpoint
 from src.domain.ports.repositories.agent_repository import ExecutionCheckpointRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     ExecutionCheckpoint as DBExecutionCheckpoint,
 )
@@ -78,7 +81,7 @@ class SqlExecutionCheckpointRepository(
 
         query = query.order_by(desc(DBExecutionCheckpoint.created_at)).limit(1)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_checkpoint = result.scalar_one_or_none()
         return self._to_domain(db_checkpoint) if db_checkpoint else None
 
@@ -91,13 +94,15 @@ class SqlExecutionCheckpointRepository(
     ) -> list[ExecutionCheckpoint]:
         """Get checkpoints of a specific type for a conversation."""
         result = await self._session.execute(
-            select(DBExecutionCheckpoint)
-            .where(
-                DBExecutionCheckpoint.conversation_id == conversation_id,
-                DBExecutionCheckpoint.checkpoint_type == checkpoint_type,
-            )
-            .order_by(desc(DBExecutionCheckpoint.created_at))
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(DBExecutionCheckpoint)
+                .where(
+                    DBExecutionCheckpoint.conversation_id == conversation_id,
+                    DBExecutionCheckpoint.checkpoint_type == checkpoint_type,
+                )
+                .order_by(desc(DBExecutionCheckpoint.created_at))
+                .limit(limit)
+            ))
         )
         db_checkpoints = result.scalars().all()
         return [d for c in db_checkpoints if (d := self._to_domain(c)) is not None]
@@ -106,9 +111,11 @@ class SqlExecutionCheckpointRepository(
     async def delete_by_conversation(self, conversation_id: str) -> None:
         """Delete all checkpoints for a conversation."""
         _ = await self._session.execute(
-            delete(DBExecutionCheckpoint).where(
-                DBExecutionCheckpoint.conversation_id == conversation_id
-            )
+            refresh_select_statement(self._refresh_statement(
+                delete(DBExecutionCheckpoint).where(
+                    DBExecutionCheckpoint.conversation_id == conversation_id
+                )
+            ))
         )
         await self._session.flush()
 

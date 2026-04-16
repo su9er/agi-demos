@@ -18,7 +18,6 @@ class Base(DeclarativeBase):
     """Test base for SQLAlchemy models."""
 
 
-
 class TestModel(Base):
     """Test SQLAlchemy model."""
 
@@ -138,6 +137,8 @@ class TestBaseRepository:
         assert result.id == "test-id"
         assert result.name == "Test Entity"
         mock_session.execute.assert_called_once()
+        executed_stmt = mock_session.execute.await_args.args[0]
+        assert executed_stmt.get_execution_options().get("populate_existing") is True
 
     @pytest.mark.asyncio
     async def test_find_by_id_returns_none_when_not_found(self, mock_session):
@@ -235,6 +236,33 @@ class TestBaseRepository:
         assert mock_db_entity.name == "Updated Name"
         mock_session.flush.assert_called_once()
         mock_session.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_list_all_uses_populate_existing(self, mock_session):
+        """Test list_all refreshes ORM rows instead of reusing stale identity-map state."""
+        from src.infrastructure.adapters.secondary.common.base_repository import (
+            BaseRepository,
+        )
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [TestModel(id="1", name="Entity 1")]
+        mock_session.execute.return_value = mock_result
+
+        class TestRepository(BaseRepository[TestModel, TestDomainEntity]):
+            _model_class = TestModel
+
+            def _to_domain(self, db_model):
+                if db_model is None:
+                    return None
+                return TestDomainEntity(id=db_model.id, name=db_model.name)
+
+        repo = TestRepository(mock_session)
+
+        result = await repo.list_all()
+
+        assert [item.name for item in result] == ["Entity 1"]
+        executed_stmt = mock_session.execute.await_args.args[0]
+        assert executed_stmt.get_execution_options().get("populate_existing") is True
 
     @pytest.mark.asyncio
     async def test_delete_removes_entity(self, mock_session):

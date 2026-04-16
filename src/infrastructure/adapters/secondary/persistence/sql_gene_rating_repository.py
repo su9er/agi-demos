@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.gene.instance_gene import GeneRating, GenomeRating
 from src.domain.ports.repositories.gene_rating_repository import GeneRatingRepository
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     GeneRatingModel,
     GenomeRatingModel,
@@ -30,7 +31,7 @@ class SqlGeneRatingRepository(GeneRatingRepository):
     @override
     async def save_gene_rating(self, rating: GeneRating) -> GeneRating:
         query = select(GeneRatingModel).where(GeneRatingModel.id == rating.id).limit(1)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         existing = result.scalar_one_or_none()
         if existing is not None:
             existing.rating = rating.rating
@@ -59,7 +60,7 @@ class SqlGeneRatingRepository(GeneRatingRepository):
             .offset(offset)
             .limit(limit)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         db_ratings = result.scalars().all()
         return [self._gene_rating_to_domain(r) for r in db_ratings]
 
@@ -71,7 +72,7 @@ class SqlGeneRatingRepository(GeneRatingRepository):
             .where(GeneRatingModel.user_id == user_id)
             .limit(1)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         db_rating = result.scalar_one_or_none()
         if db_rating is None:
             return None
@@ -80,7 +81,7 @@ class SqlGeneRatingRepository(GeneRatingRepository):
     @override
     async def save_genome_rating(self, rating: GenomeRating) -> GenomeRating:
         query = select(GenomeRatingModel).where(GenomeRatingModel.id == rating.id).limit(1)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         existing = result.scalar_one_or_none()
         if existing is not None:
             existing.rating = rating.rating
@@ -109,7 +110,7 @@ class SqlGeneRatingRepository(GeneRatingRepository):
             .offset(offset)
             .limit(limit)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         db_ratings = result.scalars().all()
         return [self._genome_rating_to_domain(r) for r in db_ratings]
 
@@ -121,7 +122,7 @@ class SqlGeneRatingRepository(GeneRatingRepository):
             .where(GenomeRatingModel.user_id == user_id)
             .limit(1)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         db_rating = result.scalar_one_or_none()
         if db_rating is None:
             return None

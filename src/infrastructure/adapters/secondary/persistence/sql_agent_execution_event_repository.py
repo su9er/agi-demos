@@ -24,7 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent import AgentExecutionEvent
 from src.domain.ports.repositories.agent_repository import AgentExecutionEventRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     AgentExecutionEvent as DBAgentExecutionEvent,
     Conversation as DBConversation,
@@ -59,9 +62,7 @@ async def apply_conversation_event_projection_delta(
         return
 
     _ = await session.execute(
-        update(DBConversation)
-        .where(DBConversation.id == conversation_id)
-        .values(**values)
+        refresh_select_statement(update(DBConversation).where(DBConversation.id == conversation_id).values(**values))
     )
 
 
@@ -113,7 +114,7 @@ class SqlAgentExecutionEventRepository(
                 DBAgentExecutionEvent.event_time_us,
             )
         )
-        insert_result = await self._session.execute(stmt)
+        insert_result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         inserted_row = insert_result.one_or_none()
         if inserted_row is not None:
             inserted_event_type, inserted_event_time_us = inserted_row
@@ -125,6 +126,7 @@ class SqlAgentExecutionEventRepository(
             )
         await self._session.flush()
         return domain_entity
+
     @override
     async def save_and_commit(self, domain_entity: AgentExecutionEvent) -> None:
         """Save an event and commit immediately."""
@@ -162,7 +164,7 @@ class SqlAgentExecutionEventRepository(
                 DBAgentExecutionEvent.event_time_us,
             )
         )
-        insert_result = await self._session.execute(stmt)
+        insert_result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         projection_deltas: dict[str, dict[str, int]] = {}
         for conversation_id, event_type, event_time_us in insert_result.all():
             delta = projection_deltas.setdefault(
@@ -208,7 +210,8 @@ class SqlAgentExecutionEventRepository(
             # Backward pagination
             before_counter_val = before_counter if before_counter is not None else 0
             query = query.where(
-                tuple_(time_col, counter_col) < tuple_(literal(before_time_us), literal(before_counter_val))
+                tuple_(time_col, counter_col)
+                < tuple_(literal(before_time_us), literal(before_counter_val))
             )
 
             if event_types:
@@ -216,13 +219,14 @@ class SqlAgentExecutionEventRepository(
 
             query = query.order_by(time_col.desc(), counter_col.desc()).limit(limit)
 
-            result = await self._session.execute(query)
+            result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
             db_events = list(reversed(result.scalars().all()))
         else:
             # Forward pagination
             if from_time_us > 0 or from_counter > 0:
                 query = query.where(
-                    tuple_(time_col, counter_col) > tuple_(literal(from_time_us), literal(from_counter))
+                    tuple_(time_col, counter_col)
+                    > tuple_(literal(from_time_us), literal(from_counter))
                 )
 
             if event_types:
@@ -230,7 +234,7 @@ class SqlAgentExecutionEventRepository(
 
             query = query.order_by(time_col.asc(), counter_col.asc()).limit(limit)
 
-            result = await self._session.execute(query)
+            result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
             db_events = list(result.scalars().all())
 
         return [d for e in db_events if (d := self._to_domain(e)) is not None]
@@ -239,16 +243,18 @@ class SqlAgentExecutionEventRepository(
     async def get_last_event_time(self, conversation_id: str) -> tuple[int, int]:
         """Get the last (event_time_us, event_counter) for a conversation."""
         result = await self._session.execute(
-            select(
-                DBAgentExecutionEvent.event_time_us,
-                DBAgentExecutionEvent.event_counter,
-            )
-            .where(DBAgentExecutionEvent.conversation_id == conversation_id)
-            .order_by(
-                DBAgentExecutionEvent.event_time_us.desc(),
-                DBAgentExecutionEvent.event_counter.desc(),
-            )
-            .limit(1)
+            refresh_select_statement(self._refresh_statement(
+                select(
+                    DBAgentExecutionEvent.event_time_us,
+                    DBAgentExecutionEvent.event_counter,
+                )
+                .where(DBAgentExecutionEvent.conversation_id == conversation_id)
+                .order_by(
+                    DBAgentExecutionEvent.event_time_us.desc(),
+                    DBAgentExecutionEvent.event_counter.desc(),
+                )
+                .limit(1)
+            ))
         )
         row = result.one_or_none()
         if row is None:
@@ -263,15 +269,17 @@ class SqlAgentExecutionEventRepository(
     ) -> list[AgentExecutionEvent]:
         """Get all events for a specific message."""
         result = await self._session.execute(
-            select(DBAgentExecutionEvent)
-            .where(
-                DBAgentExecutionEvent.conversation_id == conversation_id,
-                DBAgentExecutionEvent.message_id == message_id,
-            )
-            .order_by(
-                DBAgentExecutionEvent.event_time_us.asc(),
-                DBAgentExecutionEvent.event_counter.asc(),
-            )
+            refresh_select_statement(self._refresh_statement(
+                select(DBAgentExecutionEvent)
+                .where(
+                    DBAgentExecutionEvent.conversation_id == conversation_id,
+                    DBAgentExecutionEvent.message_id == message_id,
+                )
+                .order_by(
+                    DBAgentExecutionEvent.event_time_us.asc(),
+                    DBAgentExecutionEvent.event_counter.asc(),
+                )
+            ))
         )
         db_events = result.scalars().all()
         return [d for e in db_events if (d := self._to_domain(e)) is not None]
@@ -287,16 +295,18 @@ class SqlAgentExecutionEventRepository(
             return {}
 
         result = await self._session.execute(
-            select(DBAgentExecutionEvent)
-            .where(
-                DBAgentExecutionEvent.conversation_id == conversation_id,
-                DBAgentExecutionEvent.message_id.in_(message_ids),
-            )
-            .order_by(
-                DBAgentExecutionEvent.message_id.asc(),
-                DBAgentExecutionEvent.event_time_us.asc(),
-                DBAgentExecutionEvent.event_counter.asc(),
-            )
+            refresh_select_statement(self._refresh_statement(
+                select(DBAgentExecutionEvent)
+                .where(
+                    DBAgentExecutionEvent.conversation_id == conversation_id,
+                    DBAgentExecutionEvent.message_id.in_(message_ids),
+                )
+                .order_by(
+                    DBAgentExecutionEvent.message_id.asc(),
+                    DBAgentExecutionEvent.event_time_us.asc(),
+                    DBAgentExecutionEvent.event_counter.asc(),
+                )
+            ))
         )
 
         events_by_message_id: dict[str, list[AgentExecutionEvent]] = {}
@@ -312,9 +322,11 @@ class SqlAgentExecutionEventRepository(
     async def delete_by_conversation(self, conversation_id: str) -> None:
         """Delete all events for a conversation."""
         await self._session.execute(
-            delete(DBAgentExecutionEvent).where(
-                DBAgentExecutionEvent.conversation_id == conversation_id
-            )
+            refresh_select_statement(self._refresh_statement(
+                delete(DBAgentExecutionEvent).where(
+                    DBAgentExecutionEvent.conversation_id == conversation_id
+                )
+            ))
         )
         await self._session.flush()
 
@@ -339,16 +351,18 @@ class SqlAgentExecutionEventRepository(
     ) -> list[AgentExecutionEvent]:
         """Get message events (user_message + assistant_message) for LLM context."""
         result = await self._session.execute(
-            select(DBAgentExecutionEvent)
-            .where(
-                DBAgentExecutionEvent.conversation_id == conversation_id,
-                DBAgentExecutionEvent.event_type.in_(["user_message", "assistant_message"]),
-            )
-            .order_by(
-                DBAgentExecutionEvent.event_time_us.desc(),
-                DBAgentExecutionEvent.event_counter.desc(),
-            )
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(DBAgentExecutionEvent)
+                .where(
+                    DBAgentExecutionEvent.conversation_id == conversation_id,
+                    DBAgentExecutionEvent.event_type.in_(["user_message", "assistant_message"]),
+                )
+                .order_by(
+                    DBAgentExecutionEvent.event_time_us.desc(),
+                    DBAgentExecutionEvent.event_counter.desc(),
+                )
+                .limit(limit)
+            ))
         )
         db_events = list(reversed(result.scalars().all()))
         return [d for e in db_events if (d := self._to_domain(e)) is not None]
@@ -362,17 +376,19 @@ class SqlAgentExecutionEventRepository(
     ) -> list[AgentExecutionEvent]:
         """Get message events after a given event_time_us cutoff."""
         result = await self._session.execute(
-            select(DBAgentExecutionEvent)
-            .where(
-                DBAgentExecutionEvent.conversation_id == conversation_id,
-                DBAgentExecutionEvent.event_type.in_(["user_message", "assistant_message"]),
-                DBAgentExecutionEvent.event_time_us > after_time_us,
-            )
-            .order_by(
-                DBAgentExecutionEvent.event_time_us.asc(),
-                DBAgentExecutionEvent.event_counter.asc(),
-            )
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(DBAgentExecutionEvent)
+                .where(
+                    DBAgentExecutionEvent.conversation_id == conversation_id,
+                    DBAgentExecutionEvent.event_type.in_(["user_message", "assistant_message"]),
+                    DBAgentExecutionEvent.event_time_us > after_time_us,
+                )
+                .order_by(
+                    DBAgentExecutionEvent.event_time_us.asc(),
+                    DBAgentExecutionEvent.event_counter.asc(),
+                )
+                .limit(limit)
+            ))
         )
         db_events = result.scalars().all()
         return [d for e in db_events if (d := self._to_domain(e)) is not None]
@@ -381,12 +397,14 @@ class SqlAgentExecutionEventRepository(
     async def count_messages(self, conversation_id: str) -> int:
         """Count message events in a conversation."""
         result = await self._session.execute(
-            select(func.count())
-            .select_from(DBAgentExecutionEvent)
-            .where(
-                DBAgentExecutionEvent.conversation_id == conversation_id,
-                DBAgentExecutionEvent.event_type.in_(["user_message", "assistant_message"]),
-            )
+            refresh_select_statement(self._refresh_statement(
+                select(func.count())
+                .select_from(DBAgentExecutionEvent)
+                .where(
+                    DBAgentExecutionEvent.conversation_id == conversation_id,
+                    DBAgentExecutionEvent.event_type.in_(["user_message", "assistant_message"]),
+                )
+            ))
         )
         return result.scalar() or 0
 

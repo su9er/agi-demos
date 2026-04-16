@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.auth_service_v2 import AuthService
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import UserTenant
 from src.infrastructure.adapters.secondary.persistence.sql_api_key_repository import (
     SqlAPIKeyRepository,
@@ -51,7 +52,7 @@ async def authenticate_websocket(token: str, db: AsyncSession) -> tuple[str, str
 
         # Get tenant_id from UserTenant table
         result = await db.execute(
-            select(UserTenant.tenant_id).where(UserTenant.user_id == user.id).limit(1)
+            refresh_select_statement(select(UserTenant.tenant_id).where(UserTenant.user_id == user.id).limit(1))
         )
         tenant_id = result.scalar_one_or_none()
 

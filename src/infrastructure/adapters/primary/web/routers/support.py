@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.adapters.primary.web.dependencies import get_current_user
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import SupportTicket, User
 
@@ -68,7 +69,7 @@ async def list_support_tickets(
 
     query = query.order_by(SupportTicket.created_at.desc())
 
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     tickets = result.scalars().all()
 
     return {
@@ -98,9 +99,9 @@ async def get_support_ticket(
     """Get a specific support ticket."""
 
     result = await db.execute(
-        select(SupportTicket).where(
+        refresh_select_statement(select(SupportTicket).where(
             SupportTicket.id == ticket_id, SupportTicket.user_id == current_user.id
-        )
+        ))
     )
     ticket = result.scalar_one_or_none()
 
@@ -130,9 +131,9 @@ async def update_support_ticket(
     """Update a support ticket."""
 
     result = await db.execute(
-        select(SupportTicket).where(
+        refresh_select_statement(select(SupportTicket).where(
             SupportTicket.id == ticket_id, SupportTicket.user_id == current_user.id
-        )
+        ))
     )
     ticket = result.scalar_one_or_none()
 
@@ -171,9 +172,9 @@ async def close_support_ticket(
     """Close a support ticket."""
 
     result = await db.execute(
-        select(SupportTicket).where(
+        refresh_select_statement(select(SupportTicket).where(
             SupportTicket.id == ticket_id, SupportTicket.user_id == current_user.id
-        )
+        ))
     )
     ticket = result.scalar_one_or_none()
 

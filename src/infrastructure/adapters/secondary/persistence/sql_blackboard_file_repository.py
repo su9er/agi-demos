@@ -9,7 +9,10 @@ from src.domain.model.workspace.blackboard_file import BlackboardFile
 from src.domain.ports.repositories.workspace.blackboard_file_repository import (
     BlackboardFileRepository,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import BlackboardFileModel
 
 
@@ -39,7 +42,7 @@ class SqlBlackboardFileRepository(
                 BlackboardFileModel.name.asc(),
             )
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [f for row in rows if (f := self._to_domain(row)) is not None]
 

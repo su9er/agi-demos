@@ -30,7 +30,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent.workflow_pattern import PatternStep, WorkflowPattern
 from src.domain.ports.repositories.workflow_pattern_repository import WorkflowPatternRepositoryPort
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import WorkflowPattern as DBPattern
 
 logger = logging.getLogger(__name__)
@@ -86,7 +89,9 @@ class SqlWorkflowPatternRepository(
 
     async def update(self, pattern: WorkflowPattern) -> WorkflowPattern:
         """Update an existing pattern."""
-        result = await self._session.execute(select(DBPattern).where(DBPattern.id == pattern.id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(select(DBPattern).where(DBPattern.id == pattern.id)))
+        )
         db_pattern = result.scalar_one_or_none()
 
         if not db_pattern:
@@ -115,7 +120,9 @@ class SqlWorkflowPatternRepository(
         Raises:
             ValueError: If pattern not found
         """
-        result = await self._session.execute(select(DBPattern).where(DBPattern.id == pattern_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(select(DBPattern).where(DBPattern.id == pattern_id)))
+        )
         db_pattern = result.scalar_one_or_none()
 
         if not db_pattern:
@@ -141,9 +148,11 @@ class SqlWorkflowPatternRepository(
             List of patterns
         """
         result = await self._session.execute(
-            select(DBPattern)
-            .where(DBPattern.tenant_id == tenant_id)
-            .order_by(DBPattern.usage_count.desc(), DBPattern.created_at.desc())
+            refresh_select_statement(self._refresh_statement(
+                select(DBPattern)
+                .where(DBPattern.tenant_id == tenant_id)
+                .order_by(DBPattern.usage_count.desc(), DBPattern.created_at.desc())
+            ))
         )
 
         db_patterns = result.scalars().all()
@@ -166,7 +175,11 @@ class SqlWorkflowPatternRepository(
             Pattern or None
         """
         result = await self._session.execute(
-            select(DBPattern).where(DBPattern.tenant_id == tenant_id).where(DBPattern.name == name)
+            refresh_select_statement(self._refresh_statement(
+                select(DBPattern)
+                .where(DBPattern.tenant_id == tenant_id)
+                .where(DBPattern.name == name)
+            ))
         )
 
         db_pattern = result.scalar_one_or_none()

@@ -42,6 +42,13 @@ T = TypeVar("T")  # Domain entity type
 M = TypeVar("M")  # Database model type
 
 
+def refresh_select_statement(statement: Any) -> Any:
+    """Force ORM select statements to refresh existing identity-map rows."""
+    if getattr(statement, "is_select", False) and hasattr(statement, "execution_options"):
+        return statement.execution_options(populate_existing=True)
+    return statement
+
+
 def handle_db_errors(entity_type: str = "Entity") -> Callable[..., Any]:
     """
     Decorator to handle database errors and convert to domain exceptions.
@@ -271,6 +278,10 @@ class BaseRepository[T, M](ABC):
                 query = query.where(getattr(self._model_class, key) == value)
         return query
 
+    def _refresh_statement(self, statement: Any) -> Any:
+        """Force ORM reads to refresh existing identity-map rows when possible."""
+        return refresh_select_statement(statement)
+
     # === CRUD operations ===
 
     async def find_by_id(self, entity_id: str) -> T | None:
@@ -294,7 +305,7 @@ class BaseRepository[T, M](ABC):
         # Apply eager loading options
         for option in self._eager_load_options():
             query = query.options(option)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_model = result.scalar_one_or_none()
         return self._to_domain(db_model)
 
@@ -318,7 +329,7 @@ class BaseRepository[T, M](ABC):
         # Apply eager loading options
         for option in self._eager_load_options():
             query = query.options(option)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_models = result.scalars().all()
         return [d for m in db_models if m is not None if (d := self._to_domain(m)) is not None]
 
@@ -341,7 +352,7 @@ class BaseRepository[T, M](ABC):
         for option in self._eager_load_options():
             query = query.options(option)
         query = query.limit(1)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_model = result.scalar_one_or_none()
         return self._to_domain(db_model)
 
@@ -359,11 +370,9 @@ class BaseRepository[T, M](ABC):
             return False
 
         query = (
-            select(func.count())
-            .select_from(self._model)
-            .where(self._model.id == entity_id)  # type: ignore[attr-defined]
+            select(func.count()).select_from(self._model).where(self._model.id == entity_id)  # type: ignore[attr-defined]
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         count = result.scalar()
         return count is not None and count > 0
 
@@ -397,7 +406,7 @@ class BaseRepository[T, M](ABC):
     async def _find_db_model_by_id(self, entity_id: str) -> M | None:
         """Find database model by ID (internal helper)."""
         query = select(self._model).where(self._model.id == entity_id)  # type: ignore[attr-defined]
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         return result.scalar_one_or_none()
 
     async def _create(self, domain_entity: T) -> T:
@@ -463,7 +472,7 @@ class BaseRepository[T, M](ABC):
             query = query.options(option)
         query = query.offset(offset).limit(limit)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_models = result.scalars().all()
         return [d for m in db_models if m is not None if (d := self._to_domain(m)) is not None]
 
@@ -479,7 +488,7 @@ class BaseRepository[T, M](ABC):
         """
         query = select(func.count()).select_from(self._model)
         query = self._apply_filters(query, **filters)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         return result.scalar() or 0
 
     # === Bulk operations ===
@@ -514,7 +523,7 @@ class BaseRepository[T, M](ABC):
             return 0
 
         query = delete(self._model).where(self._model.id.in_(entity_ids))  # type: ignore[attr-defined]
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         await self._session.flush()
         return cast(CursorResult[Any], result).rowcount or 0
 

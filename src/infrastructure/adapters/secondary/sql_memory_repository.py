@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.memory.memory import Memory
 from src.domain.ports.repositories.memory_repository import MemoryRepository
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import Memory as MemoryModel
 
 
@@ -59,7 +60,7 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
         return memory
 
     async def find_by_id(self, memory_id: str) -> Memory | None:
-        result = await self._session.execute(select(MemoryModel).where(MemoryModel.id == memory_id))
+        result = await self._session.execute(refresh_select_statement(select(MemoryModel).where(MemoryModel.id == memory_id)))
         model = result.scalar_one_or_none()
         return self._to_domain(model) if model else None
 
@@ -67,15 +68,15 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
         self, project_id: str, limit: int = 50, offset: int = 0
     ) -> list[Memory]:
         result = await self._session.execute(
-            select(MemoryModel)
+            refresh_select_statement(select(MemoryModel)
             .where(MemoryModel.project_id == project_id)
             .limit(limit)
-            .offset(offset)
+            .offset(offset))
         )
         models = result.scalars().all()
         return [self._to_domain(m) for m in models]
 
     async def delete(self, memory_id: str) -> bool:
-        await self._session.execute(delete(MemoryModel).where(MemoryModel.id == memory_id))
+        await self._session.execute(refresh_select_statement(delete(MemoryModel).where(MemoryModel.id == memory_id)))
         await self._session.commit()
         return True

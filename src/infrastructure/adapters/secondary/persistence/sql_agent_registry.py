@@ -8,6 +8,8 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
+
 if TYPE_CHECKING:
     from src.infrastructure.adapters.secondary.persistence.models import (
         AgentDefinitionModel,
@@ -130,7 +132,9 @@ class SqlAgentRegistryRepository(
         )
 
         result = await self._session.execute(
-            select(AgentDefinitionModel).where(AgentDefinitionModel.id == agent_id)
+            refresh_select_statement(select(AgentDefinitionModel)
+            .where(AgentDefinitionModel.id == agent_id)
+            .execution_options(populate_existing=True))
         )
         db_agent = result.scalar_one_or_none()
         return self._to_domain(db_agent) if db_agent else None
@@ -149,9 +153,10 @@ class SqlAgentRegistryRepository(
         )
 
         result = await self._session.execute(
-            select(AgentDefinitionModel)
+            refresh_select_statement(select(AgentDefinitionModel)
             .where(AgentDefinitionModel.tenant_id == tenant_id)
             .where(AgentDefinitionModel.name == name)
+            .execution_options(populate_existing=True))
         )
         db_agent = result.scalar_one_or_none()
         return self._to_domain(db_agent) if db_agent else None
@@ -165,7 +170,9 @@ class SqlAgentRegistryRepository(
         )
 
         result = await self._session.execute(
-            select(AgentDefinitionModel).where(AgentDefinitionModel.id == agent.id)
+            refresh_select_statement(select(AgentDefinitionModel)
+            .where(AgentDefinitionModel.id == agent.id)
+            .execution_options(populate_existing=True))
         )
         db_agent = result.scalar_one_or_none()
 
@@ -222,7 +229,7 @@ class SqlAgentRegistryRepository(
         )
 
         result = await self._session.execute(
-            delete(AgentDefinitionModel).where(AgentDefinitionModel.id == agent_id)
+            refresh_select_statement(delete(AgentDefinitionModel).where(AgentDefinitionModel.id == agent_id))
         )
 
         if cast(CursorResult[Any], result).rowcount == 0:
@@ -251,9 +258,11 @@ class SqlAgentRegistryRepository(
 
         db_limit = max(limit - builtin_count, 0)
         db_offset = max(offset - len(builtin_agents), 0)
-        query = query.order_by(AgentDefinitionModel.created_at.desc()).limit(db_limit).offset(db_offset)
+        query = (
+            query.order_by(AgentDefinitionModel.created_at.desc()).limit(db_limit).offset(db_offset)
+        )
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query.execution_options(populate_existing=True)))
         db_agents = result.scalars().all()
 
         agents = [d for a in db_agents if (d := self._to_domain(a)) is not None]
@@ -290,7 +299,7 @@ class SqlAgentRegistryRepository(
 
         query = query.order_by(AgentDefinitionModel.created_at.desc())
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query.execution_options(populate_existing=True)))
         db_agents = result.scalars().all()
 
         resolved_tenant_id = tenant_id or BUILTIN_AGENT_NAMESPACE
@@ -314,7 +323,9 @@ class SqlAgentRegistryRepository(
         )
 
         result = await self._session.execute(
-            select(AgentDefinitionModel).where(AgentDefinitionModel.id == agent_id)
+            refresh_select_statement(select(AgentDefinitionModel)
+            .where(AgentDefinitionModel.id == agent_id)
+            .execution_options(populate_existing=True))
         )
         db_agent = result.scalar_one_or_none()
 
@@ -359,7 +370,7 @@ class SqlAgentRegistryRepository(
         if enabled_only:
             query = query.where(AgentDefinitionModel.enabled.is_(True))
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         builtin_count = 1
         return (result.scalar() or 0) + builtin_count
 

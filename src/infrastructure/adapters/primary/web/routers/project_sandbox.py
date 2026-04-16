@@ -51,6 +51,7 @@ from src.infrastructure.adapters.primary.web.dependencies import (
 from src.infrastructure.adapters.primary.web.dependencies.auth_dependencies import (
     get_current_user_from_desktop_proxy,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import User, UserProject
 from src.infrastructure.adapters.secondary.sandbox.mcp_sandbox_adapter import (
@@ -79,7 +80,7 @@ async def verify_project_access(
     )
     if required_roles:
         query = query.where(UserProject.role.in_(required_roles))
-    result = await db.execute(query)
+    result = await db.execute(refresh_select_statement(query))
     if not result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

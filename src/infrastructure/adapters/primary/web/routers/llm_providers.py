@@ -27,6 +27,7 @@ from src.domain.llm_providers.models import (
     TenantProviderMapping,
 )
 from src.infrastructure.adapters.primary.web.dependencies import get_current_user
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import User, UserRole
 
@@ -53,9 +54,9 @@ async def get_current_user_with_roles(
     to reduce query overhead, but this router needs role checks.
     """
     result = await db.execute(
-        select(User)
+        refresh_select_statement(select(User)
         .where(User.id == current_user.id)
-        .options(selectinload(User.roles).selectinload(UserRole.role))
+        .options(selectinload(User.roles).selectinload(UserRole.role)))
     )
     return result.scalar_one()
 

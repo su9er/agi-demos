@@ -11,7 +11,10 @@ from src.domain.model.gene.instance_gene import GeneEffectLog, InstanceGene
 from src.domain.ports.repositories.instance_gene_repository import (
     InstanceGeneRepository,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     GeneEffectLogModel,
     InstanceGeneModel,
@@ -70,7 +73,7 @@ class SqlInstanceGeneRepository(
             .order_by(GeneEffectLogModel.created_at.desc())
             .limit(limit)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_logs = result.scalars().all()
         return [self._log_to_domain(log) for log in db_logs]
 

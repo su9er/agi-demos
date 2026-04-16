@@ -5,7 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.workspace.workspace import Workspace
 from src.domain.ports.repositories.workspace.workspace_repository import WorkspaceRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import WorkspaceModel
 
 
@@ -32,7 +35,7 @@ class SqlWorkspaceRepository(BaseRepository[Workspace, WorkspaceModel], Workspac
             .offset(offset)
             .limit(limit)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [w for row in rows if (w := self._to_domain(row)) is not None]
 

@@ -7,7 +7,10 @@ from src.domain.model.workspace.workspace_agent import WorkspaceAgent
 from src.domain.ports.repositories.workspace.workspace_agent_repository import (
     WorkspaceAgentRepository,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import WorkspaceAgentModel
 
 
@@ -32,7 +35,7 @@ class SqlWorkspaceAgentRepository(
         if active_only:
             query = query.where(WorkspaceAgentModel.is_active.is_(True))
         query = query.order_by(WorkspaceAgentModel.created_at.asc()).offset(offset).limit(limit)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [a for row in rows if (a := self._to_domain(row)) is not None]
 
@@ -49,7 +52,7 @@ class SqlWorkspaceAgentRepository(
             )
             .limit(1)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         row = result.scalar_one_or_none()
         return self._to_domain(row)
 
@@ -68,7 +71,7 @@ class SqlWorkspaceAgentRepository(
             )
             .order_by(WorkspaceAgentModel.created_at.asc())
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         rows = result.scalars().all()
         return [a for row in rows if (a := self._to_domain(row)) is not None]
 

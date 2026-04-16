@@ -9,6 +9,7 @@ from sqlalchemy import bindparam, delete, select, text
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import MemoryChunk
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class SqlChunkRepository:
             MemoryChunk.content_hash == content_hash,
             MemoryChunk.project_id == project_id,
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         return result.scalar_one_or_none()
 
     async def find_existing_hashes(self, hashes: list[str], project_id: str) -> set[str]:
@@ -49,7 +50,7 @@ class SqlChunkRepository:
             MemoryChunk.content_hash.in_(hashes),
             MemoryChunk.project_id == project_id,
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         return {row[0] for row in result.all()}
 
     async def find_by_source(
@@ -65,7 +66,7 @@ class SqlChunkRepository:
             )
             .order_by(MemoryChunk.chunk_index)
         )
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(query))
         return list(result.scalars().all())
 
     async def delete_by_source(self, source_type: str, source_id: str, project_id: str) -> int:
@@ -75,7 +76,7 @@ class SqlChunkRepository:
             MemoryChunk.source_id == source_id,
             MemoryChunk.project_id == project_id,
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return cast(CursorResult[Any], result).rowcount or 0
 
     async def vector_search(
@@ -114,7 +115,7 @@ class SqlChunkRepository:
                 else []
             ),
         )
-        result = await self._session.execute(sql)
+        result = await self._session.execute(refresh_select_statement(sql))
         return [
             {
                 "id": row.id,
@@ -187,7 +188,7 @@ class SqlChunkRepository:
         if category:
             params["category"] = category
         result = await self._session.execute(
-            sql,
+            refresh_select_statement(sql),
             params,
         )
         rows = result.fetchall()
@@ -224,7 +225,7 @@ class SqlChunkRepository:
                 ORDER BY score DESC, created_at DESC
                 LIMIT :limit
             """)
-            result = await self._session.execute(fallback_sql, fb_params)
+            result = await self._session.execute(refresh_select_statement(fallback_sql), fb_params)
             rows = result.fetchall()
 
         return [
@@ -269,7 +270,7 @@ class SqlChunkRepository:
             bindparam("threshold", value=threshold),
             bindparam("limit", value=limit),
         )
-        result = await self._session.execute(sql)
+        result = await self._session.execute(refresh_select_statement(sql))
         return [
             {
                 "id": row.id,

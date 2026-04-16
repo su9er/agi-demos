@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent import ToolComposition
 from src.domain.ports.repositories.tool_composition_repository import ToolCompositionRepositoryPort
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     ToolComposition as DBToolComposition,
 )
@@ -33,7 +36,9 @@ class SqlToolCompositionRepository(
         """Save a tool composition."""
 
         result = await self._session.execute(
-            select(DBToolComposition).where(DBToolComposition.id == composition.id)
+            refresh_select_statement(self._refresh_statement(
+                select(DBToolComposition).where(DBToolComposition.id == composition.id)
+            ))
         )
         db_composition = result.scalar_one_or_none()
 
@@ -73,7 +78,9 @@ class SqlToolCompositionRepository(
     async def get_by_id(self, composition_id: str) -> Optional["ToolComposition"]:
         """Get a tool composition by its ID."""
         result = await self._session.execute(
-            select(DBToolComposition).where(DBToolComposition.id == composition_id)
+            refresh_select_statement(self._refresh_statement(
+                select(DBToolComposition).where(DBToolComposition.id == composition_id)
+            ))
         )
         db_composition = result.scalar_one_or_none()
         return self._to_domain(db_composition) if db_composition else None
@@ -81,7 +88,7 @@ class SqlToolCompositionRepository(
     async def get_by_name(self, name: str) -> Optional["ToolComposition"]:
         """Get a tool composition by its name."""
         result = await self._session.execute(
-            select(DBToolComposition).where(DBToolComposition.name == name)
+            refresh_select_statement(self._refresh_statement(select(DBToolComposition).where(DBToolComposition.name == name)))
         )
         db_composition = result.scalar_one_or_none()
         return self._to_domain(db_composition) if db_composition else None
@@ -89,7 +96,7 @@ class SqlToolCompositionRepository(
     async def list_by_tools(self, tool_names: list[str]) -> list["ToolComposition"]:
         """List tool compositions that use the specified tools."""
         # Load all compositions and filter in Python
-        result = await self._session.execute(select(DBToolComposition))
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(select(DBToolComposition))))
         db_compositions = result.scalars().all()
 
         # Filter compositions that contain any of the specified tools
@@ -102,10 +109,16 @@ class SqlToolCompositionRepository(
 
         return [d for c in matching_compositions if (d := self._to_domain(c)) is not None]
 
-    async def list_all(self, limit: int = 100, offset: int = 0, **filters: object) -> list["ToolComposition"]:
+    async def list_all(
+        self, limit: int = 100, offset: int = 0, **filters: object
+    ) -> list["ToolComposition"]:
         """List all tool compositions."""
         result = await self._session.execute(
-            select(DBToolComposition).order_by(DBToolComposition.usage_count.desc()).limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(DBToolComposition)
+                .order_by(DBToolComposition.usage_count.desc())
+                .limit(limit)
+            ))
         )
         db_compositions = result.scalars().all()
         return [d for c in db_compositions if (d := self._to_domain(c)) is not None]
@@ -117,7 +130,9 @@ class SqlToolCompositionRepository(
     ) -> Optional["ToolComposition"]:
         """Update composition usage statistics."""
         result = await self._session.execute(
-            select(DBToolComposition).where(DBToolComposition.id == composition_id)
+            refresh_select_statement(self._refresh_statement(
+                select(DBToolComposition).where(DBToolComposition.id == composition_id)
+            ))
         )
         db_composition = result.scalar_one_or_none()
 
@@ -138,7 +153,9 @@ class SqlToolCompositionRepository(
     async def delete(self, composition_id: str) -> bool:
         """Delete a tool composition."""
         result = await self._session.execute(
-            delete(DBToolComposition).where(DBToolComposition.id == composition_id)
+            refresh_select_statement(self._refresh_statement(
+                delete(DBToolComposition).where(DBToolComposition.id == composition_id)
+            ))
         )
         await self._session.flush()
         return cast(CursorResult[Any], result).rowcount > 0

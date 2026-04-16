@@ -18,6 +18,7 @@ from src.infrastructure.adapters.primary.web.websocket.handlers.base_handler imp
     WebSocketMessageHandler,
 )
 from src.infrastructure.adapters.primary.web.websocket.message_context import MessageContext
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ async def _user_has_hitl_access(
             Conversation.tenant_id == tenant_id,
             Conversation.user_id == user_id,
         )
-        conversation_result = await auth_session.execute(conversation_query)
+        conversation_result = await auth_session.execute(refresh_select_statement(conversation_query))
         return conversation_result.scalar_one_or_none() is not None
 
 
@@ -137,7 +138,7 @@ async def _user_has_project_access(*, user_id: str, project_id: str) -> bool:
             UserProject.user_id == user_id,
             UserProject.project_id == project_id,
         )
-        membership_result = await auth_session.execute(membership_query)
+        membership_result = await auth_session.execute(refresh_select_statement(membership_query))
         return membership_result.scalar_one_or_none() is not None
 
 

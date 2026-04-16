@@ -19,6 +19,7 @@ from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user,
     get_current_user_tenant,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import (
     User as DBUser,
@@ -156,10 +157,10 @@ async def accept_invitation(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     existing = await db.execute(
-        select(UserTenant).where(
+        refresh_select_statement(select(UserTenant).where(
             UserTenant.user_id == current_user.id,
             UserTenant.tenant_id == invitation.tenant_id,
-        )
+        ))
     )
     if existing.scalar_one_or_none() is None:
         membership = UserTenant(

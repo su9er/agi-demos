@@ -1451,11 +1451,11 @@ class ReActAgent:
         available_skills = list(self.skills or [])
         if selected_agent is None or not selected_agent.allowed_skills:
             return available_skills
-        allowed_skill_names = {skill_name.strip().lower() for skill_name in selected_agent.allowed_skills}
+        allowed_skill_names = {
+            skill_name.strip().lower() for skill_name in selected_agent.allowed_skills
+        }
         return [
-            skill
-            for skill in available_skills
-            if skill.name.strip().lower() in allowed_skill_names
+            skill for skill in available_skills if skill.name.strip().lower() in allowed_skill_names
         ]
 
     def _resolve_tool_policy(
@@ -1466,7 +1466,11 @@ class ReActAgent:
     ) -> tuple[list[str], list[str]]:
         """Resolve effective tool allow/deny lists for this request."""
         allowlists: list[set[str]] = []
-        if selected_agent and selected_agent.allowed_tools and "*" not in selected_agent.allowed_tools:
+        if (
+            selected_agent
+            and selected_agent.allowed_tools
+            and "*" not in selected_agent.allowed_tools
+        ):
             allowlists.append({tool for tool in selected_agent.allowed_tools if tool})
         if tenant_agent_config.enabled_tools:
             allowlists.append({tool for tool in tenant_agent_config.enabled_tools if tool})
@@ -1507,7 +1511,9 @@ class ReActAgent:
             selected_agent=selected_agent,
             tenant_agent_config=tenant_agent_config,
         )
-        is_builtin_sisyphus = selected_agent is not None and selected_agent.id == BUILTIN_SISYPHUS_ID
+        is_builtin_sisyphus = (
+            selected_agent is not None and selected_agent.id == BUILTIN_SISYPHUS_ID
+        )
         effective_temperature = (
             selected_agent.temperature
             if selected_agent is not None and not is_builtin_sisyphus
@@ -1520,9 +1526,25 @@ class ReActAgent:
         )
         effective_max_steps = (
             selected_agent.max_iterations
-            if selected_agent is not None and not is_builtin_sisyphus
+            if (
+                selected_agent is not None
+                and not is_builtin_sisyphus
+                and selected_agent.has_explicit_max_iterations()
+            )
             else tenant_agent_config.max_work_plan_steps
         )
+        if (
+            selected_agent is not None
+            and not is_builtin_sisyphus
+            and not selected_agent.has_explicit_max_iterations()
+        ):
+            logger.info(
+                "[ReActAgent] Agent %s uses legacy default max_iterations=%s; "
+                "falling back to tenant max_work_plan_steps=%s",
+                selected_agent.id,
+                selected_agent.max_iterations,
+                tenant_agent_config.max_work_plan_steps,
+            )
         agent_definition_prompt = (
             selected_agent.system_prompt
             if selected_agent is not None and selected_agent.id != BUILTIN_SISYPHUS_ID
@@ -2130,7 +2152,9 @@ class ReActAgent:
                 subagent_name=subagent_name,
                 subagent_id=target.id,
                 task=task,
-                workspace_task_id=(str(spawn_options.get("workspace_task_id") or "").strip() or None),
+                workspace_task_id=(
+                    str(spawn_options.get("workspace_task_id") or "").strip() or None
+                ),
             )
             delegated_task = _decorate_workspace_delegate_task(task, task_binding)
             await self._launch_subagent_session(
@@ -2832,7 +2856,9 @@ class ReActAgent:
             **dict(config.runtime_context),
             "selected_agent_id": selected_agent.id,
             "selected_agent_name": selected_agent.name,
-            "allowed_skills": list(selected_agent.allowed_skills) if selected_agent.allowed_skills else [],
+            "allowed_skills": list(selected_agent.allowed_skills)
+            if selected_agent.allowed_skills
+            else [],
             "route_id": selection_context.metadata.get("route_id"),
             "trace_id": selection_context.metadata.get("trace_id"),
         }

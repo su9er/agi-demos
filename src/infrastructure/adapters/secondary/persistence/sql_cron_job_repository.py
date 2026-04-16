@@ -26,6 +26,7 @@ from src.domain.ports.repositories.cron_job_repository import (
 )
 from src.infrastructure.adapters.secondary.common.base_repository import (
     BaseRepository,
+    refresh_select_statement,
 )
 from src.infrastructure.adapters.secondary.persistence.models import (
     CronJobModel,
@@ -56,7 +57,7 @@ class SqlCronJobRepository(BaseRepository[CronJob, CronJobModel], CronJobReposit
         stmt = stmt.order_by(CronJobModel.created_at.desc())
         stmt = stmt.offset(offset).limit(limit)
 
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         return [d for row in result.scalars().all() if (d := self._to_domain(row)) is not None]
 
     @override
@@ -75,7 +76,7 @@ class SqlCronJobRepository(BaseRepository[CronJob, CronJobModel], CronJobReposit
         )
         if not include_disabled:
             stmt = stmt.where(CronJobModel.enabled.is_(True))
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         return result.scalar_one()
 
     @override
@@ -85,7 +86,7 @@ class SqlCronJobRepository(BaseRepository[CronJob, CronJobModel], CronJobReposit
             .where(CronJobModel.enabled.is_(True))
             .order_by(CronJobModel.created_at.asc())
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         jobs: list[CronJob] = []
         for row in result.scalars().all():
             domain = self._to_domain(row)
@@ -203,7 +204,7 @@ class SqlCronJobRunRepository(BaseRepository[CronJobRun, CronJobRunModel], CronJ
             stmt = stmt.where(CronJobRunModel.status.in_([s.value for s in statuses]))
         stmt = stmt.order_by(CronJobRunModel.started_at.desc())
         stmt = stmt.offset(offset).limit(limit)
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         return [d for row in result.scalars().all() if (d := self._to_domain(row)) is not None]
 
     @override
@@ -220,7 +221,7 @@ class SqlCronJobRunRepository(BaseRepository[CronJobRun, CronJobRunModel], CronJ
             stmt = stmt.where(CronJobRunModel.status.in_([s.value for s in statuses]))
         stmt = stmt.order_by(CronJobRunModel.started_at.desc())
         stmt = stmt.offset(offset).limit(limit)
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         return [d for row in result.scalars().all() if (d := self._to_domain(row)) is not None]
 
     @override
@@ -239,7 +240,7 @@ class SqlCronJobRunRepository(BaseRepository[CronJobRun, CronJobRunModel], CronJ
         )
         if statuses:
             stmt = stmt.where(CronJobRunModel.status.in_([s.value for s in statuses]))
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         return result.scalar_one()
 
     @override

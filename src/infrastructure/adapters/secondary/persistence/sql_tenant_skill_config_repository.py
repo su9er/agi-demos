@@ -16,7 +16,10 @@ from src.domain.model.agent.tenant_skill_config import (
 from src.domain.ports.repositories.tenant_skill_config_repository import (
     TenantSkillConfigRepositoryPort,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +63,9 @@ class SqlTenantSkillConfigRepository(
             TenantSkillConfig as DBConfig,
         )
 
-        result = await self._session.execute(select(DBConfig).where(DBConfig.id == config_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(select(DBConfig).where(DBConfig.id == config_id)))
+        )
         db_config = result.scalar_one_or_none()
 
         return self._to_domain(db_config) if db_config else None
@@ -76,9 +81,11 @@ class SqlTenantSkillConfigRepository(
         )
 
         result = await self._session.execute(
-            select(DBConfig)
-            .where(DBConfig.tenant_id == tenant_id)
-            .where(DBConfig.system_skill_name == system_skill_name)
+            refresh_select_statement(self._refresh_statement(
+                select(DBConfig)
+                .where(DBConfig.tenant_id == tenant_id)
+                .where(DBConfig.system_skill_name == system_skill_name)
+            ))
         )
 
         db_config = result.scalar_one_or_none()
@@ -91,7 +98,9 @@ class SqlTenantSkillConfigRepository(
             TenantSkillConfig as DBConfig,
         )
 
-        result = await self._session.execute(select(DBConfig).where(DBConfig.id == config.id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(select(DBConfig).where(DBConfig.id == config.id)))
+        )
         db_config = result.scalar_one_or_none()
 
         if not db_config:
@@ -112,11 +121,14 @@ class SqlTenantSkillConfigRepository(
             TenantSkillConfig as DBConfig,
         )
 
-        result = await self._session.execute(delete(DBConfig).where(DBConfig.id == config_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(delete(DBConfig).where(DBConfig.id == config_id)))
+        )
 
         if cast(CursorResult[Any], result).rowcount == 0:
             raise ValueError(f"TenantSkillConfig not found: {config_id}")
         return True
+
     async def delete_by_tenant_and_skill(
         self,
         tenant_id: str,
@@ -128,9 +140,11 @@ class SqlTenantSkillConfigRepository(
         )
 
         await self._session.execute(
-            delete(DBConfig)
-            .where(DBConfig.tenant_id == tenant_id)
-            .where(DBConfig.system_skill_name == system_skill_name)
+            refresh_select_statement(self._refresh_statement(
+                delete(DBConfig)
+                .where(DBConfig.tenant_id == tenant_id)
+                .where(DBConfig.system_skill_name == system_skill_name)
+            ))
         )
 
     async def list_by_tenant(
@@ -148,7 +162,7 @@ class SqlTenantSkillConfigRepository(
             .order_by(DBConfig.created_at.desc())
         )
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_configs = result.scalars().all()
 
         return [d for c in db_configs if (d := self._to_domain(c)) is not None]
@@ -172,7 +186,7 @@ class SqlTenantSkillConfigRepository(
 
         query = select(func.count(DBConfig.id)).where(DBConfig.tenant_id == tenant_id)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         return result.scalar() or 0
 
     def _to_domain(self, db_config: Any) -> TenantSkillConfig | None:

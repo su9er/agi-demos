@@ -7,6 +7,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
+
 if TYPE_CHECKING:
     from src.infrastructure.adapters.secondary.persistence.models import (
         AgentBindingModel,
@@ -65,7 +67,11 @@ class SqlAgentBindingRepository(
         )
 
         result = await self._session.execute(
-            select(AgentBindingModel).where(AgentBindingModel.id == binding_id)
+            refresh_select_statement(self._refresh_statement(
+                select(AgentBindingModel)
+                .where(AgentBindingModel.id == binding_id)
+                .execution_options(populate_existing=True)
+            ))
         )
         db_binding = result.scalar_one_or_none()
         return self._to_domain(db_binding) if db_binding else None
@@ -77,7 +83,9 @@ class SqlAgentBindingRepository(
         )
 
         result = await self._session.execute(
-            delete(AgentBindingModel).where(AgentBindingModel.id == entity_id)
+            refresh_select_statement(self._refresh_statement(
+                delete(AgentBindingModel).where(AgentBindingModel.id == entity_id)
+            ))
         )
 
         if cast(CursorResult[Any], result).rowcount == 0:
@@ -101,7 +109,9 @@ class SqlAgentBindingRepository(
 
         query = query.order_by(AgentBindingModel.priority.desc())
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
         db_bindings = result.scalars().all()
 
         return [d for b in db_bindings if (d := self._to_domain(b)) is not None]
@@ -123,7 +133,9 @@ class SqlAgentBindingRepository(
 
         query = query.order_by(AgentBindingModel.created_at.desc())
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
         db_bindings = result.scalars().all()
 
         return [d for b in db_bindings if (d := self._to_domain(b)) is not None]
@@ -150,7 +162,9 @@ class SqlAgentBindingRepository(
         if channel_type is not None:
             query = query.where(AgentBindingModel.channel_type.in_([channel_type, None]))
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
         db_bindings = result.scalars().all()
 
         candidates = [d for b in db_bindings if (d := self._to_domain(b)) is not None]
@@ -184,7 +198,11 @@ class SqlAgentBindingRepository(
         )
 
         result = await self._session.execute(
-            select(AgentBindingModel).where(AgentBindingModel.id == binding_id)
+            refresh_select_statement(self._refresh_statement(
+                select(AgentBindingModel)
+                .where(AgentBindingModel.id == binding_id)
+                .execution_options(populate_existing=True)
+            ))
         )
         db_binding = result.scalar_one_or_none()
 
@@ -222,7 +240,9 @@ class SqlAgentBindingRepository(
         if channel_type is not None:
             query = query.where(AgentBindingModel.channel_type.in_([channel_type, None]))
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
         db_bindings = result.scalars().all()
 
         candidates = [d for b in db_bindings if (d := self._to_domain(b)) is not None]
@@ -309,7 +329,9 @@ class SqlAgentBindingRepository(
             .order_by(AgentBindingModel.priority.desc())
         )
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
         db_bindings = result.scalars().all()
 
         return [d for b in db_bindings if (d := self._to_domain(b)) is not None]

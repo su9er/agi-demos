@@ -22,7 +22,10 @@ from src.domain.model.agent.subagent import (
     serialize_tool_policy,
 )
 from src.domain.ports.repositories.subagent_repository import SubAgentRepositoryPort
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +89,13 @@ class SqlSubAgentRepository(BaseRepository[SubAgent, object], SubAgentRepository
         """Get a subagent by its ID."""
         from src.infrastructure.adapters.secondary.persistence.models import SubAgent as DBSubAgent
 
-        result = await self._session.execute(select(DBSubAgent).where(DBSubAgent.id == subagent_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(
+                select(DBSubAgent)
+                .where(DBSubAgent.id == subagent_id)
+                .execution_options(populate_existing=True)
+            ))
+        )
         db_subagent = result.scalar_one_or_none()
 
         return self._to_domain(db_subagent) if db_subagent else None
@@ -100,9 +109,12 @@ class SqlSubAgentRepository(BaseRepository[SubAgent, object], SubAgentRepository
         from src.infrastructure.adapters.secondary.persistence.models import SubAgent as DBSubAgent
 
         result = await self._session.execute(
-            select(DBSubAgent)
-            .where(DBSubAgent.tenant_id == tenant_id)
-            .where(DBSubAgent.name == name)
+            refresh_select_statement(self._refresh_statement(
+                select(DBSubAgent)
+                .where(DBSubAgent.tenant_id == tenant_id)
+                .where(DBSubAgent.name == name)
+                .execution_options(populate_existing=True)
+            ))
         )
 
         db_subagent = result.scalar_one_or_none()
@@ -113,7 +125,13 @@ class SqlSubAgentRepository(BaseRepository[SubAgent, object], SubAgentRepository
         """Update an existing subagent."""
         from src.infrastructure.adapters.secondary.persistence.models import SubAgent as DBSubAgent
 
-        result = await self._session.execute(select(DBSubAgent).where(DBSubAgent.id == subagent.id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(
+                select(DBSubAgent)
+                .where(DBSubAgent.id == subagent.id)
+                .execution_options(populate_existing=True)
+            ))
+        )
         db_subagent = result.scalar_one_or_none()
 
         if not db_subagent:
@@ -152,7 +170,9 @@ class SqlSubAgentRepository(BaseRepository[SubAgent, object], SubAgentRepository
         """Delete a subagent by ID."""
         from src.infrastructure.adapters.secondary.persistence.models import SubAgent as DBSubAgent
 
-        result = await self._session.execute(delete(DBSubAgent).where(DBSubAgent.id == subagent_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(delete(DBSubAgent).where(DBSubAgent.id == subagent_id)))
+        )
 
         if cast(CursorResult[Any], result).rowcount == 0:
             raise ValueError(f"SubAgent not found: {subagent_id}")
@@ -175,7 +195,9 @@ class SqlSubAgentRepository(BaseRepository[SubAgent, object], SubAgentRepository
 
         query = query.order_by(DBSubAgent.created_at.desc()).limit(limit).offset(offset)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
         db_subagents = result.scalars().all()
 
         return [d for s in db_subagents if (d := self._to_domain(s)) is not None]
@@ -209,7 +231,9 @@ class SqlSubAgentRepository(BaseRepository[SubAgent, object], SubAgentRepository
 
         query = query.order_by(DBSubAgent.created_at.desc())
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query.execution_options(populate_existing=True)))
+        )
         db_subagents = result.scalars().all()
 
         return [d for s in db_subagents if (d := self._to_domain(s)) is not None]
@@ -222,7 +246,13 @@ class SqlSubAgentRepository(BaseRepository[SubAgent, object], SubAgentRepository
         """Enable or disable a subagent."""
         from src.infrastructure.adapters.secondary.persistence.models import SubAgent as DBSubAgent
 
-        result = await self._session.execute(select(DBSubAgent).where(DBSubAgent.id == subagent_id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(
+                select(DBSubAgent)
+                .where(DBSubAgent.id == subagent_id)
+                .execution_options(populate_existing=True)
+            ))
+        )
         db_subagent = result.scalar_one_or_none()
 
         if not db_subagent:
@@ -262,7 +292,7 @@ class SqlSubAgentRepository(BaseRepository[SubAgent, object], SubAgentRepository
         if enabled_only:
             query = query.where(DBSubAgent.enabled.is_(True))
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         return result.scalar() or 0
 
     async def find_by_keywords(

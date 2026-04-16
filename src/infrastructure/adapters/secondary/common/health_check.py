@@ -27,6 +27,8 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,7 +113,7 @@ class PostgresHealthChecker:
         try:
             async with asyncio.timeout(self._timeout):
                 async with self._engine.connect() as conn:
-                    result = await conn.execute(text(self._query))
+                    result = await conn.execute(refresh_select_statement(text(self._query)))
                     value = result.scalar()
 
             latency_ms = (time.time() - start_time) * 1000
@@ -119,7 +121,7 @@ class PostgresHealthChecker:
             # Try to get version information
             try:
                 async with self._engine.connect() as conn:
-                    version_result = await conn.execute(text("SELECT version()"))
+                    version_result = await conn.execute(refresh_select_statement(text("SELECT version()")))
                     version = version_result.scalar()
                     details["version"] = version.split()[1] if version else "unknown"
             except Exception:

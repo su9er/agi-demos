@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.configuration.config import get_settings
 from src.configuration.di_container import DIContainer
 from src.infrastructure.adapters.primary.web.websocket.auth import authenticate_websocket
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 
 router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
@@ -96,10 +97,10 @@ async def voice_chat_endpoint(
         )
 
         result = await db.execute(
-            select(LLMProviderORM)
+            refresh_select_statement(select(LLMProviderORM)
             .where(LLMProviderORM.provider_type.like("volcengine%"))
             .where(LLMProviderORM.is_active.is_(True))
-            .limit(1)
+            .limit(1))
         )
         provider = result.scalar_one_or_none()
         if provider and provider.config:

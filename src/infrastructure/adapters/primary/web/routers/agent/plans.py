@@ -19,6 +19,7 @@ from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user,
     get_db,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     Conversation as ConversationModel,
 )
@@ -68,7 +69,7 @@ async def switch_mode(
                 updated_at=datetime.now(UTC),
             )
         )
-        result = await db.execute(stmt)
+        result = await db.execute(refresh_select_statement(stmt))
         await db.commit()
 
         if cast(CursorResult[Any], result).rowcount == 0:
@@ -105,7 +106,7 @@ async def get_mode(
             .where(ConversationModel.id == conversation_id)
             .where(ConversationModel.user_id == current_user.id)
         )
-        result = await db.execute(stmt)
+        result = await db.execute(refresh_select_statement(stmt))
         mode = result.scalar_one_or_none()
 
         if mode is None:

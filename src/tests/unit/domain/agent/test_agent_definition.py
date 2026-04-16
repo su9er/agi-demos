@@ -195,6 +195,17 @@ class TestAgent:
         agent = _make_agent(agent_to_agent_enabled=True, agent_to_agent_allowlist=None)
         assert agent.has_legacy_open_agent_to_agent_policy() is True
 
+    def test_has_explicit_max_iterations_false_for_legacy_default(self):
+        agent = _make_agent(max_iterations=10, metadata=None)
+        assert agent.has_explicit_max_iterations() is False
+
+    def test_has_explicit_max_iterations_true_when_metadata_marks_explicit(self):
+        agent = _make_agent(
+            max_iterations=10,
+            metadata={"max_iterations_explicit": True},
+        )
+        assert agent.has_explicit_max_iterations() is True
+
     def test_create_factory_preserves_explicit_empty_agent_to_agent_allowlist(self):
         agent = Agent.create(
             tenant_id="t1",

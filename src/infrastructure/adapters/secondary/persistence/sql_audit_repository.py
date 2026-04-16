@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.audit.audit_entry import AuditEntry
 from src.domain.ports.repositories.audit_repository import AuditRepository
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     AuditLog,
 )
@@ -37,13 +38,13 @@ class SqlAuditRepository(AuditRepository):
             .limit(limit)
             .offset(offset)
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return [self._to_domain(row) for row in result.scalars().all()]
 
     @override
     async def count_by_tenant(self, tenant_id: str) -> int:
         stmt = select(func.count()).select_from(AuditLog).where(AuditLog.tenant_id == tenant_id)
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         count: Any = result.scalar_one()
         return int(count)
 
@@ -74,7 +75,7 @@ class SqlAuditRepository(AuditRepository):
             end_time=end_time,
         )
         filtered = filtered.order_by(AuditLog.timestamp.desc()).limit(limit).offset(offset)
-        result = await self._session.execute(filtered)
+        result = await self._session.execute(refresh_select_statement(filtered))
         return [self._to_domain(row) for row in result.scalars().all()]
 
     @override
@@ -103,7 +104,7 @@ class SqlAuditRepository(AuditRepository):
             start_time=start_time,
             end_time=end_time,
         )
-        result = await self._session.execute(filtered)
+        result = await self._session.execute(refresh_select_statement(filtered))
         count: Any = result.scalar_one()
         return int(count)
 
@@ -132,7 +133,7 @@ class SqlAuditRepository(AuditRepository):
             start_time=start_time,
             end_time=end_time,
         )
-        result = await self._session.execute(filtered)
+        result = await self._session.execute(refresh_select_statement(filtered))
         rows = result.scalars().all()
         action_counts = Counter(row.action for row in rows)
         executor_counts = Counter(

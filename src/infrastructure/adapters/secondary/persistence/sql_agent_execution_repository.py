@@ -21,7 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent.agent_execution import AgentExecution, ExecutionStatus
 from src.domain.ports.repositories.agent_repository import AgentExecutionRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     AgentExecution as DBAgentExecution,
 )
@@ -65,7 +68,9 @@ class SqlAgentExecutionRepository(
         """
         # Check if exists
         result = await self._session.execute(
-            select(DBAgentExecution).where(DBAgentExecution.id == execution.id)
+            refresh_select_statement(self._refresh_statement(
+                select(DBAgentExecution).where(DBAgentExecution.id == execution.id)
+            ))
         )
         db_execution = result.scalar_one_or_none()
 
@@ -87,12 +92,15 @@ class SqlAgentExecutionRepository(
 
         await self._session.flush()
         return execution
+
     async def list_by_message(self, message_id: str) -> list[AgentExecution]:
         """List executions for a message."""
         result = await self._session.execute(
-            select(DBAgentExecution)
-            .where(DBAgentExecution.message_id == message_id)
-            .order_by(DBAgentExecution.started_at.asc())
+            refresh_select_statement(self._refresh_statement(
+                select(DBAgentExecution)
+                .where(DBAgentExecution.message_id == message_id)
+                .order_by(DBAgentExecution.started_at.asc())
+            ))
         )
         db_executions = result.scalars().all()
         return [d for e in db_executions if (d := self._to_domain(e)) is not None]
@@ -104,10 +112,12 @@ class SqlAgentExecutionRepository(
     ) -> list[AgentExecution]:
         """List executions for a conversation."""
         result = await self._session.execute(
-            select(DBAgentExecution)
-            .where(DBAgentExecution.conversation_id == conversation_id)
-            .order_by(DBAgentExecution.started_at.asc())
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(DBAgentExecution)
+                .where(DBAgentExecution.conversation_id == conversation_id)
+                .order_by(DBAgentExecution.started_at.asc())
+                .limit(limit)
+            ))
         )
         db_executions = result.scalars().all()
         return [d for e in db_executions if (d := self._to_domain(e)) is not None]
@@ -115,7 +125,9 @@ class SqlAgentExecutionRepository(
     async def delete_by_conversation(self, conversation_id: str) -> None:
         """Delete all executions in a conversation."""
         await self._session.execute(
-            delete(DBAgentExecution).where(DBAgentExecution.conversation_id == conversation_id)
+            refresh_select_statement(self._refresh_statement(
+                delete(DBAgentExecution).where(DBAgentExecution.conversation_id == conversation_id)
+            ))
         )
         await self._session.flush()
 

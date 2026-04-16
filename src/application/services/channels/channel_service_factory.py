@@ -9,6 +9,7 @@ from src.application.services.channels.media_import_service import MediaImportSe
 from src.infrastructure.adapters.secondary.channels.channel_plugin_loader import (
     load_channel_module,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ async def create_media_import_service_from_config(
         query = query.limit(1)
 
         logger.info("[MediaImportFactory] Executing query...")
-        result = await db_session.execute(query)
+        result = await db_session.execute(refresh_select_statement(query))
         config = result.scalar_one_or_none()
 
         if not config:

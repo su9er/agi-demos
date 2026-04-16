@@ -11,6 +11,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.adapters.primary.web.dependencies import get_current_user
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import (
     Memory,
@@ -35,13 +36,13 @@ async def _check_project_admin_access(db: AsyncSession, user_id: str, project_id
         True if user is project owner or admin, False otherwise
     """
     result = await db.execute(
-        select(UserProject).where(
+        refresh_select_statement(select(UserProject).where(
             and_(
                 UserProject.user_id == user_id,
                 UserProject.project_id == project_id,
                 UserProject.role.in_(["owner", "admin"]),
             )
-        )
+        ))
     )
     return result.scalar_one_or_none() is not None
 
@@ -54,7 +55,7 @@ async def create_share(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Create share - strict/lenient payloads, includes memory_id for integration."""
-    memory_result = await db.execute(select(Memory).where(Memory.id == memory_id))
+    memory_result = await db.execute(refresh_select_statement(select(Memory).where(Memory.id == memory_id)))
     memory = memory_result.scalar_one_or_none()
     if not memory:
         raise HTTPException(status_code=404, detail="Memory not found")
@@ -71,16 +72,16 @@ async def create_share(
         # duplicate check
         if target_type == "user":
             existing_share = await db.execute(
-                select(MemoryShare).where(
+                refresh_select_statement(select(MemoryShare).where(
                     MemoryShare.memory_id == memory_id, MemoryShare.shared_with_user_id == target_id
-                )
+                ))
             )
         else:
             existing_share = await db.execute(
-                select(MemoryShare).where(
+                refresh_select_statement(select(MemoryShare).where(
                     MemoryShare.memory_id == memory_id,
                     MemoryShare.shared_with_project_id == target_id,
-                )
+                ))
             )
         if existing_share.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Memory already shared with this target")
@@ -133,7 +134,7 @@ async def list_shares(
 ) -> dict[str, Any]:
     """List all share links for a memory."""
     # Get memory to verify access
-    memory_result = await db.execute(select(Memory).where(Memory.id == memory_id))
+    memory_result = await db.execute(refresh_select_statement(select(Memory).where(Memory.id == memory_id)))
     memory = memory_result.scalar_one_or_none()
 
     if not memory:
@@ -146,9 +147,9 @@ async def list_shares(
 
     # Get shares
     shares_result = await db.execute(
-        select(MemoryShare)
+        refresh_select_statement(select(MemoryShare)
         .where(MemoryShare.memory_id == memory_id)
-        .order_by(MemoryShare.created_at.desc())
+        .order_by(MemoryShare.created_at.desc()))
     )
     shares = shares_result.scalars().all()
 
@@ -177,7 +178,7 @@ async def delete_share(
 ) -> Response | dict[str, Any]:
     """Delete a share link."""
     # Get memory to verify access
-    memory_result = await db.execute(select(Memory).where(Memory.id == memory_id))
+    memory_result = await db.execute(refresh_select_statement(select(Memory).where(Memory.id == memory_id)))
     memory = memory_result.scalar_one_or_none()
 
     if not memory:
@@ -189,7 +190,7 @@ async def delete_share(
             raise HTTPException(status_code=403, detail="Access denied")
 
     # Get share
-    share_result = await db.execute(select(MemoryShare).where(MemoryShare.id == share_id))
+    share_result = await db.execute(refresh_select_statement(select(MemoryShare).where(MemoryShare.id == share_id)))
     share = share_result.scalar_one_or_none()
 
     if not share:
@@ -221,7 +222,7 @@ async def get_shared_memory(
     """Access a shared memory via share token (public endpoint)."""
     # Get share
     share_result = await db.execute(
-        select(MemoryShare).where(MemoryShare.share_token == share_token)
+        refresh_select_statement(select(MemoryShare).where(MemoryShare.share_token == share_token))
     )
     share = share_result.scalar_one_or_none()
 
@@ -237,7 +238,7 @@ async def get_shared_memory(
             raise HTTPException(status_code=403, detail="Share link has expired")
 
     # Get memory
-    memory_result = await db.execute(select(Memory).where(Memory.id == share.memory_id))
+    memory_result = await db.execute(refresh_select_statement(select(Memory).where(Memory.id == share.memory_id)))
     memory = memory_result.scalar_one_or_none()
 
     if not memory:

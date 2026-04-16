@@ -10,7 +10,11 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from src.domain.model.agent.agent_definition import Agent
+from src.domain.model.agent.agent_definition import (
+    LEGACY_DEFAULT_MAX_ITERATIONS,
+    MAX_ITERATIONS_EXPLICIT_METADATA_KEY,
+    Agent,
+)
 from src.domain.model.agent.agent_source import AgentSource
 from src.domain.model.agent.subagent import AgentModel, AgentTrigger
 from src.infrastructure.agent.tools._agent_definition_policy import (
@@ -89,6 +93,18 @@ def _agent_summary(agent: Agent) -> dict[str, Any]:
     }
 
 
+def _with_max_iterations_metadata(
+    metadata: dict[str, Any] | None,
+    *,
+    explicit: bool | None,
+) -> dict[str, Any] | None:
+    if explicit is None:
+        return metadata
+    merged = dict(metadata or {})
+    merged[MAX_ITERATIONS_EXPLICIT_METADATA_KEY] = explicit
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Action handlers
 # ---------------------------------------------------------------------------
@@ -150,6 +166,10 @@ async def _handle_create(  # noqa: PLR0913
         max_iterations=max_iterations,
         temperature=temperature,
         max_tokens=max_tokens,
+        metadata=_with_max_iterations_metadata(
+            None,
+            explicit=max_iterations != LEGACY_DEFAULT_MAX_ITERATIONS,
+        ),
     )
 
     created = await _orchestrator.create_agent(agent)
@@ -297,6 +317,8 @@ async def _handle_update(  # noqa: PLR0913
         temperature=temperature,
         max_tokens=max_tokens,
     )
+    if max_iterations is not None:
+        existing.metadata = _with_max_iterations_metadata(existing.metadata, explicit=True)
     _apply_a2a_update(existing, agent_to_agent_allowlist, agent_to_agent_enabled)
     _apply_trigger_updates(
         existing,

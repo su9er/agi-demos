@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.memory.memory import Memory
 from src.domain.ports.repositories.memory_repository import MemoryRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import Memory as DBMemory
 
 logger = logging.getLogger(__name__)
@@ -25,7 +28,9 @@ class SqlMemoryRepository(BaseRepository[Memory, DBMemory], MemoryRepository):
 
     async def save(self, memory: Memory) -> Memory:
         """Save a memory (create or update)."""
-        result = await self._session.execute(select(DBMemory).where(DBMemory.id == memory.id))
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(select(DBMemory).where(DBMemory.id == memory.id)))
+        )
         db_memory = result.scalar_one_or_none()
 
         if db_memory:

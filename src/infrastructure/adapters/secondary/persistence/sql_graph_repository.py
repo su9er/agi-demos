@@ -21,7 +21,10 @@ from src.domain.ports.repositories.graph_repository import (
     AgentGraphRepository,
     GraphRunRepository,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     AgentGraphModel,
     GraphRunModel,
@@ -50,7 +53,9 @@ class SqlAgentGraphRepository(BaseRepository[AgentGraph, AgentGraphModel], Agent
     async def save(self, domain_entity: AgentGraph) -> AgentGraph:
         """Save an agent graph (create or update)."""
         result = await self._session.execute(
-            select(AgentGraphModel).where(AgentGraphModel.id == domain_entity.id)
+            refresh_select_statement(self._refresh_statement(
+                select(AgentGraphModel).where(AgentGraphModel.id == domain_entity.id)
+            ))
         )
         existing = result.scalar_one_or_none()
 
@@ -77,7 +82,7 @@ class SqlAgentGraphRepository(BaseRepository[AgentGraph, AgentGraphModel], Agent
     async def find_by_id(self, entity_id: str) -> AgentGraph | None:
         """Find a graph by its ID."""
         result = await self._session.execute(
-            select(AgentGraphModel).where(AgentGraphModel.id == entity_id)
+            refresh_select_statement(self._refresh_statement(select(AgentGraphModel).where(AgentGraphModel.id == entity_id)))
         )
         db_graph = result.scalar_one_or_none()
         return self._to_domain(db_graph)
@@ -101,7 +106,7 @@ class SqlAgentGraphRepository(BaseRepository[AgentGraph, AgentGraphModel], Agent
             query = query.where(AgentGraphModel.is_active.is_(True))
         query = query.order_by(AgentGraphModel.created_at.desc()).offset(offset).limit(limit)
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_graphs = result.scalars().all()
         return [g for row in db_graphs if (g := self._to_domain(row)) is not None]
 
@@ -109,7 +114,7 @@ class SqlAgentGraphRepository(BaseRepository[AgentGraph, AgentGraphModel], Agent
     async def delete(self, entity_id: str) -> bool:
         """Soft-delete a graph by setting is_active=False."""
         result = await self._session.execute(
-            select(AgentGraphModel).where(AgentGraphModel.id == entity_id)
+            refresh_select_statement(self._refresh_statement(select(AgentGraphModel).where(AgentGraphModel.id == entity_id)))
         )
         db_graph = result.scalar_one_or_none()
         if db_graph is None:
@@ -136,7 +141,7 @@ class SqlAgentGraphRepository(BaseRepository[AgentGraph, AgentGraphModel], Agent
         if active_only:
             query = query.where(AgentGraphModel.is_active.is_(True))
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         return result.scalar_one()
 
     # --- Node / Edge conversion helpers ---
@@ -261,9 +266,11 @@ class SqlGraphRunRepository(BaseRepository[GraphRun, GraphRunModel], GraphRunRep
     async def save(self, domain_entity: GraphRun) -> GraphRun:
         """Save a graph run (create or update), including node executions."""
         result = await self._session.execute(
-            select(GraphRunModel)
-            .where(GraphRunModel.id == domain_entity.id)
-            .options(selectinload(GraphRunModel.node_executions))
+            refresh_select_statement(self._refresh_statement(
+                select(GraphRunModel)
+                .where(GraphRunModel.id == domain_entity.id)
+                .options(selectinload(GraphRunModel.node_executions))
+            ))
         )
         existing = result.scalar_one_or_none()
 
@@ -316,9 +323,11 @@ class SqlGraphRunRepository(BaseRepository[GraphRun, GraphRunModel], GraphRunRep
     async def find_by_id(self, entity_id: str) -> GraphRun | None:
         """Find a graph run by ID, including its node executions."""
         result = await self._session.execute(
-            select(GraphRunModel)
-            .where(GraphRunModel.id == entity_id)
-            .options(selectinload(GraphRunModel.node_executions))
+            refresh_select_statement(self._refresh_statement(
+                select(GraphRunModel)
+                .where(GraphRunModel.id == entity_id)
+                .options(selectinload(GraphRunModel.node_executions))
+            ))
         )
         db_run = result.scalar_one_or_none()
         return self._to_domain(db_run)
@@ -332,12 +341,14 @@ class SqlGraphRunRepository(BaseRepository[GraphRun, GraphRunModel], GraphRunRep
     ) -> list[GraphRun]:
         """List runs for a specific graph definition."""
         result = await self._session.execute(
-            select(GraphRunModel)
-            .where(GraphRunModel.graph_id == graph_id)
-            .options(selectinload(GraphRunModel.node_executions))
-            .order_by(GraphRunModel.created_at.desc())
-            .offset(offset)
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(GraphRunModel)
+                .where(GraphRunModel.graph_id == graph_id)
+                .options(selectinload(GraphRunModel.node_executions))
+                .order_by(GraphRunModel.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            ))
         )
         db_runs = result.scalars().all()
         return [r for row in db_runs if (r := self._to_domain(row)) is not None]
@@ -350,11 +361,13 @@ class SqlGraphRunRepository(BaseRepository[GraphRun, GraphRunModel], GraphRunRep
     ) -> list[GraphRun]:
         """List runs associated with a conversation."""
         result = await self._session.execute(
-            select(GraphRunModel)
-            .where(GraphRunModel.conversation_id == conversation_id)
-            .options(selectinload(GraphRunModel.node_executions))
-            .order_by(GraphRunModel.created_at.desc())
-            .limit(limit)
+            refresh_select_statement(self._refresh_statement(
+                select(GraphRunModel)
+                .where(GraphRunModel.conversation_id == conversation_id)
+                .options(selectinload(GraphRunModel.node_executions))
+                .order_by(GraphRunModel.created_at.desc())
+                .limit(limit)
+            ))
         )
         db_runs = result.scalars().all()
         return [r for row in db_runs if (r := self._to_domain(row)) is not None]
@@ -367,12 +380,14 @@ class SqlGraphRunRepository(BaseRepository[GraphRun, GraphRunModel], GraphRunRep
         """Find the currently active (non-terminal) run for a conversation."""
         terminal_statuses = [s.value for s in GraphRunStatus if s.is_terminal]
         result = await self._session.execute(
-            select(GraphRunModel)
-            .where(GraphRunModel.conversation_id == conversation_id)
-            .where(GraphRunModel.status.notin_(terminal_statuses))
-            .options(selectinload(GraphRunModel.node_executions))
-            .order_by(GraphRunModel.created_at.desc())
-            .limit(1)
+            refresh_select_statement(self._refresh_statement(
+                select(GraphRunModel)
+                .where(GraphRunModel.conversation_id == conversation_id)
+                .where(GraphRunModel.status.notin_(terminal_statuses))
+                .options(selectinload(GraphRunModel.node_executions))
+                .order_by(GraphRunModel.created_at.desc())
+                .limit(1)
+            ))
         )
         db_run = result.scalar_one_or_none()
         return self._to_domain(db_run)
@@ -380,7 +395,9 @@ class SqlGraphRunRepository(BaseRepository[GraphRun, GraphRunModel], GraphRunRep
     @override
     async def delete_by_graph(self, graph_id: str) -> None:
         """Delete all runs for a graph (cascade deletes node_executions)."""
-        await self._session.execute(delete(GraphRunModel).where(GraphRunModel.graph_id == graph_id))
+        await self._session.execute(
+            refresh_select_statement(self._refresh_statement(delete(GraphRunModel).where(GraphRunModel.graph_id == graph_id)))
+        )
         await self._session.flush()
 
     # --- Domain conversion ---

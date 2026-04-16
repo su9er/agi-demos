@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.adapters.primary.web.dependencies.auth_dependencies import (
     get_current_user_tenant,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import (
     get_db,
 )
@@ -47,7 +48,7 @@ async def get_message_trace(
         .where(EventLogModel.trace_id == trace_id)
         .order_by(EventLogModel.created_at.asc())
     )
-    rows = (await db.execute(q)).scalars().all()
+    rows = (await db.execute(refresh_select_statement(q))).scalars().all()
     return [
         {
             "id": r.id,
@@ -72,13 +73,13 @@ async def get_message_metrics(
 ) -> dict[str, Any]:
     wf = _ws_filter(MessageQueueItemModel, tenant_id, workspace_id)
     queue_q = select(func.count()).select_from(select(MessageQueueItemModel).where(*wf).subquery())
-    queue_depth = (await db.execute(queue_q)).scalar() or 0
+    queue_depth = (await db.execute(refresh_select_statement(queue_q))).scalar() or 0
 
     dl_wf = _ws_filter(ObservabilityDeadLetterModel, tenant_id, workspace_id)
     dl_q = select(func.count()).select_from(
         select(ObservabilityDeadLetterModel).where(*dl_wf).subquery()
     )
-    dead_letter_count = (await db.execute(dl_q)).scalar() or 0
+    dead_letter_count = (await db.execute(refresh_select_statement(dl_q))).scalar() or 0
 
     return {
         "queue_depth": queue_depth,
@@ -98,12 +99,12 @@ async def get_node_metrics(
     sent_q = select(func.count()).select_from(
         select(EventLogModel).where(*wf, EventLogModel.source_node_id == node_id).subquery()
     )
-    sent = (await db.execute(sent_q)).scalar() or 0
+    sent = (await db.execute(refresh_select_statement(sent_q))).scalar() or 0
 
     recv_q = select(func.count()).select_from(
         select(EventLogModel).where(*wf, EventLogModel.target_node_id == node_id).subquery()
     )
-    received = (await db.execute(recv_q)).scalar() or 0
+    received = (await db.execute(refresh_select_statement(recv_q))).scalar() or 0
 
     dl_wf = _ws_filter(ObservabilityDeadLetterModel, tenant_id, workspace_id)
     err_q = select(func.count()).select_from(
@@ -117,7 +118,7 @@ async def get_node_metrics(
         )
         .subquery()
     )
-    errors = (await db.execute(err_q)).scalar() or 0
+    errors = (await db.execute(refresh_select_statement(err_q))).scalar() or 0
 
     return {
         "node_id": node_id,
@@ -147,7 +148,7 @@ async def get_message_heatmap(
             EventLogModel.target_node_id,
         )
     )
-    rows = (await db.execute(q)).all()
+    rows = (await db.execute(refresh_select_statement(q))).all()
     return [
         {
             "source_node_id": r.source_node_id,
@@ -173,7 +174,7 @@ async def list_dead_letters(
         .order_by(ObservabilityDeadLetterModel.created_at.desc())
         .limit(limit)
     )
-    rows = (await db.execute(q)).scalars().all()
+    rows = (await db.execute(refresh_select_statement(q))).scalars().all()
     return [
         {
             "id": r.id,
@@ -207,7 +208,7 @@ async def retry_dead_letter(
             workspace_id,
         ),
     )
-    row = (await db.execute(q)).scalar_one_or_none()
+    row = (await db.execute(refresh_select_statement(q))).scalar_one_or_none()
     if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -223,7 +224,7 @@ async def retry_dead_letter(
             retried_at=now,
         )
     )
-    await db.execute(stmt)
+    await db.execute(refresh_select_statement(stmt))
     return {"id": dead_letter_id, "status": "retrying"}
 
 
@@ -236,7 +237,7 @@ async def list_circuit_breakers(
 ) -> list[dict[str, Any]]:
     wf = _ws_filter(CircuitStateModel, tenant_id, workspace_id)
     q = select(CircuitStateModel).where(*wf)
-    rows = (await db.execute(q)).scalars().all()
+    rows = (await db.execute(refresh_select_statement(q))).scalars().all()
     return [
         {
             "id": r.id,
@@ -264,7 +265,7 @@ async def list_events(
     if event_type:
         q = q.where(EventLogModel.event_type == event_type)
     q = q.order_by(EventLogModel.created_at.desc()).limit(limit)
-    rows = (await db.execute(q)).scalars().all()
+    rows = (await db.execute(refresh_select_statement(q))).scalars().all()
     return [
         {
             "id": r.id,
@@ -294,21 +295,21 @@ async def reconstruct_message(
         .where(*wf, EventLogModel.message_id == message_id)
         .order_by(EventLogModel.created_at.asc())
     )
-    events = (await db.execute(events_q)).scalars().all()
+    events = (await db.execute(refresh_select_statement(events_q))).scalars().all()
 
     dl_wf = _ws_filter(ObservabilityDeadLetterModel, tenant_id, workspace_id)
     dl_q = select(ObservabilityDeadLetterModel).where(
         *dl_wf,
         ObservabilityDeadLetterModel.original_message_id == message_id,
     )
-    dead_letters = (await db.execute(dl_q)).scalars().all()
+    dead_letters = (await db.execute(refresh_select_statement(dl_q))).scalars().all()
 
     mq_wf = _ws_filter(MessageQueueItemModel, tenant_id, workspace_id)
     mq_q = select(MessageQueueItemModel).where(
         *mq_wf,
         MessageQueueItemModel.message_id == message_id,
     )
-    queue_items = (await db.execute(mq_q)).scalars().all()
+    queue_items = (await db.execute(refresh_select_statement(mq_q))).scalars().all()
 
     return {
         "message_id": message_id,
@@ -361,7 +362,7 @@ async def get_queue_stats(
         .where(*wf)
         .group_by(MessageQueueItemModel.status)
     )
-    rows = (await db.execute(q)).all()
+    rows = (await db.execute(refresh_select_statement(q))).all()
     return {r.status: r.count for r in rows}
 
 
@@ -375,7 +376,7 @@ async def get_node_card(
 ) -> dict[str, Any]:
     wf = _ws_filter(NodeCardModel, tenant_id, workspace_id)
     q = select(NodeCardModel).where(*wf, NodeCardModel.node_id == node_id)
-    row = (await db.execute(q)).scalar_one_or_none()
+    row = (await db.execute(refresh_select_statement(q))).scalar_one_or_none()
     if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -410,7 +411,7 @@ async def discover_nodes(
     if node_type:
         q = q.where(NodeCardModel.node_type == node_type)
     q = q.order_by(NodeCardModel.created_at.desc()).limit(limit)
-    rows = (await db.execute(q)).scalars().all()
+    rows = (await db.execute(refresh_select_statement(q))).scalars().all()
     results = []
     for r in rows:
         if tag and tag not in (r.tags or []):
@@ -439,7 +440,7 @@ async def update_node_card(
 ) -> dict[str, Any]:
     wf = _ws_filter(NodeCardModel, tenant_id, workspace_id)
     q = select(NodeCardModel).where(*wf, NodeCardModel.node_id == node_id)
-    row = (await db.execute(q)).scalar_one_or_none()
+    row = (await db.execute(refresh_select_statement(q))).scalar_one_or_none()
     if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -462,7 +463,7 @@ async def update_node_card(
     if values:
         values["updated_at"] = datetime.now(UTC)
         stmt = update(NodeCardModel).where(NodeCardModel.id == row.id).values(**values)
-        await db.execute(stmt)
+        await db.execute(refresh_select_statement(stmt))
     return {"id": row.id, "node_id": node_id, "updated": True}
 
 
@@ -518,7 +519,7 @@ async def get_alerts(
     open_cb_q = select(func.count()).select_from(
         select(CircuitStateModel).where(*cb_wf, CircuitStateModel.state == "open").subquery()
     )
-    open_circuits = (await db.execute(open_cb_q)).scalar() or 0
+    open_circuits = (await db.execute(refresh_select_statement(open_cb_q))).scalar() or 0
 
     dl_wf = _ws_filter(ObservabilityDeadLetterModel, tenant_id, workspace_id)
     pending_dl_q = select(func.count()).select_from(
@@ -529,7 +530,7 @@ async def get_alerts(
         )
         .subquery()
     )
-    pending_dead_letters = (await db.execute(pending_dl_q)).scalar() or 0
+    pending_dead_letters = (await db.execute(refresh_select_statement(pending_dl_q))).scalar() or 0
 
     alerts = []
     if open_circuits > 0:

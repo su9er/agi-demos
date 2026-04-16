@@ -17,7 +17,10 @@ from src.domain.model.agent.tenant_agent_config import (
 from src.domain.ports.repositories.tenant_agent_config_repository import (
     TenantAgentConfigRepositoryPort,
 )
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +51,11 @@ class SqlTenantAgentConfigRepository(
         )
 
         result = await self._session.execute(
-            select(DBConfig).where(DBConfig.tenant_id == tenant_id)
+            refresh_select_statement(self._refresh_statement(
+                select(DBConfig)
+                .where(DBConfig.tenant_id == tenant_id)
+                .execution_options(populate_existing=True)
+            ))
         )
         db_config = result.scalar_one_or_none()
 
@@ -65,7 +72,11 @@ class SqlTenantAgentConfigRepository(
         )
 
         result = await self._session.execute(
-            select(DBConfig).where(DBConfig.tenant_id == config.tenant_id)
+            refresh_select_statement(self._refresh_statement(
+                select(DBConfig)
+                .where(DBConfig.tenant_id == config.tenant_id)
+                .execution_options(populate_existing=True)
+            ))
         )
         db_config = result.scalar_one_or_none()
 
@@ -111,12 +122,13 @@ class SqlTenantAgentConfigRepository(
         )
 
         result = await self._session.execute(
-            delete(DBConfig).where(DBConfig.tenant_id == tenant_id)
+            refresh_select_statement(self._refresh_statement(delete(DBConfig).where(DBConfig.tenant_id == tenant_id)))
         )
 
         if cast(CursorResult[Any], result).rowcount == 0:
             raise ValueError(f"Configuration not found for tenant: {tenant_id}")
         return True
+
     async def exists(self, tenant_id: str) -> bool:
         """Check if a tenant has custom configuration."""
         from src.infrastructure.adapters.secondary.persistence.models import (
@@ -124,7 +136,11 @@ class SqlTenantAgentConfigRepository(
         )
 
         result = await self._session.execute(
-            select(DBConfig.tenant_id).where(DBConfig.tenant_id == tenant_id)
+            refresh_select_statement(self._refresh_statement(
+                select(DBConfig.tenant_id)
+                .where(DBConfig.tenant_id == tenant_id)
+                .execution_options(populate_existing=True)
+            ))
         )
 
         return result.scalar_one_or_none() is not None

@@ -31,7 +31,10 @@ from src.domain.model.agent import Conversation, ConversationStatus
 from src.domain.model.agent.agent_mode import AgentMode
 from src.domain.model.agent.merge_strategy import MergeStrategy
 from src.domain.ports.repositories.agent_repository import ConversationRepository
-from src.infrastructure.adapters.secondary.common.base_repository import BaseRepository
+from src.infrastructure.adapters.secondary.common.base_repository import (
+    BaseRepository,
+    refresh_select_statement,
+)
 from src.infrastructure.adapters.secondary.persistence.models import (
     AgentExecutionEvent as DBAgentExecutionEvent,
     Conversation as DBConversation,
@@ -122,7 +125,7 @@ class SqlConversationRepository(
             )
         )
 
-        await self._session.execute(stmt)
+        await self._session.execute(refresh_select_statement(self._refresh_statement(stmt)))
         await self._session.flush()
         return conversation
 
@@ -199,7 +202,7 @@ class SqlConversationRepository(
             .limit(limit)
         )
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_conversations = result.scalars().all()
         return [d for c in db_conversations if (d := self._to_domain(c)) is not None]
 
@@ -257,7 +260,7 @@ class SqlConversationRepository(
             .limit(limit)
         )
 
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         db_conversations = result.scalars().all()
         return [d for c in db_conversations if (d := self._to_domain(c)) is not None]
 
@@ -273,7 +276,9 @@ class SqlConversationRepository(
         # Override to use direct delete instead of BaseRepository's delete
         # This ensures CASCADE works properly
         await self._session.execute(
-            delete(DBConversation).where(DBConversation.id == conversation_id)
+            refresh_select_statement(self._refresh_statement(
+                delete(DBConversation).where(DBConversation.id == conversation_id)
+            ))
         )
         await self._session.flush()
         return True
@@ -298,7 +303,7 @@ class SqlConversationRepository(
         )
         if status:
             query = query.where(DBConversation.status == status.value)
-        result = await self._session.execute(query)
+        result = await self._session.execute(refresh_select_statement(self._refresh_statement(query)))
         return result.scalar() or 0
 
     # === Conversion methods ===

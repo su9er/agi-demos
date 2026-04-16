@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import AgentSessionSnapshot
 
 
@@ -27,10 +28,10 @@ class SqlAgentSessionSnapshotRepository:
             .order_by(AgentSessionSnapshot.created_at.desc())
             .limit(1)
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return result.scalar_one_or_none()
 
     async def delete_by_request_id(self, request_id: str) -> int:
         stmt = delete(AgentSessionSnapshot).where(AgentSessionSnapshot.request_id == request_id)
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(refresh_select_statement(stmt))
         return cast(CursorResult[Any], result).rowcount or 0

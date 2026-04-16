@@ -20,6 +20,7 @@ from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user,
     get_current_user_tenant,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import (
     Conversation as ConversationModel,
@@ -608,7 +609,7 @@ async def fork_conversation(
             .where(MessageModel.conversation_id == conversation_id)
             .order_by(MessageModel.created_at)
         )
-        result = await db.execute(query)
+        result = await db.execute(refresh_select_statement(query))
         messages = result.scalars().all()
 
         copied = 0
