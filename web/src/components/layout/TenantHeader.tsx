@@ -18,16 +18,9 @@ import {
   Menu,
   Bell,
   Search,
+  Check,
   ChevronDown,
-  Folder,
-  Brain,
-  Bot,
-  Cpu,
-  Cable,
-  ToyBrick,
   MoreHorizontal,
-  Network,
-  Link2,
   User,
   Settings,
   CreditCard,
@@ -37,21 +30,18 @@ import {
   Monitor,
   Languages,
   Activity,
-  History,
-  ArrowLeft,
-  ChevronRight,
-  LayoutGrid,
-  Server,
 } from 'lucide-react';
 
 import { useAuthActions, useUser } from '@/stores/auth';
 import { useBackgroundStore, useRunningCount } from '@/stores/backgroundStore';
 import { useProjectStore } from '@/stores/project';
+import { useTenantStore } from '@/stores/tenant';
 import { useThemeStore } from '@/stores/theme';
+import { useCurrentWorkspace, useWorkspaces } from '@/stores/workspace';
 
-import { getProjectHeaderTabs } from '@/config/navigation';
+import { deriveTopNavigationItems } from '@/config/navigation';
 
-import type { TabItem } from '@/config/navigation';
+import type { Tenant } from '@/types/memory';
 
 interface TenantHeaderProps {
   tenantId: string;
@@ -65,7 +55,111 @@ interface NavItem {
   id: string;
   label: string;
   path: string;
-  icon: React.ReactNode;
+  exact?: boolean | undefined;
+}
+
+const MAX_VISIBLE_NAV_ITEMS = 7;
+
+const TENANT_NAV_FALLBACK_LABELS: Record<string, string> = {
+  'agent-workspace': 'Agent Workspace',
+  'agent-configuration': 'Agent Configuration',
+  'audit-logs': 'Audit Logs',
+  overview: 'Overview',
+  plugins: 'Plugins',
+  projects: 'Projects',
+  providers: 'Model Services',
+  skills: 'Skills',
+  subagents: 'Agents',
+  tasks: 'Tasks',
+  users: 'Users',
+  workspaces: 'Workspaces',
+};
+
+const PROJECT_NAV_FALLBACK_LABELS: Record<string, string> = {
+  blackboard: 'Blackboard',
+  channels: 'Channels',
+  communities: 'Communities',
+  'cron-jobs': 'Cron Jobs',
+  entities: 'Entities',
+  graph: 'Knowledge Graph',
+  maintenance: 'Maintenance',
+  memories: 'Memories',
+  overview: 'Overview',
+  schema: 'Schema',
+  search: 'Deep Search',
+  settings: 'Settings',
+  team: 'Team',
+  workspaces: 'Workspaces',
+};
+
+interface ContextualNavOptions {
+  basePath: string;
+  projectBasePath: string | null;
+  preferredWorkspaceId: string | null;
+  t: (key: string, fallback?: string) => string;
+  tenantId?: string | undefined;
+  projectId?: string | undefined;
+}
+
+function stripSearch(path: string): string {
+  return path.split('?')[0] || path;
+}
+
+function getThemePresentation(
+  theme: 'light' | 'dark' | 'system',
+  t: (key: string, fallback: string) => string
+): { icon: React.ReactNode; label: string } {
+  switch (theme) {
+    case 'dark':
+      return {
+        icon: <Moon size={16} />,
+        label: t('theme.dark', 'Dark'),
+      };
+    case 'light':
+      return {
+        icon: <Sun size={16} />,
+        label: t('theme.light', 'Light'),
+      };
+    default:
+      return {
+        icon: <Monitor size={16} />,
+        label: t('theme.system', 'System'),
+      };
+  }
+}
+
+export function getContextualTopNavItems({
+  basePath,
+  projectBasePath,
+  preferredWorkspaceId,
+  t,
+  tenantId,
+  projectId,
+}: ContextualNavOptions): NavItem[] {
+  const currentContext = projectBasePath ? 'project' : 'tenant';
+  const fallbackLabels =
+    currentContext === 'project' ? PROJECT_NAV_FALLBACK_LABELS : TENANT_NAV_FALLBACK_LABELS;
+
+  return deriveTopNavigationItems(currentContext, {
+    tenantId,
+    projectId,
+    preferredWorkspaceId,
+  }).map((item) => ({
+    id: item.id,
+    label: t(item.label, fallbackLabels[item.id] ?? item.label),
+    path: item.path || (projectBasePath ?? basePath),
+    exact: item.exact,
+  }));
+}
+
+export function isContextualTopNavItemActive(pathname: string, item: NavItem): boolean {
+  const matchPath = stripSearch(item.path);
+
+  if (item.exact) {
+    return pathname === matchPath || pathname === `${matchPath}/`;
+  }
+
+  return pathname === matchPath || pathname.startsWith(`${matchPath}/`);
 }
 
 const TenantHeader: React.FC<TenantHeaderProps> = ({
@@ -81,100 +175,27 @@ const TenantHeader: React.FC<TenantHeaderProps> = ({
   const basePath = normalizedTenantId ? `/tenant/${normalizedTenantId}` : '/tenant';
 
   const currentProject = useProjectStore((state) => state.currentProject);
+  const currentTenant = useTenantStore((state) => state.currentTenant);
+  const currentWorkspace = useCurrentWorkspace();
+  const workspaces = useWorkspaces();
   const isProjectScopedPath = location.pathname.includes('/project/');
   const effectiveProjectId = projectId ?? (isProjectScopedPath ? currentProject?.id : undefined);
   const projectBasePath = effectiveProjectId ? `${basePath}/project/${effectiveProjectId}` : null;
-  const projectTabs = getProjectHeaderTabs();
-
-  const allNav: NavItem[] = useMemo(
-    () => [
-      {
-        id: 'agent-workspace',
-        label: t('nav.agentWorkspace', 'Agent Workspace'),
-        path: `${basePath}/agent-workspace`,
-        icon: <Activity size={16} />,
-      },
-      {
-        id: 'agent-configuration',
-        label: t('nav.agentConfiguration', 'Agent Configuration'),
-        path: `${basePath}/agents`,
-        icon: <Settings size={16} />,
-      },
-      {
-        id: 'projects',
-        label: t('nav.projects', 'Projects'),
-        path: `${basePath}/projects`,
-        icon: <Folder size={16} />,
-      },
-      {
-        id: 'workspaces',
-        label: t('nav.workspaces', 'Workspaces'),
-        path: effectiveProjectId
-          ? `${basePath}/project/${effectiveProjectId}/workspaces`
-          : `${basePath}/workspaces`,
-        icon: <LayoutGrid size={16} />,
-      },
-      {
-        id: 'skills',
-        label: t('nav.skills', 'Skills'),
-        path: `${basePath}/skills`,
-        icon: <Brain size={16} />,
-      },
-      {
-        id: 'subagents',
-        label: t('nav.subagents', 'Agents'),
-        path: `${basePath}/subagents`,
-        icon: <Bot size={16} />,
-      },
-      {
-        id: 'audit-logs',
-        label: t('nav.auditLogs', 'Audit Logs'),
-        path: `${basePath}/audit-logs`,
-        icon: <History size={16} />,
-      },
-      {
-        id: 'agent-definitions',
-        label: t('nav.agentDefinitions', 'Definitions'),
-        path: `${basePath}/agent-definitions`,
-        icon: <Network size={16} />,
-      },
-      {
-        id: 'agent-bindings',
-        label: t('nav.agentBindings', 'Bindings'),
-        path: `${basePath}/agent-bindings`,
-        icon: <Link2 size={16} />,
-      },
-      {
-        id: 'mcp-servers',
-        label: t('nav.mcpServers', 'MCP'),
-        path: `${basePath}/mcp-servers`,
-        icon: <Cable size={16} />,
-      },
-      {
-        id: 'plugins',
-        label: t('nav.plugins', 'Plugins'),
-        path: `${basePath}/plugins`,
-        icon: <ToyBrick size={16} />,
-      },
-      {
-        id: 'providers',
-        label: t('nav.providers', 'Model Services'),
-        path: `${basePath}/providers`,
-        icon: <Cpu size={16} />,
-      },
-      {
-        id: 'instances',
-        label: t('nav.instances', 'Instances'),
-        path: `${basePath}/instances`,
-        icon: <Server size={16} />,
-      },
-    ],
-    [basePath, effectiveProjectId, t]
+  const preferredWorkspaceId = currentWorkspace?.id ?? workspaces[0]?.id ?? null;
+  const contextualNavItems = useMemo(
+    () =>
+      getContextualTopNavItems({
+        basePath,
+        projectBasePath,
+        preferredWorkspaceId,
+        t: (key, fallback) => String(fallback ? t(key, fallback) : t(key)),
+        tenantId: normalizedTenantId || undefined,
+        projectId: effectiveProjectId,
+      }),
+    [basePath, effectiveProjectId, normalizedTenantId, preferredWorkspaceId, projectBasePath, t]
   );
-
-  const MAX_VISIBLE_NAV_ITEMS = 7;
-  const visibleNav = allNav.slice(0, MAX_VISIBLE_NAV_ITEMS);
-  const overflowNav = allNav.slice(MAX_VISIBLE_NAV_ITEMS);
+  const visibleNav = contextualNavItems.slice(0, MAX_VISIBLE_NAV_ITEMS);
+  const overflowNav = contextualNavItems.slice(MAX_VISIBLE_NAV_ITEMS);
 
   return (
     <>
@@ -212,9 +233,9 @@ const TenantHeader: React.FC<TenantHeaderProps> = ({
               <NavLink
                 key={item.id}
                 to={item.path}
-                className={({ isActive }) =>
+                className={() =>
                   `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-1 whitespace-nowrap ${
-                    isActive
+                    isContextualTopNavItemActive(location.pathname, item)
                       ? 'bg-primary/10 text-primary'
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
                   }`
@@ -231,75 +252,16 @@ const TenantHeader: React.FC<TenantHeaderProps> = ({
             <SearchButton />
             <BackgroundTasksButton />
             <NotificationButton />
-            <HeaderUserMenu tenantId={tenantId} />
+            <HeaderUserMenu
+              tenantId={tenantId}
+              currentTenant={currentTenant}
+            />
           </div>
         </div>
       </header>
-      {projectId && projectBasePath && (
-        <ProjectSubNav
-          projectName={currentProject?.name}
-          projectBasePath={projectBasePath}
-          tenantBasePath={basePath}
-          tabs={projectTabs}
-        />
-      )}
     </>
   );
 };
-
-function ProjectSubNav({
-  projectName,
-  projectBasePath,
-  tenantBasePath,
-  tabs,
-}: {
-  projectName?: string | undefined;
-  projectBasePath: string;
-  tenantBasePath: string;
-  tabs: TabItem[];
-}) {
-  const { t } = useTranslation();
-  const location = useLocation();
-
-  return (
-    <div className="h-10 px-3 sm:px-4 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-border-dark flex items-center gap-3 flex-none shrink-0 overflow-x-auto">
-      <Link
-        to={`${tenantBasePath}/projects`}
-        className="flex items-center gap-1 text-sm text-slate-500 hover:text-primary transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-1 flex-shrink-0"
-      >
-        <ArrowLeft size={14} />
-        <span className="hidden sm:inline">{t('nav.projects', 'Projects')}</span>
-      </Link>
-      <ChevronRight size={14} className="text-slate-300 dark:text-slate-600 flex-shrink-0" />
-      <span className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate max-w-[150px] flex-shrink-0">
-        {projectName || 'Project'}
-      </span>
-      <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 flex-shrink-0 mx-1" />
-
-      <nav className="flex items-center gap-0.5 overflow-x-auto">
-        {tabs.map((tab) => {
-          const fullPath = tab.path ? `${projectBasePath}/${tab.path}` : projectBasePath;
-          const isActive = tab.path
-            ? location.pathname.startsWith(fullPath)
-            : location.pathname === projectBasePath || location.pathname === `${projectBasePath}/`;
-          return (
-            <NavLink
-              key={tab.id}
-              to={fullPath}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-1 whitespace-nowrap ${
-                isActive
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-300'
-              }`}
-            >
-              {t(tab.label, tab.label)}
-            </NavLink>
-          );
-        })}
-      </nav>
-    </div>
-  );
-}
 
 /**
  * Overflow "More" dropdown for secondary nav items
@@ -321,7 +283,7 @@ function OverflowMenu({ items }: { items: NavItem[] }) {
     };
   }, []);
 
-  const isAnyActive = items.some((item) => location.pathname.startsWith(item.path));
+  const isAnyActive = items.some((item) => isContextualTopNavItemActive(location.pathname, item));
 
   return (
     <div className="relative" ref={ref}>
@@ -342,7 +304,7 @@ function OverflowMenu({ items }: { items: NavItem[] }) {
       {open && (
         <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-surface-dark rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 py-1 z-50">
           {items.map((item) => {
-            const isActive = location.pathname.startsWith(item.path);
+            const isActive = isContextualTopNavItemActive(location.pathname, item);
             return (
               <button
                 key={item.id}
@@ -357,7 +319,6 @@ function OverflowMenu({ items }: { items: NavItem[] }) {
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
                 }`}
               >
-                <span className={isActive ? 'text-primary' : 'text-slate-400'}>{item.icon}</span>
                 {item.label}
               </button>
             );
@@ -425,15 +386,26 @@ function NotificationButton() {
 /**
  * Enhanced user menu with theme, language, settings, billing
  */
-function HeaderUserMenu({ tenantId }: { tenantId: string }) {
+function HeaderUserMenu({
+  tenantId,
+  currentTenant,
+}: {
+  tenantId: string;
+  currentTenant: Tenant | null;
+}) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const user = useUser();
   const { logout } = useAuthActions();
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
+  const tenants = useTenantStore((state) => state.tenants);
+  const listTenants = useTenantStore((state) => state.listTenants);
+  const setCurrentTenant = useTenantStore((state) => state.setCurrentTenant);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const normalizedTheme = theme as 'light' | 'dark' | 'system';
+  const availableTenants = tenants.length > 0 ? tenants : currentTenant ? [currentTenant] : [];
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -445,6 +417,12 @@ function HeaderUserMenu({ tenantId }: { tenantId: string }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (open && tenants.length === 0) {
+      void listTenants().catch(() => undefined);
+    }
+  }, [listTenants, open, tenants.length]);
+
   if (!user) return null;
 
   const displayName = user.name || (user.email.split('@')[0] ?? '');
@@ -455,16 +433,23 @@ function HeaderUserMenu({ tenantId }: { tenantId: string }) {
     .toUpperCase()
     .slice(0, 2);
   const avatarUrl = user.profile?.avatar_url;
-  const basePath = `/tenant/${tenantId}`;
+  const normalizedTenantId = tenantId.trim();
+  const basePath = normalizedTenantId ? `/tenant/${normalizedTenantId}` : '/tenant';
 
   const handleLogout = () => {
     logout();
     void navigate('/login');
   };
 
+  const handleTenantSelect = (tenant: Tenant) => {
+    setCurrentTenant(tenant);
+    setOpen(false);
+    void navigate(`/tenant/${tenant.id}`);
+  };
+
   const cycleTheme = () => {
     const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
-    const idx = themes.indexOf(theme as 'light' | 'dark' | 'system');
+    const idx = themes.indexOf(normalizedTheme);
     setTheme(themes[(idx + 1) % themes.length] ?? 'light');
   };
 
@@ -473,21 +458,7 @@ function HeaderUserMenu({ tenantId }: { tenantId: string }) {
     void i18n.changeLanguage(next);
   };
 
-  const themeIcon =
-    theme === 'dark' ? (
-      <Moon size={16} />
-    ) : theme === 'light' ? (
-      <Sun size={16} />
-    ) : (
-      <Monitor size={16} />
-    );
-
-  const themeLabel =
-    theme === 'dark'
-      ? t('theme.dark', 'Dark')
-      : theme === 'light'
-        ? t('theme.light', 'Light')
-        : t('theme.system', 'System');
+  const { icon: themeIcon, label: themeLabel } = getThemePresentation(normalizedTheme, t);
 
   return (
     <div className="relative" ref={ref}>
@@ -520,6 +491,11 @@ function HeaderUserMenu({ tenantId }: { tenantId: string }) {
               {displayName}
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user.email}</p>
+            {currentTenant && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-1">
+                {currentTenant.name}
+              </p>
+            )}
           </div>
 
           {/* Quick actions */}
@@ -551,6 +527,41 @@ function HeaderUserMenu({ tenantId }: { tenantId: string }) {
           </div>
 
           <div className="border-t border-slate-100 dark:border-slate-700 my-1" />
+
+          {availableTenants.length > 0 && (
+            <>
+              <div className="px-4 py-2">
+                <p className="text-2xs font-semibold text-slate-400 uppercase tracking-wider">
+                  {t('nav.tenant', 'Tenant')}
+                </p>
+              </div>
+              <div className="py-1 max-h-44 overflow-y-auto">
+                {availableTenants.map((tenant) => {
+                  const isSelected = tenant.id === currentTenant?.id;
+
+                  return (
+                    <button
+                      type="button"
+                      key={tenant.id}
+                      onClick={() => {
+                        handleTenantSelect(tenant);
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset ${
+                        isSelected
+                          ? 'bg-primary/5 text-primary'
+                          : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <span className="truncate">{tenant.name}</span>
+                      {isSelected && <Check size={16} className="ml-auto" />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="border-t border-slate-100 dark:border-slate-700 my-1" />
+            </>
+          )}
 
           {/* Navigation */}
           <div className="py-1">

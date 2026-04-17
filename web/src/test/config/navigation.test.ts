@@ -1,24 +1,43 @@
 /**
  * Navigation Configuration Tests
  *
- * Tests for navigation configuration structure and validity.
+ * Tests for navigation configuration structure, canonical derivation, and
+ * runtime-aware top navigation outputs.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   _getNavigationConfig,
-  getTenantSidebarConfig,
-  getProjectSidebarConfig,
+  deriveTopNavigationItems,
   getAgentConfig,
+  getCanonicalAgentPath,
+  getCanonicalAgentWorkspacePath,
+  getCanonicalBlackboardPath,
+  getCanonicalNavigationRegistry,
+  getCanonicalProjectPath,
+  getCanonicalTenantPath,
+  getProjectHeaderTabs,
+  getProjectSidebarConfig,
+  getTenantSidebarConfig,
+  parseNavigationPath,
 } from '@/config/navigation';
 
 describe('Navigation Configuration', () => {
   describe('Structure Validation', () => {
+    it('should have a valid navigation config tree', () => {
+      const config = _getNavigationConfig();
+
+      expect(config.tenant.sidebar.groups.length).toBeGreaterThan(0);
+      expect(config.project.sidebar.groups.length).toBeGreaterThan(0);
+      expect(config.agent.sidebar.groups.length).toBeGreaterThan(0);
+      expect(config.agent.tabs.length).toBeGreaterThan(0);
+      expect(config.schema.tabs.length).toBeGreaterThan(0);
+    });
+
     it('should have a valid tenant navigation config', () => {
       const config = getTenantSidebarConfig();
 
-      expect(config).toBeDefined();
       expect(config.groups).toBeInstanceOf(Array);
       expect(config.groups.length).toBeGreaterThan(0);
       expect(config.bottom).toBeInstanceOf(Array);
@@ -28,7 +47,6 @@ describe('Navigation Configuration', () => {
     it('should have a valid project navigation config', () => {
       const config = getProjectSidebarConfig();
 
-      expect(config).toBeDefined();
       expect(config.groups).toBeInstanceOf(Array);
       expect(config.groups.length).toBeGreaterThan(0);
       expect(config.bottom).toBeInstanceOf(Array);
@@ -37,10 +55,9 @@ describe('Navigation Configuration', () => {
     it('should have a valid agent navigation config', () => {
       const config = getAgentConfig();
 
-      expect(config).toBeDefined();
       expect(config.sidebar).toBeDefined();
       expect(config.tabs).toBeInstanceOf(Array);
-      expect(config.tabs.length).toBeGreaterThan(0);
+      expect(config.tabs.length).toBe(3);
     });
   });
 
@@ -62,103 +79,141 @@ describe('Navigation Configuration', () => {
       });
     });
 
-    it('should have all required fields on project nav items', () => {
+    it('should keep project nav item ids unique within the project sidebar', () => {
       const config = getProjectSidebarConfig();
+      const ids = new Set<string>();
 
       config.groups.forEach((group) => {
         group.items.forEach((item) => {
-          expect(item).toHaveProperty('id');
-          expect(item).toHaveProperty('icon');
-          expect(item).toHaveProperty('label');
-          expect(item).toHaveProperty('path');
+          expect(ids.has(item.id)).toBe(false);
+          ids.add(item.id);
         });
       });
     });
 
-    it('should have unique ids within each navigation group', () => {
-      const tenantConfig = getTenantSidebarConfig();
-      const projectConfig = getProjectSidebarConfig();
-
-      // Check tenant config
-      const allTenantIds = new Set<string>();
-      tenantConfig.groups.forEach((group) => {
-        group.items.forEach((item) => {
-          expect(allTenantIds.has(item.id)).toBe(false);
-          allTenantIds.add(item.id);
-        });
-      });
-
-      // Check project config
-      const allProjectIds = new Set<string>();
-      projectConfig.groups.forEach((group) => {
-        group.items.forEach((item) => {
-          expect(allProjectIds.has(item.id)).toBe(false);
-          allProjectIds.add(item.id);
-        });
-      });
-    });
-  });
-
-  describe('Navigation Groups', () => {
-    it('should have properly structured groups', () => {
-      const tenantConfig = getTenantSidebarConfig();
-
-      tenantConfig.groups.forEach((group) => {
-        expect(group).toHaveProperty('id');
-        expect(group).toHaveProperty('title');
-        expect(group).toHaveProperty('items');
-        expect(typeof group.id).toBe('string');
-        expect(typeof group.title).toBe('string');
-        expect(group.items).toBeInstanceOf(Array);
-      });
-    });
-
-    it('should have collapsible property default to true for project groups', () => {
-      const projectConfig = getProjectSidebarConfig();
-
-      projectConfig.groups.forEach((group) => {
-        expect(group.collapsible).toBeDefined();
-        expect(typeof group.collapsible).toBe('boolean');
-      });
-    });
-  });
-
-  describe('Agent Tabs', () => {
-    it('should have valid agent tab configuration', () => {
+    it('should keep derived agent tab ids unique', () => {
       const agentConfig = getAgentConfig();
+      const ids = new Set<string>();
 
       agentConfig.tabs.forEach((tab) => {
-        expect(tab).toHaveProperty('id');
-        expect(tab).toHaveProperty('label');
-        expect(tab).toHaveProperty('path');
-        expect(typeof tab.id).toBe('string');
-        expect(typeof tab.label).toBe('string');
-        expect(typeof tab.path).toBe('string');
-      });
-    });
-
-    it('should have unique tab ids', () => {
-      const agentConfig = getAgentConfig();
-      const tabIds = new Set<string>();
-
-      agentConfig.tabs.forEach((tab) => {
-        expect(tabIds.has(tab.id)).toBe(false);
-        tabIds.add(tab.id);
+        expect(ids.has(tab.id)).toBe(false);
+        ids.add(tab.id);
       });
     });
   });
 
-  describe('i18n Keys', () => {
+  describe('Canonical derivation', () => {
+    it('should derive canonical tenant, project, agent, and agent-workspace paths', () => {
+      expect(getCanonicalTenantPath('tenant-123')).toBe('/tenant/tenant-123');
+      expect(
+        getCanonicalProjectPath({ tenantId: 'tenant-123', projectId: 'proj-456' })
+      ).toBe('/tenant/tenant-123/project/proj-456');
+      expect(
+        getCanonicalAgentPath({ tenantId: 'tenant-123', projectId: 'proj-456', path: 'logs' })
+      ).toBe('/tenant/tenant-123/project/proj-456/agent/logs');
+      expect(
+        getCanonicalAgentWorkspacePath({ tenantId: 'tenant-123', conversationId: 'conv-789' })
+      ).toBe('/tenant/tenant-123/agent-workspace/conv-789');
+    });
+
+    it('should derive dynamic blackboard links from runtime context', () => {
+      expect(
+        getCanonicalBlackboardPath({
+          tenantId: 'tenant-123',
+          projectId: 'proj-456',
+          preferredWorkspaceId: 'ws-001',
+        })
+      ).toBe('/tenant/tenant-123/project/proj-456/blackboard?workspaceId=ws-001&open=1');
+    });
+
+    it('should return canonical project top-nav outputs with context-aware paths', () => {
+      const items = deriveTopNavigationItems('project', {
+        tenantId: 'tenant-123',
+        projectId: 'proj-456',
+        preferredWorkspaceId: 'ws-001',
+      });
+
+      expect(items.some((item) => item.id === 'cron-jobs')).toBe(true);
+      expect(items.find((item) => item.id === 'overview')?.path).toBe(
+        '/tenant/tenant-123/project/proj-456'
+      );
+      expect(items.find((item) => item.id === 'blackboard')?.path).toBe(
+        '/tenant/tenant-123/project/proj-456/blackboard?workspaceId=ws-001&open=1'
+      );
+      expect(items.every((item) => item.context === 'project')).toBe(true);
+    });
+
+    it('should return canonical tenant and agent top-nav outputs', () => {
+      const tenantItems = deriveTopNavigationItems('tenant', {
+        tenantId: 'tenant-123',
+        projectId: 'proj-456',
+      });
+      const agentItems = deriveTopNavigationItems('agent', {
+        tenantId: 'tenant-123',
+        projectId: 'proj-456',
+      });
+
+      expect(tenantItems.find((item) => item.id === 'projects')?.path).toBe(
+        '/tenant/tenant-123/projects'
+      );
+      expect(tenantItems.find((item) => item.id === 'overview')?.path).toBe(
+        '/tenant/tenant-123/overview'
+      );
+      expect(tenantItems.find((item) => item.id === 'tasks')?.path).toBe(
+        '/tenant/tenant-123/tasks'
+      );
+      expect(tenantItems.find((item) => item.id === 'agent-workspace')?.path).toBe(
+        '/tenant/tenant-123/agent-workspace'
+      );
+      expect(agentItems.map((item) => item.path)).toEqual([
+        '/tenant/tenant-123/project/proj-456/agent',
+        '/tenant/tenant-123/project/proj-456/agent/logs',
+        '/tenant/tenant-123/project/proj-456/agent/patterns',
+      ]);
+    });
+
+    it('should keep compatibility helpers relative for existing shell consumers', () => {
+      expect(getProjectHeaderTabs().map((tab) => tab.path)).toContain('blackboard');
+      expect(getProjectHeaderTabs().find((tab) => tab.id === 'overview')?.path).toBe('');
+      expect(getAgentConfig().tabs.map((tab) => tab.path)).toEqual(['', 'logs', 'patterns']);
+    });
+
+    it('should expose a canonical registry with explicit families', () => {
+      const registry = getCanonicalNavigationRegistry();
+
+      expect(registry.length).toBeGreaterThan(0);
+      expect(registry.some((item) => item.routeFamily === 'agent-workspace')).toBe(true);
+      expect(registry.some((item) => item.routeFamily === 'project-blackboard-dynamic')).toBe(
+        true
+      );
+    });
+
+    it('should parse canonical project and agent-workspace routes correctly', () => {
+      expect(
+        parseNavigationPath('/tenant/tenant-123/project/proj-456/blackboard?workspaceId=ws-001')
+      ).toMatchObject({
+        family: 'project-blackboard-dynamic',
+        tenantId: 'tenant-123',
+        projectId: 'proj-456',
+        section: 'blackboard',
+      });
+
+      expect(parseNavigationPath('/tenant/tenant-123/agent-workspace/conv-789')).toMatchObject({
+        family: 'agent-workspace',
+        tenantId: 'tenant-123',
+        conversationId: 'conv-789',
+      });
+    });
+  });
+
+  describe('Presentation defaults', () => {
     it('should use consistent i18n key format for nav items', () => {
       const tenantConfig = getTenantSidebarConfig();
       const projectConfig = getProjectSidebarConfig();
 
-      // Check that items starting with "nav." have consistent format
-      const checkI18nKeys = (items: any[]) => {
+      const checkI18nKeys = (items: Array<{ label: string }>) => {
         items.forEach((item) => {
           if (item.label.startsWith('nav.')) {
-            // Should be like "nav.overview", "nav.projects", "nav.mcpServers", etc.
-            // Allows camelCase which is used in existing i18n keys
             expect(item.label).toMatch(/^nav\.[a-z][a-zA-Z0-9_]*$/);
           }
         });
@@ -167,53 +222,10 @@ describe('Navigation Configuration', () => {
       tenantConfig.groups.forEach((group) => checkI18nKeys(group.items));
       projectConfig.groups.forEach((group) => checkI18nKeys(group.items));
     });
-  });
 
-  describe('Path Configuration', () => {
-    it('should have relative paths starting with / or empty string', () => {
-      const tenantConfig = getTenantSidebarConfig();
-
-      tenantConfig.groups.forEach((group) => {
-        group.items.forEach((item) => {
-          if (item.path !== '') {
-            expect(item.path.startsWith('/')).toBe(true);
-          }
-        });
-      });
-    });
-
-    it('should have valid exact property on overview items', () => {
-      const projectConfig = getProjectSidebarConfig();
-
-      // Main group should have exact match for overview
-      const mainGroup = projectConfig.groups.find((g) => g.id === 'main');
-      expect(mainGroup).toBeDefined();
-
-      const overviewItem = mainGroup!.items.find((i) => i.id === 'overview');
-      if (overviewItem) {
-        expect(overviewItem.exact).toBe(true);
-      }
-    });
-  });
-
-  describe('Bottom Navigation', () => {
-    it('should have bottom nav items configured', () => {
-      const tenantConfig = getTenantSidebarConfig();
-      const projectConfig = getProjectSidebarConfig();
-
-      expect(tenantConfig.bottom).toBeDefined();
-      expect(projectConfig.bottom).toBeDefined();
-      // Project config should have bottom items
-      expect(projectConfig.bottom!.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('Default Values', () => {
     it('should have sensible default width values', () => {
       const tenantConfig = getTenantSidebarConfig();
 
-      expect(tenantConfig.width).toBeDefined();
-      expect(tenantConfig.collapsedWidth).toBeDefined();
       expect(tenantConfig.width).toBe(256);
       expect(tenantConfig.collapsedWidth).toBe(80);
     });

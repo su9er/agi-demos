@@ -11,10 +11,11 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import { useAuthStore } from '@/stores/auth';
+import { useCurrentWorkspace, useWorkspaces } from '@/stores/workspace';
 
 import { useProjectBasePath } from '@/hooks/useProjectBasePath';
 
-import { getProjectSidebarConfig } from '@/config/navigation';
+import { deriveProjectSidebarConfig } from '@/config/navigation';
 
 import { AppSidebar } from './AppSidebar';
 
@@ -45,6 +46,8 @@ export function ProjectSidebar({
 }) {
   const { t: useT } = useTranslation();
   const { user: authUser, logout: authLogout } = useAuthStore();
+  const currentWorkspace = useCurrentWorkspace();
+  const workspaces = useWorkspaces();
   const navigate = useNavigate();
   const { projectBasePath: resolvedBasePath } = useProjectBasePath();
 
@@ -70,12 +73,14 @@ export function ProjectSidebar({
     });
 
   const basePath = resolvedBasePath;
+  const preferredWorkspaceId = currentWorkspace?.id ?? workspaces[0]?.id ?? null;
+  const sidebarConfig = deriveProjectSidebarConfig({ preferredWorkspaceId });
 
   const handleLogout =
     externalLogout ??
     (() => {
       authLogout();
-      navigate('/login');
+      void navigate('/login');
     });
 
   const navUser: NavUser = externalUser ?? {
@@ -87,7 +92,7 @@ export function ProjectSidebar({
 
   return (
     <AppSidebar
-      config={getProjectSidebarConfig()}
+      config={sidebarConfig}
       basePath={basePath}
       variant="project"
       collapsed={collapsed}

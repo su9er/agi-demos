@@ -17,7 +17,7 @@
  * - Responsive design
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 import { Outlet, useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 
@@ -26,19 +26,13 @@ import { Search, History, GitBranch, Home, ChevronRight } from 'lucide-react';
 import { useProjectStore } from '@/stores/project';
 import { useTenantStore } from '@/stores/tenant';
 
+import { getAgentConfig } from '@/config/navigation';
 import { useProjectBasePath } from '@/hooks/useProjectBasePath';
 
 import { RouteErrorBoundary } from '@/components/common/RouteErrorBoundary';
 import { AgentSidebar } from '@/components/layout/AppSidebar';
 import { AppLauncher } from '@/components/mcp-app/AppLauncher';
 import { LazyTooltip } from '@/components/ui/lazyAntd';
-
-// Top navigation tabs for agent views
-const TOP_TABS = [
-  { id: 'dashboard', label: 'Dashboard', path: '' },
-  { id: 'logs', label: 'Activity Logs', path: 'logs' },
-  { id: 'patterns', label: 'Patterns', path: 'patterns' },
-];
 
 export const AgentLayout: React.FC = () => {
   const { projectId, conversationId } = useParams<{
@@ -54,6 +48,7 @@ export const AgentLayout: React.FC = () => {
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { projectBasePath } = useProjectBasePath();
+  const topTabs = useMemo(() => getAgentConfig().tabs, []);
 
   // Sync project data
   useEffect(() => {
@@ -135,7 +130,7 @@ export const AgentLayout: React.FC = () => {
 
             {/* View Tabs */}
             <nav className="flex items-center gap-1 ml-4 bg-slate-100 dark:bg-slate-800/50 rounded-lg p-1">
-              {TOP_TABS.map((tab) => (
+              {topTabs.map((tab) => (
                 <button
                   type="button"
                   key={tab.id}
@@ -175,7 +170,7 @@ export const AgentLayout: React.FC = () => {
                   type="button"
                   className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-400"
                   onClick={() => {
-                    const tab = TOP_TABS[1];
+                    const tab = topTabs[1];
                     if (tab) handleTabClick(tab);
                   }}
                 >
@@ -187,7 +182,7 @@ export const AgentLayout: React.FC = () => {
                   type="button"
                   className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-400"
                   onClick={() => {
-                    const tab = TOP_TABS[2];
+                    const tab = topTabs[2];
                     if (tab) handleTabClick(tab);
                   }}
                 >

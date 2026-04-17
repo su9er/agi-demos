@@ -1,31 +1,23 @@
 /**
  * useBreadcrumbs Hook
  *
- * Generates breadcrumb navigation based on current route and context.
- *
- * @example
- * ```tsx
- * // Basic usage
- * const breadcrumbs = useBreadcrumbs('project')
- *
- * // With custom labels
- * const breadcrumbs = useBreadcrumbs('project', {
- *   labels: { 'custom-page': 'My Custom Page' }
- * })
- *
- * // With options
- * const breadcrumbs = useBreadcrumbs('project', {
- *   maxDepth: 3,
- *   hideLast: true,
- *   labels: { 'memories': 'Memory Bank' }
- * })
- * ```
+ * Generates breadcrumb navigation based on the current route and canonical
+ * navigation derivation helpers.
  */
 
-import { useParams, useLocation } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 
 import { useConversationsStore } from '@/stores/agent/conversationsStore';
 import { useProjectStore } from '@/stores/project';
+
+import {
+  getCanonicalAgentPath,
+  getCanonicalAgentWorkspacePath,
+  getCanonicalProjectPath,
+  getCanonicalTenantDestinationPath,
+  getCanonicalTenantPath,
+  parseNavigationPath,
+} from '@/config/navigation';
 
 import type { Breadcrumb } from '@/config/navigation';
 
@@ -45,11 +37,24 @@ export interface BreadcrumbOptions {
   homeLabel?: string | undefined;
 }
 
+function getCustomLabel(segment: string, customLabels: Record<string, string>): string | null {
+  return customLabels[segment] || null;
+}
+
+function formatBreadcrumbLabel(segment: string): string {
+  return segment
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function getSegmentLabel(segment: string | undefined, customLabels: Record<string, string>): string {
+  const safeSegment = segment ?? '';
+  return getCustomLabel(safeSegment, customLabels) || formatBreadcrumbLabel(safeSegment);
+}
+
 /**
- * Generate breadcrumbs for the current page
- *
- * @param context - The layout context (tenant, project, agent, schema)
- * @param options - Optional configuration for breadcrumb behavior
+ * Generate breadcrumbs for the current page.
  */
 export function useBreadcrumbs(
   context: BreadcrumbContext,
@@ -57,7 +62,6 @@ export function useBreadcrumbs(
 ): Breadcrumb[] {
   const params = useParams();
   const location = useLocation();
-  // Use selective selectors to prevent unnecessary re-renders
   const currentProject = useProjectStore((state) => state.currentProject);
   const currentConversation = useConversationsStore((state) => state.currentConversation);
 
@@ -68,119 +72,112 @@ export function useBreadcrumbs(
     homeLabel = 'Home',
   } = options || {};
 
-  const { tenantId, projectId } = params;
+  const parsedPath = parseNavigationPath(location.pathname);
+  const tenantId = params.tenantId ?? parsedPath.tenantId;
+  const projectId = params.projectId ?? parsedPath.projectId;
+  const homePath = getCanonicalTenantPath();
+  const tenantProjectsPath = getCanonicalTenantDestinationPath(tenantId, '/projects');
+  const projectBasePath = getCanonicalProjectPath({ tenantId, projectId });
+  const agentBasePath = getCanonicalAgentPath({ tenantId, projectId });
 
   const breadcrumbs: Breadcrumb[] = [];
-  // Remove trailing slash and split
-  const cleanPath =
-    location.pathname.endsWith('/') && location.pathname.length > 1
-      ? location.pathname.slice(0, -1)
-      : location.pathname;
-  const paths = cleanPath.split('/').filter(Boolean);
-
-  // Common base breadcrumb
-  // Skip for root or /tenant path (entry points)
-  const isRootPath = paths.length === 0;
-  const isGenericTenantPath = context === 'tenant' && paths.length === 1 && paths[0] === 'tenant';
-  if (!isRootPath && !isGenericTenantPath) {
-    breadcrumbs.push({ label: homeLabel, path: '/tenant' });
-  }
+  const isRootPath = parsedPath.normalizedPath === homePath;
 
   if (context === 'tenant') {
-    // Tenant-level breadcrumbs
-    if (paths.length > 2) {
-      const section = paths[2];
-      // Handle special case for agent-workspace - show conversation name if available
-      if (section === 'agent-workspace') {
-        // Show conversation name if available, otherwise show 'Agent Workspace'
-        const conversationName = currentConversation?.title || 'Agent Workspace';
-        breadcrumbs.push({
-          label: conversationName,
-          path: `/tenant/${tenantId}/agent-workspace`,
-        });
-      } else {
-        const label =
-          getCustomLabel(section ?? '', customLabels) || formatBreadcrumbLabel(section ?? '');
-        breadcrumbs.push({
-          label,
-          path: location.pathname,
-        });
-      }
-    } else if (paths.length === 2) {
-      // Specific tenant view - might need project context
-      if (paths[0] === 'tenant' && projectId) {
-        breadcrumbs.push({ label: 'Projects', path: `/tenant/${tenantId}/projects` });
-      }
+    if (isRootPath) {
+      return [];
+    }
+
+    breadcrumbs.push({ label: homeLabel, path: homePath });
+
+    if (parsedPath.family === 'agent-workspace') {
+      const conversationLabel = currentConversation?.title || 'Agent Workspace';
+      breadcrumbs.push({
+        label: conversationLabel,
+        path: getCanonicalAgentWorkspacePath({
+          tenantId,
+          conversationId: parsedPath.conversationId,
+        }),
+      });
+    } else if (parsedPath.section) {
+      breadcrumbs.push({
+        label: getSegmentLabel(parsedPath.section, customLabels),
+        path: getCanonicalTenantDestinationPath(tenantId, `/${parsedPath.section}`),
+      });
     }
   }
 
   if (context === 'project' || context === 'agent' || context === 'schema') {
-    // Add "Projects" breadcrumb
-    breadcrumbs.push({ label: 'Projects', path: '/tenant/projects' });
+    breadcrumbs.push({ label: homeLabel, path: homePath });
+    breadcrumbs.push({ label: 'Projects', path: tenantProjectsPath });
 
-    // Add current project breadcrumb
-    if (currentProject) {
-      breadcrumbs.push({
-        label: currentProject.name,
-        path: `/project/${projectId}`,
-      });
-    } else if (projectId) {
-      breadcrumbs.push({
-        label: 'Project',
-        path: `/project/${projectId}`,
-      });
-    }
+    breadcrumbs.push({
+      label: currentProject?.name || 'Project',
+      path: projectBasePath,
+    });
 
-    // Add page-specific breadcrumb
-    if (context === 'project' && paths.length > 2) {
-      const section = paths[2];
-      const label =
-        getCustomLabel(section ?? '', customLabels) || formatBreadcrumbLabel(section ?? '');
-      breadcrumbs.push({
-        label,
-        path: location.pathname,
-      });
-    }
-
-    // Agent context specific
-    if (context === 'agent') {
-      breadcrumbs.push({
-        label: 'Agent',
-        path: `/project/${projectId}/agent`,
-      });
-
-      // Add agent sub-page
-      if (paths.length > 3) {
-        const subPage = paths[3];
-        const label =
-          getCustomLabel(subPage ?? '', customLabels) || formatBreadcrumbLabel(subPage ?? '');
+    if (context === 'project') {
+      if (parsedPath.section && parsedPath.section !== 'agent' && parsedPath.section !== 'schema') {
         breadcrumbs.push({
-          label,
-          path: location.pathname,
+          label: getSegmentLabel(parsedPath.section, customLabels),
+          path: getCanonicalProjectPath({
+            tenantId,
+            projectId,
+            path: `/${parsedPath.section}`,
+          }),
         });
       }
     }
 
-    // Schema context specific
-    if (context === 'schema' && paths.length > 3) {
-      const subPage = paths[3];
-      const label =
-        getCustomLabel(subPage ?? '', customLabels) || formatBreadcrumbLabel(subPage ?? '');
+    if (context === 'agent') {
+      breadcrumbs.push({
+        label: 'Agent',
+        path: agentBasePath,
+      });
+
+      const agentSubPage =
+        parsedPath.section === 'agent' ? parsedPath.subSection : parsedPath.section;
+
+      if (agentSubPage) {
+        breadcrumbs.push({
+          label: getSegmentLabel(agentSubPage, customLabels),
+          path: getCanonicalAgentPath({
+            tenantId,
+            projectId,
+            path: agentSubPage,
+          }),
+        });
+      }
+    }
+
+    if (context === 'schema') {
+      const schemaBasePath = getCanonicalProjectPath({
+        tenantId,
+        projectId,
+        path: '/schema',
+      });
+
       breadcrumbs.push({
         label: 'Schema',
-        path: `/project/${projectId}/schema`,
+        path: schemaBasePath,
       });
-      breadcrumbs.push({
-        label,
-        path: location.pathname,
-      });
+
+      const schemaSubPage = parsedPath.section === 'schema' ? parsedPath.subSection : undefined;
+      if (schemaSubPage) {
+        breadcrumbs.push({
+          label: getSegmentLabel(schemaSubPage, customLabels),
+          path: getCanonicalProjectPath({
+            tenantId,
+            projectId,
+            path: `/schema/${schemaSubPage}`,
+          }),
+        });
+      }
     }
   }
 
-  // Apply maxDepth limit
   let result = maxDepth && maxDepth > 0 ? breadcrumbs.slice(-maxDepth) : breadcrumbs;
 
-  // Apply hideLast option
   if (hideLast && result.length > 0) {
     result = result.map((crumb, index) => ({
       ...crumb,
@@ -189,22 +186,4 @@ export function useBreadcrumbs(
   }
 
   return result;
-}
-
-/**
- * Get custom label from options, or return null if not found
- */
-function getCustomLabel(segment: string, customLabels: Record<string, string>): string | null {
-  return customLabels[segment] || null;
-}
-
-/**
- * Format a URL segment into a readable label
- */
-function formatBreadcrumbLabel(segment: string): string {
-  // Handle kebab-case
-  return segment
-    .split('-')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
 }

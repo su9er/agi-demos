@@ -27,23 +27,21 @@ import {
   Bot,
   FolderOpen,
   ChevronDown,
-  LayoutDashboard,
-  Folder,
-  Headphones,
-  Brain,
-  ToyBrick,
-  BarChart3,
-  Settings,
 } from 'lucide-react';
 
 import { useAgentV3Store } from '@/stores/agentV3';
 import { useConversationsStore } from '@/stores/agent/conversationsStore';
 import { useIsLoadingHistory } from '@/stores/agent/timelineStore';
 import { useProjectStore } from '@/stores/project';
+import { useCurrentWorkspace, useWorkspaces } from '@/stores/workspace';
 
 import { buildAgentWorkspacePath } from '@/utils/agentWorkspacePath';
 import { formatDistanceToNow } from '@/utils/date';
 import { Resizer } from '@/components/agent/Resizer';
+import {
+  getContextualTopNavItems,
+  isContextualTopNavItemActive,
+} from '@/components/layout/TenantHeader';
 
 import {
   LazyButton,
@@ -287,6 +285,8 @@ export const TenantChatSidebar: React.FC<TenantChatSidebarProps> = ({
     }))
   );
   const isLoadingHistory = useIsLoadingHistory();
+  const currentWorkspace = useCurrentWorkspace();
+  const workspaces = useWorkspaces();
 
   const {
     conversations,
@@ -299,6 +299,34 @@ export const TenantChatSidebar: React.FC<TenantChatSidebarProps> = ({
   );
 
   const { projects, currentProject, listProjects, setCurrentProject } = useProjectStore();
+  const preferredWorkspaceId = currentWorkspace?.id ?? workspaces[0]?.id ?? null;
+  const normalizedTenantId = tenantId?.trim() ?? '';
+  const resolvedTenantId = normalizedTenantId || undefined;
+  const tenantBasePath = normalizedTenantId ? `/tenant/${normalizedTenantId}` : '/tenant';
+  const isProjectScopedPath = location.pathname.includes('/project/');
+  const contextualProjectId = isProjectScopedPath ? currentProject?.id : undefined;
+  const contextualProjectBasePath = contextualProjectId
+    ? `${tenantBasePath}/project/${contextualProjectId}`
+    : null;
+  const contextualNavItems = useMemo(
+    () =>
+      getContextualTopNavItems({
+        basePath: tenantBasePath,
+        projectBasePath: contextualProjectBasePath,
+        preferredWorkspaceId,
+        t: (key, fallback) => String(fallback ? t(key, fallback) : t(key)),
+        tenantId: resolvedTenantId,
+        projectId: contextualProjectId,
+      }),
+    [
+      contextualProjectBasePath,
+      contextualProjectId,
+      preferredWorkspaceId,
+      resolvedTenantId,
+      t,
+      tenantBasePath,
+    ]
+  );
 
   // Sync ref with state when not dragging
   useEffect(() => {
@@ -342,13 +370,18 @@ export const TenantChatSidebar: React.FC<TenantChatSidebarProps> = ({
   }, [selectedProjectId]);
 
   // Enrich conversations with project info
+  const selectedProjectName = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId)?.name || 'Unknown Project',
+    [projects, selectedProjectId]
+  );
+
   const enrichedConversations: ConversationWithProject[] = useMemo(() => {
     return conversations.map((conv) => ({
       ...conv,
       projectId: selectedProjectId || '',
-      projectName: projects.find((p) => p.id === selectedProjectId)?.name || 'Unknown Project',
+      projectName: selectedProjectName,
     }));
-  }, [conversations, selectedProjectId, projects]);
+  }, [conversations, selectedProjectId, selectedProjectName]);
 
   const isLoadingMoreRef = useRef(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -716,60 +749,23 @@ export const TenantChatSidebar: React.FC<TenantChatSidebarProps> = ({
       </div>
 
       {/* Mobile Navigation Links - shown only in mobile drawer */}
-      {mobile && tenantId && (
+      {mobile && tenantId && contextualNavItems.length > 0 && (
         <div className="border-t border-slate-100 dark:border-slate-800/50 px-3 py-2">
           <p className="text-2xs font-semibold text-slate-400 uppercase tracking-wider px-2 mb-1">
             {t('nav.navigation', 'Navigation')}
           </p>
-          {[
-            {
-              path: `/tenant/${tenantId}/overview`,
-              icon: <LayoutDashboard size={16} />,
-              label: t('nav.overview', 'Overview'),
-            },
-            {
-              path: `/tenant/${tenantId}/projects`,
-              icon: <Folder size={16} />,
-              label: t('nav.projects', 'Projects'),
-            },
-            {
-              path: `/tenant/${tenantId}/agents`,
-              icon: <Headphones size={16} />,
-              label: t('nav.agentConfiguration', 'Agent Configuration'),
-            },
-            {
-              path: `/tenant/${tenantId}/skills`,
-              icon: <Brain size={16} />,
-              label: t('nav.skills', 'Skills'),
-            },
-            {
-              path: `/tenant/${tenantId}/plugins`,
-              icon: <ToyBrick size={16} />,
-              label: t('nav.plugins', 'Plugins'),
-            },
-            {
-              path: `/tenant/${tenantId}/analytics`,
-              icon: <BarChart3 size={16} />,
-              label: t('nav.analytics', 'Analytics'),
-            },
-            {
-              path: `/tenant/${tenantId}/settings`,
-              icon: <Settings size={16} />,
-              label: t('nav.settings', 'Settings'),
-            },
-          ].map((item) => (
+          {contextualNavItems.map((item) => (
             <NavLink
-              key={item.path}
+              key={item.id}
               to={item.path}
-              className={({ isActive }) =>
+              className={() =>
                 `flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset ${
-                  isActive
+                  isContextualTopNavItemActive(location.pathname, item)
                     ? 'bg-primary/10 text-primary font-medium'
                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`
               }
             >
-              {item.icon}
               <span>{item.label}</span>
             </NavLink>
           ))}

@@ -59,7 +59,7 @@ vi.mock('@/hooks/useProjectBasePath', () => ({
   useProjectBasePath: () => ({ projectBasePath: '/tenant/tenant-123/project/proj-123' }),
 }));
 
-function renderWithRouter(ui: React.ReactElement, initialEntries = ['/project/proj-123/agent']) {
+function renderWithRouter(ui: React.ReactElement, initialEntries = ['/tenant/tenant-123/project/proj-123/agent']) {
   return render(<MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>);
 }
 
@@ -76,7 +76,7 @@ describe('AgentLayout', () => {
     it('should render the layout with sidebar and main content', () => {
       renderWithRouter(
         <Routes>
-          <Route path="/project/:projectId/agent" element={<AgentLayout />}>
+          <Route path="/tenant/:tenantId/project/:projectId/agent" element={<AgentLayout />}>
             <Route path="" element={<div>Agent Content</div>} />
           </Route>
         </Routes>
@@ -88,7 +88,7 @@ describe('AgentLayout', () => {
     it('should render the sidebar', () => {
       renderWithRouter(
         <Routes>
-          <Route path="/project/:projectId/agent" element={<AgentLayout />}>
+          <Route path="/tenant/:tenantId/project/:projectId/agent" element={<AgentLayout />}>
             <Route path="" element={<div>Content</div>} />
           </Route>
         </Routes>
@@ -100,11 +100,11 @@ describe('AgentLayout', () => {
     it('should render breadcrumb navigation', () => {
       renderWithRouter(
         <Routes>
-          <Route path="/project/:projectId/agent" element={<AgentLayout />}>
+          <Route path="/tenant/:tenantId/project/:projectId/agent" element={<AgentLayout />}>
             <Route path="" element={<div>Content</div>} />
           </Route>
         </Routes>,
-        ['/project/proj-123/agent']
+        ['/tenant/tenant-123/project/proj-123/agent']
       );
 
       expect(screen.getByText('Test Project')).toBeInTheDocument();
@@ -114,7 +114,7 @@ describe('AgentLayout', () => {
     it('should render the top tabs', () => {
       renderWithRouter(
         <Routes>
-          <Route path="/project/:projectId/agent" element={<AgentLayout />}>
+          <Route path="/tenant/:tenantId/project/:projectId/agent" element={<AgentLayout />}>
             <Route path="" element={<div>Content</div>} />
           </Route>
         </Routes>
@@ -130,7 +130,7 @@ describe('AgentLayout', () => {
     it('should render the agent sidebar component', () => {
       renderWithRouter(
         <Routes>
-          <Route path="/project/:projectId/agent" element={<AgentLayout />}>
+          <Route path="/tenant/:tenantId/project/:projectId/agent" element={<AgentLayout />}>
             <Route path="" element={<div>Content</div>} />
           </Route>
         </Routes>
@@ -144,7 +144,7 @@ describe('AgentLayout', () => {
     it('should display online status badge', () => {
       renderWithRouter(
         <Routes>
-          <Route path="/project/:projectId/agent" element={<AgentLayout />}>
+          <Route path="/tenant/:tenantId/project/:projectId/agent" element={<AgentLayout />}>
             <Route path="" element={<div>Content</div>} />
           </Route>
         </Routes>

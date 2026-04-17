@@ -1,6 +1,6 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { OrgSetupGuard } from './components/common/OrgSetupGuard';
@@ -10,8 +10,10 @@ import { SchemaLayout } from './layouts/SchemaLayout';
 import { TenantLayout } from './layouts/TenantLayout';
 import { Login } from './pages/Login';
 import { useAuthStore } from './stores/auth';
+import { useProjectStore } from './stores/project';
 import { useTenantStore } from './stores/tenant';
 import { ThemeProvider } from './theme';
+import { buildAgentWorkspacePath } from './utils/agentWorkspacePath';
 import './App.css';
 
 // ============================================================================
@@ -304,15 +306,164 @@ const ProjectChannelsRedirect: React.FC = () => {
   return <Navigate to={`${basePath}${projectQuery}`} replace />;
 };
 
-const LegacyProjectRedirect: React.FC = () => {
-  const { projectId, '*': rest } = useParams();
+function buildCanonicalProjectRedirectPath({
+  tenantId,
+  projectId,
+  rest,
+  query,
+}: {
+  tenantId: string;
+  projectId?: string | undefined;
+  rest?: string | undefined;
+  query?: string | undefined;
+}): string {
+  const subPath = rest ? `/${rest}` : '';
+  const normalizedQuery = query || '';
+  return `/tenant/${tenantId}/project/${projectId ?? ''}${subPath}${normalizedQuery}`;
+}
+
+function useResolvedProjectRedirectPath({
+  projectId,
+  rest,
+  query,
+}: {
+  projectId?: string | undefined;
+  rest?: string | undefined;
+  query?: string | undefined;
+}): string | null {
   const currentTenant = useTenantStore((state) => state.currentTenant);
   const user = useAuthStore((state) => state.user);
-  const tenantId = currentTenant?.id || user?.tenant_id;
-  const basePath = tenantId ? `/tenant/${tenantId}` : '/tenant';
-  const subPath = rest ? `/${rest}` : '';
+  const projects = useProjectStore((state) => state.projects);
+  const getProject = useProjectStore((state) => state.getProject);
+  const [resolvedPath, setResolvedPath] = useState<string | null>(null);
+  const normalizedQuery = query || '';
+  const fallbackPath = `/tenant/projects${normalizedQuery}`;
 
-  return <Navigate to={`${basePath}/project/${projectId ?? ''}${subPath}`} replace />;
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!projectId) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const trustedTenantId =
+      currentTenant?.id && projects.some((project) => project.id === projectId)
+        ? currentTenant.id
+        : undefined;
+    const candidateTenantIds = [
+      trustedTenantId,
+      currentTenant?.id,
+      user?.tenant_id,
+    ].filter((tenantId, index, values): tenantId is string => Boolean(tenantId) && values.indexOf(tenantId) === index);
+
+    const resolvePath = async () => {
+      if (trustedTenantId) {
+        return buildCanonicalProjectRedirectPath({
+          tenantId: trustedTenantId,
+          projectId,
+          rest,
+          query: normalizedQuery,
+        });
+      }
+
+      for (const tenantId of candidateTenantIds) {
+        try {
+          await getProject(tenantId, projectId);
+          return buildCanonicalProjectRedirectPath({
+            tenantId,
+            projectId,
+            rest,
+            query: normalizedQuery,
+          });
+        } catch {
+          // Try the next candidate tenant resolution path.
+        }
+      }
+
+      return fallbackPath;
+    };
+
+    void resolvePath().then((path) => {
+      if (!cancelled) {
+        setResolvedPath(path);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentTenant?.id, fallbackPath, getProject, normalizedQuery, projectId, projects, rest, user?.tenant_id]);
+
+  return projectId ? resolvedPath : fallbackPath;
+}
+
+function getLegacyWorkspaceRedirectParams(
+  search: string
+): {
+  projectId?: string | undefined;
+  workspaceId: string | null;
+} {
+  const searchParams = new URLSearchParams(search);
+
+  return {
+    projectId: searchParams.get('projectId') ?? undefined,
+    workspaceId: searchParams.get('workspaceId'),
+  };
+}
+
+export const LegacyProjectRedirect: React.FC = () => {
+  const { projectId, '*': rest } = useParams();
+  const location = useLocation();
+  const resolvedPath = useResolvedProjectRedirectPath({
+    projectId,
+    rest,
+    query: location.search || '',
+  });
+
+  if (!resolvedPath) {
+    return null;
+  }
+
+  return <Navigate to={resolvedPath} replace />;
+};
+
+export const GenericTenantProjectRedirect = LegacyProjectRedirect;
+
+export const LegacyTenantWorkspaceRedirect: React.FC = () => {
+  const { tenantId } = useParams<{ tenantId: string }>();
+  const location = useLocation();
+  const { projectId, workspaceId } = getLegacyWorkspaceRedirectParams(location.search);
+
+  return (
+    <Navigate
+      to={buildAgentWorkspacePath({
+        tenantId,
+        projectId,
+        workspaceId,
+      })}
+      replace
+    />
+  );
+};
+
+export const LegacyTenantConversationRedirect: React.FC = () => {
+  const { tenantId, conversation } = useParams<{ tenantId: string; conversation: string }>();
+  const location = useLocation();
+  const { projectId, workspaceId } = getLegacyWorkspaceRedirectParams(location.search);
+
+  return (
+    <Navigate
+      to={buildAgentWorkspacePath({
+        tenantId,
+        conversationId: conversation,
+        projectId,
+        workspaceId,
+      })}
+      replace
+    />
+  );
 };
 
 function App() {
@@ -857,180 +1008,15 @@ function App() {
                 }
               />
 
-              {/* Project routes (generic, no tenantId in URL) */}
-              <Route path="project/:projectId">
-                <Route
-                  index
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <ProjectOverview />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="memories"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <MemoryList />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="memories/new"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <NewMemory />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="memory/:memoryId"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <MemoryDetail />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="graph"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <MemoryGraph />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="entities"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <EntitiesList />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="communities"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <CommunitiesList />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="advanced-search"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <EnhancedSearch />
-                    </Suspense>
-                  }
-                />
-                <Route path="search" element={<Navigate to="advanced-search" replace />} />
-                <Route
-                  path="maintenance"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <Maintenance />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="cron-jobs"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <CronJobs />
-                    </Suspense>
-                  }
-                />
-                <Route path="schema" element={<SchemaLayout />}>
-                  <Route
-                    index
-                    element={
-                      <Suspense fallback={<PageLoader />}>
-                        <SchemaOverview />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="entities"
-                    element={
-                      <Suspense fallback={<PageLoader />}>
-                        <EntityTypeList />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="edges"
-                    element={
-                      <Suspense fallback={<PageLoader />}>
-                        <EdgeTypeList />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="mapping"
-                    element={
-                      <Suspense fallback={<PageLoader />}>
-                        <EdgeMapList />
-                      </Suspense>
-                    }
-                  />
-                </Route>
-                <Route path="channels" element={<ProjectChannelsRedirect />} />
-                <Route
-                  path="team"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <Team />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="settings"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <ProjectSettings />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="support"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <Support />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="blackboard"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <Blackboard />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="workspaces"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <WorkspaceList />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="workspaces/:workspaceId"
-                  element={
-                    <Suspense fallback={<PageLoader />}>
-                      <WorkspaceBlackboardRedirect />
-                    </Suspense>
-                  }
-                />
-              </Route>
+              {/* Project routes (generic, no tenantId in URL) - compatibility redirect only */}
+              <Route path="project/:projectId/*" element={<GenericTenantProjectRedirect />} />
 
               {/* Tenant specific routes */}
               <Route
                 path=":tenantId"
                 element={
                   <Suspense fallback={<PageLoader />}>
-                    <AgentWorkspace />
+                    <LegacyTenantWorkspaceRedirect />
                   </Suspense>
                 }
               />
@@ -1038,7 +1024,7 @@ function App() {
                 path=":tenantId/:conversation"
                 element={
                   <Suspense fallback={<PageLoader />}>
-                    <AgentWorkspace />
+                    <LegacyTenantConversationRedirect />
                   </Suspense>
                 }
               />
