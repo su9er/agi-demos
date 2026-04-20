@@ -197,6 +197,12 @@ class GoalEvaluator:
         if self._runtime_context.get("task_authority") != "workspace":
             return None
 
+        # Worker sessions are responsible only for their own task execution;
+        # skip root goal evaluation to avoid circular dependency where root
+        # status blocks workers and workers can't unblock root.
+        if self._runtime_context.get("workspace_session_role") == "worker":
+            return None
+
         workspace_id = self._runtime_context.get("workspace_id")
         root_goal_task_id = self._runtime_context.get("root_goal_task_id")
         if not isinstance(workspace_id, str) or not isinstance(root_goal_task_id, str):

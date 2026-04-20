@@ -2684,6 +2684,7 @@ class ReActAgent:
             project_id=project_id,
             selected_agent_id=selected_agent.id,
         )
+        has_workspace_binding = False
         if project_id and tenant_id and user_id:
             from src.infrastructure.agent.workspace.orchestrator import (
                 WorkspaceAutonomyOrchestrator,
@@ -2953,6 +2954,9 @@ class ReActAgent:
                 "workspace_id": getattr(workspace_root_task, "workspace_id", project_id),
                 "root_goal_task_id": getattr(workspace_root_task, "id", ""),
                 "task_authority": "workspace",
+                "workspace_session_role": (
+                    "worker" if has_workspace_binding else "leader"
+                ),
             }
         # Set session_id for announce message polling (P0.5)
         config.session_id = conversation_id
