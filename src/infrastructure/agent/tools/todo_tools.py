@@ -508,36 +508,98 @@ async def _workspace_todowrite_replace(
 async def _workspace_todowrite_add(
     *,
     command_service: Any,
+    task_repo: Any,
     workspace_id: str,
     root_goal_task_id: str,
     actor_user_id: str,
     todos: list[dict[str, Any]],
-) -> list[WorkspaceTask]:
+) -> tuple[list[WorkspaceTask], list[str]]:
+    """Create execution tasks under a root goal, de-duplicating by match-key.
+
+    Returns (created_tasks, skipped_titles). Duplicates are identified by
+    ``_workspace_task_match_key`` against existing tasks on the root goal.
+    """
+    existing_tasks = await task_repo.find_by_root_goal_task_id(workspace_id, root_goal_task_id)
+    existing_keys = {_workspace_task_match_key(task) for task in existing_tasks}
+
     created_tasks: list[WorkspaceTask] = []
+    skipped_titles: list[str] = []
     for todo in todos:
-        created_tasks.append(
-            await command_service.create_task(
-                workspace_id=workspace_id,
-                actor_user_id=actor_user_id,
-                title=str(todo.get("content", "")),
-                metadata={
-                    "autonomy_schema_version": 1,
-                    "task_role": "execution_task",
-                    "root_goal_task_id": root_goal_task_id,
-                    "lineage_source": "agent",
-                    "derived_from_internal_plan_step": todo.get("id"),
-                },
-                priority=(
-                    _todo_priority_to_workspace(todo.get("priority"))
-                    if todo.get("priority") is not None
-                    else None
-                ),
-                actor_type="agent",
-                reason="todowrite.workspace_authority.add",
-                authority=WorkspaceTaskAuthorityContext.leader(None),
-            )
+        key = _workspace_todo_match_key(todo)
+        if key is not None and key in existing_keys:
+            skipped_titles.append(str(todo.get("content", "")))
+            continue
+        created = await command_service.create_task(
+            workspace_id=workspace_id,
+            actor_user_id=actor_user_id,
+            title=str(todo.get("content", "")),
+            metadata={
+                "autonomy_schema_version": 1,
+                "task_role": "execution_task",
+                "root_goal_task_id": root_goal_task_id,
+                "lineage_source": "agent",
+                "derived_from_internal_plan_step": todo.get("id"),
+            },
+            priority=(
+                _todo_priority_to_workspace(todo.get("priority"))
+                if todo.get("priority") is not None
+                else None
+            ),
+            actor_type="agent",
+            reason="todowrite.workspace_authority.add",
+            authority=WorkspaceTaskAuthorityContext.leader(None),
         )
-    return created_tasks
+        created_tasks.append(created)
+        if key is not None:
+            existing_keys.add(key)
+    return created_tasks, skipped_titles
+
+
+async def _dispatch_created_workspace_tasks(
+    *,
+    session: Any,
+    command_service: Any,
+    workspace_id: str,
+    created_tasks: list[WorkspaceTask],
+    leader_agent_id: str | None,
+    actor_user_id: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Route freshly created execution tasks to workers.
+
+    Returns a result dict with ``dispatched`` (bool) and optional
+    ``dispatch_skipped_reason`` for observability.
+    """
+    if not created_tasks:
+        return {"dispatched": False, "dispatch_skipped_reason": "no_created_tasks"}
+    if not leader_agent_id:
+        logger.warning(
+            "todowrite dispatch skipped: selected_agent_id missing from runtime context",
+            extra={
+                "workspace_id": workspace_id,
+                "created_count": len(created_tasks),
+                "reason": reason,
+            },
+        )
+        return {"dispatched": False, "dispatch_skipped_reason": "leader_agent_id_missing"}
+    from src.infrastructure.adapters.secondary.persistence.sql_workspace_agent_repository import (
+        SqlWorkspaceAgentRepository,
+    )
+    from src.infrastructure.agent.workspace.workspace_goal_runtime import (
+        _assign_execution_tasks_to_workers,
+    )
+
+    await _assign_execution_tasks_to_workers(
+        workspace_id=workspace_id,
+        actor_user_id=actor_user_id,
+        created_tasks=created_tasks,
+        workspace_agent_repo=SqlWorkspaceAgentRepository(session),
+        command_service=command_service,
+        leader_agent_id=leader_agent_id,
+        reason=reason,
+    )
+    return {"dispatched": True}
+
 
 
 @tool_define(
@@ -676,6 +738,7 @@ async def todowrite_tool(  # noqa: C901, PLR0912, PLR0915
             )
             command_service = WorkspaceTaskCommandService(task_service)
             if action in {"replace", "add"}:
+                skipped_titles: list[str] = []
                 if action == "replace":
                     updated_tasks, created_tasks, deleted_ids = await _workspace_todowrite_replace(
                         command_service=command_service,
@@ -689,8 +752,9 @@ async def todowrite_tool(  # noqa: C901, PLR0912, PLR0915
                     updated_count = len(updated_tasks)
                     deleted_count = len(deleted_ids)
                 else:
-                    created_tasks = await _workspace_todowrite_add(
+                    created_tasks, skipped_titles = await _workspace_todowrite_add(
                         command_service=command_service,
+                        task_repo=task_repo,
                         workspace_id=workspace_id,
                         root_goal_task_id=root_goal_task_id,
                         actor_user_id=ctx.user_id,
@@ -699,7 +763,49 @@ async def todowrite_tool(  # noqa: C901, PLR0912, PLR0915
                     created_count = len(created_tasks)
                     updated_count = 0
                     deleted_count = 0
+                runtime_ctx = ctx.runtime_context or {}
+                leader_agent_id_raw = runtime_ctx.get("selected_agent_id")
+                leader_agent_id = (
+                    leader_agent_id_raw if isinstance(leader_agent_id_raw, str) else None
+                )
+                dispatch_result = await _dispatch_created_workspace_tasks(
+                    session=session,
+                    command_service=command_service,
+                    workspace_id=workspace_id,
+                    created_tasks=created_tasks,
+                    leader_agent_id=leader_agent_id,
+                    actor_user_id=ctx.user_id,
+                    reason=f"todowrite.workspace_authority.{action}.dispatch",
+                )
                 await session.commit()
+                try:
+                    from src.application.services.workspace_task_event_publisher import (
+                        WorkspaceTaskEventPublisher,
+                    )
+                    from src.infrastructure.agent.state.agent_worker_state import (
+                        get_redis_client,
+                    )
+
+                    publisher = WorkspaceTaskEventPublisher(await get_redis_client())
+                    await publisher.publish_pending_events(
+                        command_service.consume_pending_events()
+                    )
+                except Exception:
+                    logger.warning(
+                        "todowrite.workspace_authority publish_pending_events failed",
+                        exc_info=True,
+                    )
+                try:
+                    from src.infrastructure.agent.workspace.worker_launch_drain import (
+                        drain_pending_worker_launches,
+                    )
+
+                    drain_pending_worker_launches(command_service)
+                except Exception:
+                    logger.warning(
+                        "todowrite.workspace_authority worker_launch_drain failed",
+                        exc_info=True,
+                    )
                 all_tasks = await task_repo.find_by_root_goal_task_id(
                     workspace_id, root_goal_task_id
                 )
@@ -716,13 +822,22 @@ async def todowrite_tool(  # noqa: C901, PLR0912, PLR0915
                     "added_count": created_count,
                     "updated_count": updated_count,
                     "deleted_count": deleted_count,
+                    "skipped_count": len(skipped_titles),
+                    "skipped_titles": skipped_titles,
                     "total_count": len(all_tasks),
+                    "dispatched": dispatch_result.get("dispatched", False),
                     "message": (
                         "Workspace-authoritative "
                         f"{action} reconciled tasks "
-                        f"(created={created_count}, updated={updated_count}, deleted={deleted_count})"
+                        f"(created={created_count}, updated={updated_count}, "
+                        f"deleted={deleted_count}, skipped={len(skipped_titles)}, "
+                        f"dispatched={dispatch_result.get('dispatched', False)})"
                     ),
                 }
+                if "dispatch_skipped_reason" in dispatch_result:
+                    result["dispatch_skipped_reason"] = dispatch_result[
+                        "dispatch_skipped_reason"
+                    ]
             elif action == "update":
                 if not todo_id:
                     result = {"success": False, "error": "todo_id required for update"}
@@ -767,11 +882,11 @@ async def todowrite_tool(  # noqa: C901, PLR0912, PLR0915
                                 or isinstance(existing_task.metadata.get("current_attempt_id"), str)
                             )
                         ):
-                            from src.infrastructure.agent.workspace.workspace_goal_runtime import (
-                                adjudicate_workspace_worker_report,
+                            from src.infrastructure.agent.workspace.orchestrator import (
+                                WorkspaceAutonomyOrchestrator,
                             )
 
-                            updated = await adjudicate_workspace_worker_report(
+                            updated = await WorkspaceAutonomyOrchestrator().adjudicate_worker_report(
                                 workspace_id=workspace_id,
                                 task_id=existing_task.id,
                                 attempt_id=(

@@ -657,8 +657,14 @@ def _build_autonomy_mention_content(mention: str, title: str, remediation_status
         )
     return (
         f"{mention} 中央黑板已有目标：{title}。"
-        "请将这个 objective 转化为 workspace task，拆解并自主执行，直到完成。 "
-        "Please decompose this objective into child tasks, execute it, and complete it."
+        "你的职责是作为 leader：(1) 使用 todowrite 将目标拆解为子任务；"
+        "(2) 子任务会自动分配给工作空间中的 worker agent，由独立会话执行，你不要亲自执行这些子任务；"
+        "(3) 拆解并分派完成后即可停止本轮工作。后续的 worker 报告会由系统汇总并触发你进一步调度。 "
+        "You are the leader. (1) Call todowrite to decompose this objective into child tasks. "
+        "(2) Child tasks are dispatched to workspace worker agents that run in their own sessions; "
+        "do NOT execute the child tasks yourself. "
+        "(3) After decomposition and dispatch, stop this turn. "
+        "Worker reports will be aggregated and you will be invoked again for further orchestration."
     )
 
 
