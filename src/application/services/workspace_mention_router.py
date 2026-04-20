@@ -14,11 +14,57 @@ from src.domain.model.workspace.workspace_message import (
 from src.domain.ports.repositories.workspace.workspace_agent_repository import (
     WorkspaceAgentRepository,
 )
+from src.infrastructure.adapters.secondary.persistence.sql_workspace_task_repository import (
+    SqlWorkspaceTaskRepository,
+)
 
 logger = logging.getLogger(__name__)
 
 _background_tasks: set[asyncio.Task[Any]] = set()
 _MAX_MENTION_CHAIN_DEPTH = 3
+
+
+async def _resolve_workspace_authority_context(
+    db_session_factory: Callable[..., Any],
+    *,
+    workspace_id: str,
+    conversation_scope: str | None,
+) -> dict[str, Any] | None:
+    if not conversation_scope:
+        return None
+
+    async with db_session_factory() as meta_db:
+        objective_id: str | None = None
+        if conversation_scope.startswith("objective:"):
+            objective_id = conversation_scope.split(":", 1)[1].strip() or None
+        root_goal_task_id: str | None = None
+        task_repo = SqlWorkspaceTaskRepository(meta_db)
+        if objective_id:
+            root_task = await task_repo.find_root_by_objective_id(workspace_id, objective_id)
+            if root_task is not None:
+                root_goal_task_id = root_task.id
+        if root_goal_task_id is None:
+            tasks = await task_repo.find_by_workspace(
+                workspace_id=workspace_id,
+                limit=100,
+                offset=0,
+            )
+            root_tasks = [
+                task
+                for task in tasks
+                if task.metadata.get("task_role") == "goal_root"
+                and task.archived_at is None
+                and getattr(task.status, "value", task.status) != "done"
+            ]
+            if len(root_tasks) == 1:
+                root_goal_task_id = root_tasks[0].id
+        if root_goal_task_id:
+            return {
+                "workspace_id": workspace_id,
+                "root_goal_task_id": root_goal_task_id,
+                "task_authority": "workspace",
+            }
+    return None
 
 
 class WorkspaceMentionRouter:
@@ -59,7 +105,26 @@ class WorkspaceMentionRouter:
             )
         )
         _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
+
+        def _finalize(background_task: asyncio.Task[Any]) -> None:
+            _background_tasks.discard(background_task)
+            try:
+                exc = background_task.exception()
+            except asyncio.CancelledError:
+                return
+            if exc is not None:
+                logger.exception(
+                    "Workspace mention background routing task failed",
+                    exc_info=exc,
+                    extra={
+                        "workspace_id": workspace_id,
+                        "project_id": project_id,
+                        "tenant_id": tenant_id,
+                        "message_id": getattr(message, "id", None),
+                    },
+                )
+
+        task.add_done_callback(_finalize)
 
     async def route_mentions(
         self,
@@ -143,6 +208,11 @@ class WorkspaceMentionRouter:
             if isinstance(conversation_scope_raw, str) and conversation_scope_raw.strip()
             else None
         )
+        app_model_context = await _resolve_workspace_authority_context(
+            self._db_session_factory,
+            workspace_id=workspace_id,
+            conversation_scope=conversation_scope,
+        )
 
         conversation_id = self.workspace_conversation_id(
             workspace_id,
@@ -195,6 +265,7 @@ class WorkspaceMentionRouter:
                 user_id=user_id,
                 tenant_id=tenant_id,
                 agent_id=agent.agent_id,
+                app_model_context=app_model_context,
             ):
                 event_type = event.get("type")
                 logger.debug(

@@ -63,6 +63,44 @@ def _make_task(
     )
 
 
+def _make_root_task(
+    task_id: str = "root-1",
+    workspace_id: str = "ws-1",
+    status: WorkspaceTaskStatus = WorkspaceTaskStatus.TODO,
+) -> WorkspaceTask:
+    task = _make_task(task_id=task_id, workspace_id=workspace_id, status=status)
+    task.metadata = {
+        "autonomy_schema_version": 1,
+        "task_role": "goal_root",
+        "goal_origin": "human_defined",
+        "goal_source_refs": [],
+        "root_goal_policy": {
+            "mutable_by_agent": False,
+            "completion_requires_external_proof": False,
+        },
+    }
+    return task
+
+
+def _make_execution_task(
+    task_id: str = "child-1",
+    workspace_id: str = "ws-1",
+    status: WorkspaceTaskStatus = WorkspaceTaskStatus.TODO,
+    *,
+    root_goal_task_id: str = "root-1",
+    assignee_agent_id: str | None = "worker-a",
+) -> WorkspaceTask:
+    task = _make_task(task_id=task_id, workspace_id=workspace_id, status=status)
+    task.assignee_agent_id = assignee_agent_id
+    task.metadata = {
+        "autonomy_schema_version": 1,
+        "task_role": "execution_task",
+        "root_goal_task_id": root_goal_task_id,
+        "lineage_source": "agent",
+    }
+    return task
+
+
 def _make_agent_binding(
     binding_id: str = "wa-1",
     workspace_id: str = "ws-1",
@@ -244,3 +282,314 @@ class TestWorkspaceTaskService:
         )
 
         assert updated.priority == WorkspaceTaskPriority.P2
+
+    @pytest.mark.asyncio
+    async def test_root_start_requires_leader_authority(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        from src.application.services.workspace_task_service import WorkspaceTaskAuthorityContext
+
+        root_task = _make_root_task()
+        mock_workspace_repo.find_by_id.return_value = _make_workspace()
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "member-1", WorkspaceRole.VIEWER
+        )
+        mock_task_repo.find_by_id.return_value = root_task
+
+        with pytest.raises(PermissionError, match="Sisyphus leader"):
+            await workspace_task_service.start_task(
+                workspace_id="ws-1",
+                task_id="root-1",
+                actor_user_id="member-1",
+            )
+
+        mock_task_repo.save.reset_mock()
+        mock_task_repo.find_by_id.return_value = root_task
+        mock_task_repo.save.side_effect = lambda task: task
+        updated = await workspace_task_service.start_task(
+            workspace_id="ws-1",
+            task_id="root-1",
+            actor_user_id="member-1",
+            authority=WorkspaceTaskAuthorityContext.leader("leader-agent"),
+        )
+        assert updated.status == WorkspaceTaskStatus.IN_PROGRESS
+
+    @pytest.mark.asyncio
+    async def test_worker_cannot_start_child_while_root_is_todo(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        from src.application.services.workspace_task_service import WorkspaceTaskAuthorityContext
+
+        root_task = _make_root_task(status=WorkspaceTaskStatus.TODO)
+        child_task = _make_execution_task(status=WorkspaceTaskStatus.TODO)
+        mock_workspace_repo.find_by_id.return_value = _make_workspace()
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "member-1", WorkspaceRole.VIEWER
+        )
+        mock_task_repo.find_by_root_goal_task_id = AsyncMock(return_value=[child_task])
+        mock_task_repo.find_by_id.side_effect = lambda task_id: {
+            "child-1": child_task,
+            "root-1": root_task,
+        }.get(task_id)
+
+        with pytest.raises(PermissionError, match="Root goal must leave todo"):
+            await workspace_task_service.start_task(
+                workspace_id="ws-1",
+                task_id="child-1",
+                actor_user_id="member-1",
+                authority=WorkspaceTaskAuthorityContext.worker("worker-a"),
+            )
+
+    @pytest.mark.asyncio
+    async def test_leader_cannot_start_child_while_root_is_todo(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        from src.application.services.workspace_task_service import WorkspaceTaskAuthorityContext
+
+        root_task = _make_root_task(status=WorkspaceTaskStatus.TODO)
+        child_task = _make_execution_task(status=WorkspaceTaskStatus.TODO)
+        mock_workspace_repo.find_by_id.return_value = _make_workspace()
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "member-1", WorkspaceRole.VIEWER
+        )
+        mock_task_repo.find_by_root_goal_task_id = AsyncMock(return_value=[child_task])
+        mock_task_repo.find_by_id.side_effect = lambda task_id: {
+            "child-1": child_task,
+            "root-1": root_task,
+        }.get(task_id)
+
+        with pytest.raises(PermissionError, match="Root goal must leave todo"):
+            await workspace_task_service.start_task(
+                workspace_id="ws-1",
+                task_id="child-1",
+                actor_user_id="member-1",
+                authority=WorkspaceTaskAuthorityContext.leader("leader-agent"),
+            )
+
+    @pytest.mark.asyncio
+    async def test_worker_can_start_assigned_child_after_root_started(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        from src.application.services.workspace_task_service import WorkspaceTaskAuthorityContext
+
+        root_task = _make_root_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        child_task = _make_execution_task(status=WorkspaceTaskStatus.TODO)
+        mock_workspace_repo.find_by_id.return_value = _make_workspace()
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "member-1", WorkspaceRole.VIEWER
+        )
+        mock_task_repo.find_by_root_goal_task_id = AsyncMock(return_value=[child_task])
+        mock_task_repo.find_by_id.side_effect = lambda task_id: {
+            "child-1": child_task,
+            "root-1": root_task,
+        }.get(task_id)
+        mock_task_repo.find_by_root_goal_task_id = AsyncMock(return_value=[child_task])
+        mock_task_repo.save.side_effect = lambda task: task
+
+        updated = await workspace_task_service.start_task(
+            workspace_id="ws-1",
+            task_id="child-1",
+            actor_user_id="member-1",
+            authority=WorkspaceTaskAuthorityContext.worker("worker-a"),
+        )
+
+        assert updated.status == WorkspaceTaskStatus.IN_PROGRESS
+
+    @pytest.mark.asyncio
+    async def test_worker_update_rejects_structural_child_mutation(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        from src.application.services.workspace_task_service import WorkspaceTaskAuthorityContext
+
+        child_task = _make_execution_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        mock_workspace_repo.find_by_id.return_value = _make_workspace()
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "editor-1", WorkspaceRole.EDITOR
+        )
+        mock_task_repo.find_by_id.return_value = child_task
+
+        with pytest.raises(PermissionError, match="structurally modify"):
+            await workspace_task_service.update_task(
+                workspace_id="ws-1",
+                task_id="child-1",
+                actor_user_id="editor-1",
+                priority=WorkspaceTaskPriority.P1,
+                authority=WorkspaceTaskAuthorityContext.worker("worker-a"),
+            )
+
+    @pytest.mark.asyncio
+    async def test_worker_update_allows_attempt_tracking_metadata(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        from src.application.services.workspace_task_service import WorkspaceTaskAuthorityContext
+
+        child_task = _make_execution_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        mock_workspace_repo.find_by_id.return_value = _make_workspace()
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "editor-1", WorkspaceRole.EDITOR
+        )
+        mock_task_repo.find_by_id.return_value = child_task
+        mock_task_repo.save.side_effect = lambda task: task
+
+        updated = await workspace_task_service.update_task(
+            workspace_id="ws-1",
+            task_id="child-1",
+            actor_user_id="editor-1",
+            metadata={
+                "current_attempt_id": "attempt-2",
+                "last_attempt_id": "attempt-1",
+                "current_attempt_number": 2,
+                "last_attempt_status": "awaiting_leader_adjudication",
+                "pending_leader_adjudication": True,
+            },
+            authority=WorkspaceTaskAuthorityContext.worker("worker-a"),
+        )
+
+        assert updated.metadata["current_attempt_id"] == "attempt-2"
+        assert updated.metadata["current_attempt_number"] == 2
+        assert updated.metadata["last_attempt_status"] == "awaiting_leader_adjudication"
+
+    @pytest.mark.asyncio
+    async def test_worker_cannot_block_child_truth_directly(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        from src.application.services.workspace_task_service import WorkspaceTaskAuthorityContext
+
+        root_task = _make_root_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        child_task = _make_execution_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        mock_workspace_repo.find_by_id.return_value = _make_workspace()
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "member-1", WorkspaceRole.VIEWER
+        )
+        mock_task_repo.find_by_id.side_effect = lambda task_id: {
+            "child-1": child_task,
+            "root-1": root_task,
+        }.get(task_id)
+
+        with pytest.raises(PermissionError, match="Only Sisyphus leader authority"):
+            await workspace_task_service.block_task(
+                workspace_id="ws-1",
+                task_id="child-1",
+                actor_user_id="member-1",
+                authority=WorkspaceTaskAuthorityContext.worker("worker-a"),
+            )
+
+    @pytest.mark.asyncio
+    async def test_worker_cannot_complete_child_truth_directly(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        from src.application.services.workspace_task_service import WorkspaceTaskAuthorityContext
+
+        root_task = _make_root_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        child_task = _make_execution_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        mock_workspace_repo.find_by_id.return_value = _make_workspace()
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "member-1", WorkspaceRole.VIEWER
+        )
+        mock_task_repo.find_by_id.side_effect = lambda task_id: {
+            "child-1": child_task,
+            "root-1": root_task,
+        }.get(task_id)
+
+        with pytest.raises(PermissionError, match="Only Sisyphus leader authority"):
+            await workspace_task_service.complete_task(
+                workspace_id="ws-1",
+                task_id="child-1",
+                actor_user_id="member-1",
+                authority=WorkspaceTaskAuthorityContext.worker("worker-a"),
+            )
+
+
+    @pytest.mark.asyncio
+    async def test_leader_cannot_complete_child_without_attempt(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        from src.application.services.workspace_task_service import WorkspaceTaskAuthorityContext
+
+        root_task = _make_root_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        child_task = _make_execution_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        mock_workspace_repo.find_by_id.return_value = _make_workspace()
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "member-1", WorkspaceRole.VIEWER
+        )
+        mock_task_repo.find_by_id.side_effect = lambda task_id: {
+            "child-1": child_task,
+            "root-1": root_task,
+        }.get(task_id)
+
+        with pytest.raises(PermissionError, match="concrete execution attempt"):
+            await workspace_task_service.complete_task(
+                workspace_id="ws-1",
+                task_id="child-1",
+                actor_user_id="member-1",
+                authority=WorkspaceTaskAuthorityContext.leader("leader-agent"),
+            )
+
+    @pytest.mark.asyncio
+    async def test_leader_can_complete_child_with_attempt(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        from src.application.services.workspace_task_service import WorkspaceTaskAuthorityContext
+
+        root_task = _make_root_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        child_task = _make_execution_task(status=WorkspaceTaskStatus.IN_PROGRESS)
+        child_task.metadata["current_attempt_id"] = "attempt-1"
+        mock_workspace_repo.find_by_id.return_value = _make_workspace()
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "member-1", WorkspaceRole.VIEWER
+        )
+        mock_task_repo.find_by_id.side_effect = lambda task_id: {
+            "child-1": child_task,
+            "root-1": root_task,
+        }.get(task_id)
+        mock_task_repo.find_by_root_goal_task_id = AsyncMock(return_value=[child_task])
+        mock_task_repo.save.side_effect = lambda task: task
+
+        updated = await workspace_task_service.complete_task(
+            workspace_id="ws-1",
+            task_id="child-1",
+            actor_user_id="member-1",
+            authority=WorkspaceTaskAuthorityContext.leader("leader-agent"),
+        )
+
+        assert updated.status == WorkspaceTaskStatus.DONE

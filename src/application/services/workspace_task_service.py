@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from src.application.services.workspace_agent_autonomy import (
     ensure_goal_completion_allowed,
     ensure_root_goal_mutation_allowed,
+    is_autonomy_task,
+    is_goal_root_task,
     merge_validated_metadata,
     reconcile_root_goal_progress,
     record_task_actor,
@@ -33,6 +36,20 @@ from src.domain.ports.repositories.workspace.workspace_task_repository import (
 )
 
 
+@dataclass(frozen=True)
+class WorkspaceTaskAuthorityContext:
+    role: Literal["default", "leader", "worker"] = "default"
+    actor_agent_id: str | None = None
+
+    @classmethod
+    def leader(cls, actor_agent_id: str | None) -> WorkspaceTaskAuthorityContext:
+        return cls(role="leader", actor_agent_id=actor_agent_id)
+
+    @classmethod
+    def worker(cls, actor_agent_id: str | None) -> WorkspaceTaskAuthorityContext:
+        return cls(role="worker", actor_agent_id=actor_agent_id)
+
+
 class WorkspaceTaskService:
     """Orchestrates workspace task CRUD, assignment, and state transitions."""
 
@@ -43,6 +60,26 @@ class WorkspaceTaskService:
         "P3": 3,
         "P4": 4,
     }
+    _WORKER_ALLOWED_METADATA_KEYS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "execution_state",
+            "evidence_refs",
+            "execution_verifications",
+            "last_worker_report_type",
+            "last_worker_report_summary",
+            "last_worker_report_artifacts",
+            "last_worker_report_verifications",
+            "last_worker_reported_at",
+            "last_worker_report_fingerprint",
+            "last_worker_report_id",
+            "pending_leader_adjudication",
+            "current_attempt_id",
+            "last_attempt_id",
+            "current_attempt_number",
+            "last_attempt_status",
+            "last_mutation_actor",
+        }
+    )
 
     def __init__(
         self,
@@ -71,6 +108,7 @@ class WorkspaceTaskService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         workspace = await self._require_workspace(workspace_id)
         await self._require_minimum_role(
@@ -167,6 +205,7 @@ class WorkspaceTaskService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         workspace = await self._require_workspace(workspace_id)
         await self._require_minimum_role(
@@ -176,6 +215,19 @@ class WorkspaceTaskService:
             error_message="Insufficient permission to update workspace task",
         )
         task = await self._require_task(workspace_id=workspace.id, task_id=task_id)
+        authority_ctx = authority or WorkspaceTaskAuthorityContext()
+        self._ensure_update_allowed(
+            task=task,
+            authority=authority_ctx,
+            title=title,
+            description=description,
+            assignee_user_id=assignee_user_id,
+            status=status,
+            metadata=metadata,
+            priority=priority,
+            estimated_effort=estimated_effort,
+            blocker_reason=blocker_reason,
+        )
         ensure_root_goal_mutation_allowed(
             task,
             title=title,
@@ -210,6 +262,12 @@ class WorkspaceTaskService:
         if status is not None and status != task.status:
             if status == WorkspaceTaskStatus.DONE:
                 ensure_goal_completion_allowed(task)
+            await self._ensure_transition_allowed(
+                workspace_id=workspace.id,
+                task=task,
+                target=status,
+                authority=authority_ctx,
+            )
             self._apply_transition(task, status)
             saved = await self._workspace_task_repo.save(task)
             await self._reconcile_root_goal_if_needed(saved)
@@ -225,6 +283,7 @@ class WorkspaceTaskService:
         workspace_id: str,
         task_id: str,
         actor_user_id: str,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> bool:
         workspace = await self._require_workspace(workspace_id)
         await self._require_minimum_role(
@@ -234,6 +293,11 @@ class WorkspaceTaskService:
             error_message="Insufficient permission to delete workspace task",
         )
         task = await self._require_task(workspace_id=workspace.id, task_id=task_id)
+        self._ensure_structural_mutation_allowed(
+            task=task,
+            authority=authority or WorkspaceTaskAuthorityContext(),
+            action="delete",
+        )
         root_goal_task_id = self._root_goal_task_id(task)
         deleted = await self._workspace_task_repo.delete(task.id)
         if deleted and root_goal_task_id:
@@ -253,6 +317,7 @@ class WorkspaceTaskService:
         actor_type: str = "human",
         actor_agent_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         workspace = await self._require_workspace(workspace_id)
         await self._require_minimum_role(
@@ -269,6 +334,11 @@ class WorkspaceTaskService:
             raise ValueError("Workspace agent binding does not belong to workspace")
         if not relation.is_active:
             raise ValueError("Workspace agent binding must be active for assignment")
+        self._ensure_structural_mutation_allowed(
+            task=task,
+            authority=authority or WorkspaceTaskAuthorityContext(),
+            action="assign_agent",
+        )
 
         task.assignee_agent_id = relation.agent_id
         task.assignee_user_id = None
@@ -295,6 +365,7 @@ class WorkspaceTaskService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         workspace = await self._require_workspace(workspace_id)
         await self._require_minimum_role(
@@ -304,6 +375,11 @@ class WorkspaceTaskService:
             error_message="Insufficient permission to unassign workspace task",
         )
         task = await self._require_task(workspace.id, task_id)
+        self._ensure_structural_mutation_allowed(
+            task=task,
+            authority=authority or WorkspaceTaskAuthorityContext(),
+            action="unassign_agent",
+        )
         task.assignee_agent_id = None
         task.updated_at = datetime.now(UTC)
         record_task_actor(
@@ -328,10 +404,16 @@ class WorkspaceTaskService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         workspace = await self._require_workspace(workspace_id)
         await self._require_membership(workspace.id, actor_user_id)
         task = await self._require_task(workspace.id, task_id)
+        self._ensure_structural_mutation_allowed(
+            task=task,
+            authority=authority or WorkspaceTaskAuthorityContext(),
+            action="claim",
+        )
         if task.status == WorkspaceTaskStatus.DONE:
             raise ValueError("Cannot claim a completed task")
         if task.assignee_user_id and task.assignee_user_id != actor_user_id:
@@ -362,10 +444,17 @@ class WorkspaceTaskService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         workspace = await self._require_workspace(workspace_id)
         await self._require_membership(workspace.id, actor_user_id)
         task = await self._require_task(workspace.id, task_id)
+        await self._ensure_transition_allowed(
+            workspace_id=workspace.id,
+            task=task,
+            target=WorkspaceTaskStatus.IN_PROGRESS,
+            authority=authority or WorkspaceTaskAuthorityContext(),
+        )
         self._apply_transition(task, WorkspaceTaskStatus.IN_PROGRESS)
         record_task_actor(
             task,
@@ -389,10 +478,17 @@ class WorkspaceTaskService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         workspace = await self._require_workspace(workspace_id)
         await self._require_membership(workspace.id, actor_user_id)
         task = await self._require_task(workspace.id, task_id)
+        await self._ensure_transition_allowed(
+            workspace_id=workspace.id,
+            task=task,
+            target=WorkspaceTaskStatus.BLOCKED,
+            authority=authority or WorkspaceTaskAuthorityContext(),
+        )
         self._apply_transition(task, WorkspaceTaskStatus.BLOCKED)
         record_task_actor(
             task,
@@ -416,10 +512,17 @@ class WorkspaceTaskService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         workspace = await self._require_workspace(workspace_id)
         await self._require_membership(workspace.id, actor_user_id)
         task = await self._require_task(workspace.id, task_id)
+        await self._ensure_transition_allowed(
+            workspace_id=workspace.id,
+            task=task,
+            target=WorkspaceTaskStatus.DONE,
+            authority=authority or WorkspaceTaskAuthorityContext(),
+        )
         ensure_goal_completion_allowed(task)
         self._apply_transition(task, WorkspaceTaskStatus.DONE)
         record_task_actor(
@@ -477,15 +580,28 @@ class WorkspaceTaskService:
         return 100
 
     @staticmethod
-    def _validate_transition(from_status: WorkspaceTaskStatus, to_status: WorkspaceTaskStatus) -> None:
+    def _validate_transition(
+        from_status: WorkspaceTaskStatus, to_status: WorkspaceTaskStatus
+    ) -> None:
         allowed: dict[WorkspaceTaskStatus, set[WorkspaceTaskStatus]] = {
-            WorkspaceTaskStatus.TODO: {WorkspaceTaskStatus.IN_PROGRESS, WorkspaceTaskStatus.BLOCKED},
-            WorkspaceTaskStatus.IN_PROGRESS: {WorkspaceTaskStatus.BLOCKED, WorkspaceTaskStatus.DONE},
-            WorkspaceTaskStatus.BLOCKED: {WorkspaceTaskStatus.IN_PROGRESS, WorkspaceTaskStatus.DONE},
+            WorkspaceTaskStatus.TODO: {
+                WorkspaceTaskStatus.IN_PROGRESS,
+                WorkspaceTaskStatus.BLOCKED,
+            },
+            WorkspaceTaskStatus.IN_PROGRESS: {
+                WorkspaceTaskStatus.BLOCKED,
+                WorkspaceTaskStatus.DONE,
+            },
+            WorkspaceTaskStatus.BLOCKED: {
+                WorkspaceTaskStatus.IN_PROGRESS,
+                WorkspaceTaskStatus.DONE,
+            },
             WorkspaceTaskStatus.DONE: set(),
         }
         if to_status not in allowed[from_status]:
-            raise ValueError(f"Cannot transition task status from {from_status.value} to {to_status.value}")
+            raise ValueError(
+                f"Cannot transition task status from {from_status.value} to {to_status.value}"
+            )
 
     def _apply_transition(self, task: WorkspaceTask, target: WorkspaceTaskStatus) -> None:
         self._validate_transition(task.status, target)
@@ -502,6 +618,133 @@ class WorkspaceTaskService:
                 workspace_id=task.workspace_id,
                 root_goal_task_id=root_goal_task_id,
             )
+
+    def _ensure_update_allowed(
+        self,
+        *,
+        task: WorkspaceTask,
+        authority: WorkspaceTaskAuthorityContext,
+        title: str | None,
+        description: str | None,
+        assignee_user_id: str | None,
+        status: WorkspaceTaskStatus | None,
+        metadata: Mapping[str, object] | None,
+        priority: WorkspaceTaskPriority | None,
+        estimated_effort: str | None,
+        blocker_reason: str | None,
+    ) -> None:
+        if not is_autonomy_task(task):
+            return
+        if is_goal_root_task(task):
+            self._require_leader_authority(authority, "mutate root goal task")
+            return
+        if authority.role == "leader":
+            if status in {WorkspaceTaskStatus.DONE, WorkspaceTaskStatus.BLOCKED}:
+                current_attempt_id = task.metadata.get("current_attempt_id")
+                if not isinstance(current_attempt_id, str) or not current_attempt_id:
+                    raise PermissionError(
+                        "Leader must adjudicate a concrete execution attempt before finalizing an execution task"
+                    )
+            return
+        if authority.role != "worker":
+            raise PermissionError(
+                "Autonomy execution tasks require leader or assigned worker authority"
+            )
+        self._require_worker_ownership(task, authority)
+        if title is not None or description is not None:
+            raise PermissionError("Worker cannot rewrite execution task content")
+        if assignee_user_id is not None or priority is not None or estimated_effort is not None:
+            raise PermissionError(
+                "Worker cannot structurally modify execution task ownership or priority"
+            )
+        if metadata is not None:
+            disallowed = set(metadata) - self._WORKER_ALLOWED_METADATA_KEYS
+            if disallowed:
+                ordered = ", ".join(sorted(disallowed))
+                raise PermissionError(
+                    f"Worker cannot mutate execution task metadata fields: {ordered}"
+                )
+        if status is not None and status == WorkspaceTaskStatus.TODO:
+            raise PermissionError("Worker cannot reset execution task to todo")
+        _ = blocker_reason
+
+    def _ensure_structural_mutation_allowed(
+        self,
+        *,
+        task: WorkspaceTask,
+        authority: WorkspaceTaskAuthorityContext,
+        action: str,
+    ) -> None:
+        if not is_autonomy_task(task):
+            return
+        self._require_leader_authority(authority, f"{action} autonomy task")
+
+    async def _ensure_transition_allowed(
+        self,
+        *,
+        workspace_id: str,
+        task: WorkspaceTask,
+        target: WorkspaceTaskStatus,
+        authority: WorkspaceTaskAuthorityContext,
+    ) -> None:
+        if not is_autonomy_task(task):
+            return
+        if is_goal_root_task(task):
+            self._require_leader_authority(authority, f"transition root goal to {target.value}")
+            return
+        if target == WorkspaceTaskStatus.IN_PROGRESS:
+            await self._ensure_root_not_todo_for_child_start(workspace_id=workspace_id, task=task)
+        if authority.role == "leader":
+            if target in {WorkspaceTaskStatus.DONE, WorkspaceTaskStatus.BLOCKED}:
+                current_attempt_id = task.metadata.get("current_attempt_id")
+                if not isinstance(current_attempt_id, str) or not current_attempt_id:
+                    raise PermissionError(
+                        "Leader must adjudicate a concrete execution attempt before finalizing an execution task"
+                    )
+            return
+        if authority.role != "worker":
+            raise PermissionError(
+                "Autonomy execution task transitions require leader or assigned worker authority"
+            )
+        self._require_worker_ownership(task, authority)
+        if target != WorkspaceTaskStatus.IN_PROGRESS:
+            raise PermissionError(
+                "Only Sisyphus leader authority may finalize or block execution tasks"
+            )
+
+    async def _ensure_root_not_todo_for_child_start(
+        self,
+        *,
+        workspace_id: str,
+        task: WorkspaceTask,
+    ) -> None:
+        root_goal_task_id = self._root_goal_task_id(task)
+        if root_goal_task_id is None:
+            return
+        root_task = await self._workspace_task_repo.find_by_id(root_goal_task_id)
+        if root_task is None or root_task.workspace_id != workspace_id:
+            return
+        root_status = getattr(root_task.status, "value", root_task.status)
+        if root_status == WorkspaceTaskStatus.TODO.value:
+            raise PermissionError(
+                "Root goal must leave todo before a child task enters in_progress"
+            )
+
+    @staticmethod
+    def _require_leader_authority(
+        authority: WorkspaceTaskAuthorityContext,
+        action: str,
+    ) -> None:
+        if authority.role != "leader":
+            raise PermissionError(f"Only Sisyphus leader authority may {action}")
+
+    @staticmethod
+    def _require_worker_ownership(
+        task: WorkspaceTask,
+        authority: WorkspaceTaskAuthorityContext,
+    ) -> None:
+        if not authority.actor_agent_id or task.assignee_agent_id != authority.actor_agent_id:
+            raise PermissionError("Only the assigned worker may mutate this execution task")
 
     @staticmethod
     def _root_goal_task_id(task: WorkspaceTask) -> str | None:

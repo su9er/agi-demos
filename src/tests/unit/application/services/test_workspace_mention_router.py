@@ -104,9 +104,19 @@ class TestRouterNoMentions:
     async def test_no_mentions_returns_early(self) -> None:
         router, mocks = _build_router()
         msg = _make_message(mentions=[])
-        await router.route_mentions(
-            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
-        )
+        with patch(
+            "src.application.services.workspace_mention_router._resolve_workspace_authority_context",
+            new=AsyncMock(
+                return_value={
+                    "workspace_id": "ws-1",
+                    "root_goal_task_id": "root-1",
+                    "task_authority": "workspace",
+                }
+            ),
+        ):
+            await router.route_mentions(
+                workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
+            )
         mocks["agent_repo"].find_by_workspace.assert_not_called()
 
     async def test_mentions_not_matching_agents_returns_early(self) -> None:
@@ -232,9 +242,19 @@ class TestRouterTriggerAgent:
         )
         msg.metadata["conversation_scope"] = "objective:obj-1"
 
-        await router.route_mentions(
-            workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
-        )
+        with patch(
+            "src.application.services.workspace_mention_router._resolve_workspace_authority_context",
+            new=AsyncMock(
+                return_value={
+                    "workspace_id": "ws-1",
+                    "root_goal_task_id": "root-1",
+                    "task_authority": "workspace",
+                }
+            ),
+        ):
+            await router.route_mentions(
+                workspace_id="ws-1", message=msg, tenant_id="t-1", project_id="p-1", user_id="user-1"
+            )
 
         assert captured["conversation_id"] == WorkspaceMentionRouter.workspace_conversation_id(
             "ws-1",
@@ -298,3 +318,76 @@ class TestMultipleAgentMentions:
         )
 
         assert mocks["message_service"].send_message.call_count == 2
+
+
+    @patch(
+        "src.configuration.factories.create_llm_client",
+        new_callable=AsyncMock,
+    )
+    async def test_trigger_agent_passes_workspace_authority_context_for_scoped_objective_conversation(
+        self, mock_create_llm: AsyncMock
+    ) -> None:
+        mock_create_llm.return_value = MagicMock()
+        agent = _make_agent("agent-1", "Leader Agent")
+        router, mocks = _build_router(agents=[agent], existing_conversation=None)
+        captured: dict[str, Any] = {}
+
+        async def _capturing_stream(**kwargs: Any) -> AsyncIterator[dict[str, Any]]:
+            captured.update(kwargs)
+            yield {"type": "complete", "data": {"content": "Agent response"}}
+
+        mocks["agent_service"].stream_chat_v2 = _capturing_stream
+        msg = _make_message(
+            mentions=["agent-1"],
+            content='@"Leader Agent" continue objective execution',
+        )
+        msg.metadata["conversation_scope"] = "objective:obj-1"
+
+        with patch(
+            "src.application.services.workspace_mention_router._resolve_workspace_authority_context",
+            new=AsyncMock(
+                return_value={
+                    "workspace_id": "ws-1",
+                    "root_goal_task_id": "root-1",
+                    "task_authority": "workspace",
+                }
+            ),
+        ):
+            await router.route_mentions(
+                workspace_id="ws-1",
+                message=msg,
+                tenant_id="t-1",
+                project_id="p-1",
+                user_id="user-1",
+            )
+
+        assert captured["app_model_context"] == {
+            "workspace_id": "ws-1",
+            "root_goal_task_id": "root-1",
+            "task_authority": "workspace",
+        }
+
+
+@pytest.mark.unit
+class TestFireAndForgetLogging:
+    async def test_fire_and_forget_logs_background_task_failure(self, caplog) -> None:
+        router, _ = _build_router()
+        msg = _make_message(mentions=[])
+
+        async def _boom(**kwargs: Any) -> None:
+            del kwargs
+            raise RuntimeError("routing exploded")
+
+        router.route_mentions = _boom  # type: ignore[assignment]
+
+        with caplog.at_level("ERROR"):
+            router.fire_and_forget(
+                workspace_id="ws-1",
+                message=msg,
+                tenant_id="t-1",
+                project_id="p-1",
+                user_id="u-1",
+            )
+            await asyncio.sleep(0.05)
+
+        assert "Workspace mention background routing task failed" in caplog.text

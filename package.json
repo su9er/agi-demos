@@ -1,5 +1,6 @@
 {
   "devDependencies": {
+    "gitnexus": "^1.6.1",
     "ts-morph": "^27.0.2"
   }
 }

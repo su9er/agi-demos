@@ -11,6 +11,9 @@ from src.application.services.project_service import ProjectService
 from src.application.services.tenant_service import TenantService
 from src.application.services.topology_service import TopologyService
 from src.application.services.workspace_message_service import WorkspaceMessageService
+from src.application.services.workspace_task_session_attempt_service import (
+    WorkspaceTaskSessionAttemptService,
+)
 from src.domain.ports.repositories.project_repository import ProjectRepository
 from src.domain.ports.repositories.tenant_repository import TenantRepository
 from src.domain.ports.repositories.user_repository import UserRepository
@@ -44,6 +47,9 @@ from src.domain.ports.repositories.workspace.workspace_repository import (
 from src.domain.ports.repositories.workspace.workspace_task_repository import (
     WorkspaceTaskRepository,
 )
+from src.domain.ports.repositories.workspace.workspace_task_session_attempt_repository import (
+    WorkspaceTaskSessionAttemptRepository,
+)
 from src.infrastructure.adapters.secondary.persistence.sql_blackboard_file_repository import (
     SqlBlackboardFileRepository,
 )
@@ -76,6 +82,9 @@ from src.infrastructure.adapters.secondary.persistence.sql_workspace_repository 
 )
 from src.infrastructure.adapters.secondary.persistence.sql_workspace_task_repository import (
     SqlWorkspaceTaskRepository,
+)
+from src.infrastructure.adapters.secondary.persistence.sql_workspace_task_session_attempt_repository import (
+    SqlWorkspaceTaskSessionAttemptRepository,
 )
 
 
@@ -164,6 +173,19 @@ class ProjectContainer:
         """Get WorkspaceTaskRepository for workspace task persistence."""
         assert self._db is not None
         return SqlWorkspaceTaskRepository(self._db)
+
+    def workspace_task_session_attempt_repository(
+        self,
+    ) -> WorkspaceTaskSessionAttemptRepository:
+        """Get WorkspaceTaskSessionAttemptRepository for attempt persistence."""
+        assert self._db is not None
+        return SqlWorkspaceTaskSessionAttemptRepository(self._db)
+
+    def workspace_task_session_attempt_service(self) -> WorkspaceTaskSessionAttemptService:
+        """Get WorkspaceTaskSessionAttemptService for attempt lifecycle."""
+        return WorkspaceTaskSessionAttemptService(
+            attempt_repo=self.workspace_task_session_attempt_repository(),
+        )
 
     def topology_repository(self) -> TopologyRepository:
         """Get TopologyRepository for workspace topology persistence."""

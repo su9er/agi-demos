@@ -511,6 +511,79 @@ class WorkspaceTaskModel(Base):
     )
 
 
+class WorkspaceTaskSessionAttemptModel(Base):
+    __tablename__ = "workspace_task_session_attempts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    workspace_task_id: Mapped[str] = mapped_column(
+        String, ForeignKey("workspace_tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    root_goal_task_id: Mapped[str] = mapped_column(
+        String, ForeignKey("workspace_tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="pending")
+    conversation_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("conversations.id"), nullable=True, index=True
+    )
+    worker_agent_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("agent_definitions.id"), nullable=True
+    )
+    leader_agent_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("agent_definitions.id"), nullable=True
+    )
+    candidate_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    candidate_artifacts_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    candidate_verifications_json: Mapped[list[str]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
+    leader_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    adjudication_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    workspace_task: Mapped["WorkspaceTaskModel"] = relationship(
+        foreign_keys=[workspace_task_id]
+    )
+    root_goal_task: Mapped["WorkspaceTaskModel"] = relationship(
+        foreign_keys=[root_goal_task_id]
+    )
+    workspace: Mapped["WorkspaceModel"] = relationship(foreign_keys=[workspace_id])
+    conversation: Mapped[Optional["Conversation"]] = relationship(
+        foreign_keys=[conversation_id]
+    )
+    worker_agent: Mapped[Optional["AgentDefinitionModel"]] = relationship(
+        foreign_keys=[worker_agent_id]
+    )
+    leader_agent: Mapped[Optional["AgentDefinitionModel"]] = relationship(
+        foreign_keys=[leader_agent_id]
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_task_id",
+            "attempt_number",
+            name="uq_workspace_task_session_attempts_task_attempt",
+        ),
+        Index(
+            "ix_workspace_task_session_attempts_task_status",
+            "workspace_task_id",
+            "status",
+        ),
+        Index(
+            "ix_workspace_task_session_attempts_root_created",
+            "root_goal_task_id",
+            "created_at",
+        ),
+    )
+
+
 class TopologyNodeModel(Base):
     __tablename__ = "topology_nodes"
 

@@ -410,9 +410,11 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ workspaceId }) => {
                     return (
                       <article
                         key={task.id}
+                        id={`workspace-task-${task.id}`}
+                        data-task-id={task.id}
                         className={`rounded-lg border border-border-light bg-surface-light p-2.5 shadow-sm transition hover:border-border-separator dark:border-border-dark dark:bg-surface-dark ${
                           isDone ? 'opacity-60' : ''
-                        }`}
+                        } scroll-mt-24`}
                       >
                         <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                           {task.priority && (

@@ -368,6 +368,11 @@ class TestProcessorGoalCompletion:
                 assert task_id == "root-1"
                 return task
 
+            async def find_by_root_goal_task_id(self, workspace_id: str, root_goal_task_id: str):
+                assert workspace_id == "ws-1"
+                assert root_goal_task_id == "root-1"
+                return []
+
         with (
             patch(
                 "src.infrastructure.agent.processor.goal_evaluator.async_session_factory"
@@ -417,6 +422,11 @@ class TestProcessorGoalCompletion:
             async def find_by_id(self, task_id: str) -> WorkspaceTask | None:
                 assert task_id == "root-1"
                 return task
+
+            async def find_by_root_goal_task_id(self, workspace_id: str, root_goal_task_id: str):
+                assert workspace_id == "ws-1"
+                assert root_goal_task_id == "root-1"
+                return []
 
         with (
             patch(
@@ -472,6 +482,11 @@ class TestProcessorGoalCompletion:
                 assert task_id == "root-1"
                 return task
 
+            async def find_by_root_goal_task_id(self, workspace_id: str, root_goal_task_id: str):
+                assert workspace_id == "ws-1"
+                assert root_goal_task_id == "root-1"
+                return []
+
         with (
             patch(
                 "src.infrastructure.agent.processor.goal_evaluator.async_session_factory"
@@ -526,6 +541,11 @@ class TestProcessorGoalCompletion:
             async def find_by_id(self, task_id: str) -> WorkspaceTask | None:
                 assert task_id == "root-1"
                 return task
+
+            async def find_by_root_goal_task_id(self, workspace_id: str, root_goal_task_id: str):
+                assert workspace_id == "ws-1"
+                assert root_goal_task_id == "root-1"
+                return []
 
         with (
             patch(
@@ -630,3 +650,67 @@ class TestProcessorGoalCompletion:
         assert parsed is not None
         assert parsed.get("goal_achieved") is True
         assert parsed.get("reason") == "done line one"
+
+
+    @pytest.mark.asyncio
+    async def test_workspace_authority_rejects_terminal_children_without_attempt_evidence(self) -> None:
+        root = WorkspaceTask(
+            id="root-1",
+            workspace_id="ws-1",
+            title="Root goal",
+            created_by="user-1",
+            status=WorkspaceTaskStatus.DONE,
+            metadata={"task_role": "goal_root", "goal_evidence": {"summary": "done"}},
+        )
+        child = WorkspaceTask(
+            id="child-1",
+            workspace_id="ws-1",
+            title="Child",
+            created_by="user-1",
+            status=WorkspaceTaskStatus.DONE,
+            metadata={"task_role": "execution_task", "root_goal_task_id": "root-1"},
+        )
+
+        evaluator = GoalEvaluator(
+            llm_client=None,
+            tools={},
+            runtime_context={
+                "task_authority": "workspace",
+                "workspace_id": "ws-1",
+                "root_goal_task_id": "root-1",
+            },
+        )
+        session = AsyncMock()
+
+        class _Repo:
+            def __init__(self, db: Any) -> None:
+                del db
+
+            async def find_by_id(self, task_id: str) -> WorkspaceTask | None:
+                assert task_id == "root-1"
+                return root
+
+            async def find_by_root_goal_task_id(self, workspace_id: str, root_goal_task_id: str):
+                assert workspace_id == "ws-1"
+                assert root_goal_task_id == "root-1"
+                return [child]
+
+        with (
+            patch(
+                "src.infrastructure.agent.processor.goal_evaluator.async_session_factory"
+            ) as session_factory,
+            patch(
+                "src.infrastructure.agent.processor.goal_evaluator.SqlWorkspaceTaskRepository",
+                _Repo,
+            ),
+        ):
+            session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
+            session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+            result = await evaluator.evaluate_goal_completion(
+                session_id="session-1",
+                messages=[{"role": "user", "content": "finish task"}],
+            )
+
+        assert result.achieved is False
+        assert result.should_stop is True
+        assert result.reason == "Workspace execution tasks are missing attempt/adjudication evidence"

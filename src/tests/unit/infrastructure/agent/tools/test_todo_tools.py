@@ -149,6 +149,10 @@ class TestTodoReadTool:
                             "task_role": "execution_task",
                             "root_goal_task_id": "root-1",
                             "pending_leader_adjudication": True,
+                            "current_attempt_id": "attempt-1",
+                            "last_attempt_id": "attempt-1",
+                            "current_attempt_number": 1,
+                            "last_attempt_status": "awaiting_leader_adjudication",
                             "last_worker_report_type": "completed",
                             "last_worker_report_summary": "Checklist drafted",
                             "last_worker_report_artifacts": ["artifact:checklist"],
@@ -185,6 +189,10 @@ class TestTodoReadTool:
                 "status": "in_progress",
                 "priority": "medium",
                 "pending_leader_adjudication": True,
+                "current_attempt_id": "attempt-1",
+                "last_attempt_id": "attempt-1",
+                "current_attempt_number": 1,
+                "last_attempt_status": "awaiting_leader_adjudication",
                 "last_worker_report_type": "completed",
                 "last_worker_report_summary": "Checklist drafted",
                 "last_worker_report_artifacts": ["artifact:checklist"],
@@ -798,6 +806,7 @@ class TestTodoWriteTool:
                         "root_goal_task_id": "root-1",
                         "derived_from_internal_plan_step": "step-1",
                         "pending_leader_adjudication": True,
+                        "current_attempt_id": "attempt-7",
                     },
                 )
 
@@ -861,5 +870,6 @@ class TestTodoWriteTool:
 
         assert payload["success"] is True
         assert adjudicated[0]["task_id"] == "wt-real-1"
+        assert adjudicated[0]["attempt_id"] == "attempt-7"
         assert adjudicated[0]["status"] == WorkspaceTaskStatus.DONE
         assert updated == []

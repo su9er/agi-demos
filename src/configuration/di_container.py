@@ -29,6 +29,9 @@ from src.application.services.tenant_service import TenantService
 from src.application.services.topology_service import TopologyService
 from src.application.services.workflow_learner import WorkflowLearner
 from src.application.services.workspace_message_service import WorkspaceMessageService
+from src.application.services.workspace_task_session_attempt_service import (
+    WorkspaceTaskSessionAttemptService,
+)
 from src.application.use_cases.agent import (
     ChatUseCase,
     ComposeToolsUseCase,
@@ -119,6 +122,9 @@ from src.domain.ports.repositories.workspace.workspace_repository import (
 )
 from src.domain.ports.repositories.workspace.workspace_task_repository import (
     WorkspaceTaskRepository,
+)
+from src.domain.ports.repositories.workspace.workspace_task_session_attempt_repository import (
+    WorkspaceTaskSessionAttemptRepository,
 )
 from src.domain.ports.services.graph_service_port import GraphServicePort
 from src.domain.ports.services.hitl_message_bus_port import HITLMessageBusPort
@@ -370,6 +376,14 @@ class DIContainer:
 
     def workspace_task_repository(self) -> WorkspaceTaskRepository:
         return self._project.workspace_task_repository()
+
+    def workspace_task_session_attempt_repository(
+        self,
+    ) -> WorkspaceTaskSessionAttemptRepository:
+        return self._project.workspace_task_session_attempt_repository()
+
+    def workspace_task_session_attempt_service(self) -> WorkspaceTaskSessionAttemptService:
+        return self._project.workspace_task_session_attempt_service()
 
     def topology_repository(self) -> TopologyRepository:
         return self._project.topology_repository()

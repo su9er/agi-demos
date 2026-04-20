@@ -256,6 +256,16 @@ class TestSystemPromptManager:
         assert "candidate evidence" in prompt
         assert "todoread/todowrite" in prompt
 
+    async def test_workspace_authority_contract_section_renders(self, manager, context):
+        context.workspace_authority_active = True
+
+        prompt = await manager.build_system_prompt(context)
+
+        assert "Workspace Authority Contract" in prompt
+        assert "worker attempts" in prompt
+        assert "leader adjudication" in prompt
+        assert "Do not announce the root goal as achieved" in prompt
+
     async def test_matched_skill_recommendation(self, manager, context):
         """Test matched skill recommendation appears."""
         context.matched_skill = {

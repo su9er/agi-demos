@@ -90,6 +90,7 @@ class PromptContext:
 
     # Dynamic workspace context (members, agents, messages, blackboard posts)
     workspace_context: str | None = None
+    workspace_authority_active: bool = False
 
     # Agent definition system prompt (when user selects a specific agent)
     agent_definition_prompt: str | None = None
@@ -406,6 +407,16 @@ class SystemPromptManager:
         """Build workspace guidelines, mode reminder, max steps warning, and custom rules."""
         if context.workspace_context:
             sections.append(context.workspace_context)
+        if context.workspace_authority_active:
+            sections.append(
+                "# Workspace Authority Contract\n\n"
+                "You are operating on a workspace root-goal orchestration lane. "
+                "Do not treat generic todo manipulation or chat summaries as completion proof. "
+                "Execution child tasks must advance through worker attempts, candidate reports, "
+                "and leader adjudication. Do not announce the root goal as achieved unless "
+                "execution child tasks have attempt/adjudication evidence on-ledger. "
+                "Prefer delegation and evidence collection over doing the child work inline."
+            )
         workspace_guidelines = await self._load_file("sections/workspace.txt")
         if workspace_guidelines:
             sections.append(workspace_guidelines)

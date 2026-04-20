@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,9 @@ from src.application.services.workspace_task_command_service import WorkspaceTas
 from src.application.services.workspace_task_service import WorkspaceTaskService
 from src.configuration.di_container import DIContainer
 from src.infrastructure.adapters.primary.web.dependencies import get_current_user
+from src.infrastructure.adapters.primary.web.routers.workspace_leader_bootstrap import (
+    maybe_auto_trigger_existing_root_execution,
+)
 from src.infrastructure.adapters.primary.web.routers.workspace_tasks import (
     WorkspaceTaskResponse,
     _to_response as _task_to_response,
@@ -75,6 +80,13 @@ async def list_workspace_goal_candidates(
     objective_repo = container.cyber_objective_repository()
     blackboard_repo = container.blackboard_repository()
     message_repo = SqlWorkspaceMessageRepository(db)
+    with suppress(Exception):
+        await maybe_auto_trigger_existing_root_execution(
+            request=request,
+            db=db,
+            workspace_id=workspace_id,
+            current_user=current_user,
+        )
 
     objectives = await objective_repo.find_by_workspace(workspace_id, limit=50)
     posts = await blackboard_repo.list_posts_by_workspace(workspace_id, limit=20)

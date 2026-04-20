@@ -79,3 +79,65 @@ class TestWorkspaceTaskCommandService:
         assert events[0].event_type == AgentEventType.WORKSPACE_TASK_STATUS_CHANGED
         assert events[0].payload["new_status"] == WorkspaceTaskStatus.IN_PROGRESS.value
 
+
+
+    @pytest.mark.asyncio
+    async def test_update_task_queues_child_and_root_snapshot_events(self) -> None:
+        task_service = AsyncMock()
+        child_task = _make_task(task_id="child-1", status=WorkspaceTaskStatus.IN_PROGRESS)
+        child_task.metadata = {"root_goal_task_id": "root-1", "source": "test"}
+        root_task = _make_task(task_id="root-1", status=WorkspaceTaskStatus.IN_PROGRESS)
+        root_task.metadata = {"task_role": "goal_root"}
+        task_service.update_task.return_value = child_task
+        task_service.get_task.return_value = root_task
+        command_service = WorkspaceTaskCommandService(task_service)
+
+        task = await command_service.update_task(
+            workspace_id="ws-1",
+            task_id="child-1",
+            actor_user_id="user-1",
+            metadata={"pending_leader_adjudication": True},
+        )
+
+        events = command_service.consume_pending_events()
+
+        assert task is child_task
+        assert [event.event_type for event in events] == [
+            AgentEventType.WORKSPACE_TASK_UPDATED,
+            AgentEventType.WORKSPACE_TASK_UPDATED,
+        ]
+        assert events[0].payload["task"]["id"] == "child-1"
+        assert events[1].payload["task"]["id"] == "root-1"
+        task_service.get_task.assert_awaited_once_with(
+            workspace_id="ws-1",
+            task_id="root-1",
+            actor_user_id="user-1",
+        )
+
+    @pytest.mark.asyncio
+    async def test_complete_task_queues_status_change_then_root_snapshot(self) -> None:
+        task_service = AsyncMock()
+        child_task = _make_task(task_id="child-2", status=WorkspaceTaskStatus.DONE)
+        child_task.metadata = {"root_goal_task_id": "root-2", "source": "test"}
+        root_task = _make_task(task_id="root-2", status=WorkspaceTaskStatus.IN_PROGRESS)
+        root_task.metadata = {"task_role": "goal_root"}
+        task_service.complete_task.return_value = child_task
+        task_service.get_task.return_value = root_task
+        command_service = WorkspaceTaskCommandService(task_service)
+
+        task = await command_service.complete_task(
+            workspace_id="ws-1",
+            task_id="child-2",
+            actor_user_id="user-1",
+        )
+
+        events = command_service.consume_pending_events()
+
+        assert task is child_task
+        assert [event.event_type for event in events] == [
+            AgentEventType.WORKSPACE_TASK_STATUS_CHANGED,
+            AgentEventType.WORKSPACE_TASK_UPDATED,
+        ]
+        assert events[0].payload["task"]["id"] == "child-2"
+        assert events[0].payload["new_status"] == WorkspaceTaskStatus.DONE.value
+        assert events[1].payload["task"]["id"] == "root-2"

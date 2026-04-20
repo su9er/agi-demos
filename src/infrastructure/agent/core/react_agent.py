@@ -28,7 +28,7 @@ from collections.abc import AsyncIterator, Callable, Coroutine, Iterator, Mappin
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from uuid import uuid4
 
 from src.domain.events.agent_events import (
@@ -178,6 +178,16 @@ async def _register_selected_agent_session(
 
 
 class ReActAgent:
+    _WORKSPACE_ROOT_TOOL_BYPASS_NAMES: ClassVar[frozenset[str]] = frozenset(
+        {
+            "agent_spawn",
+            "agent_send",
+            "agent_sessions",
+            "agent_history",
+            "agent_stop",
+            "workspace_chat_send",
+        }
+    )
     """
     Self-developed ReAct Agent implementation.
 
@@ -1355,6 +1365,10 @@ class ReActAgent:
             persona=persona,
             heartbeat_prompt=heartbeat_prompt,
             workspace_context=workspace_context,
+            workspace_authority_active=bool(
+                active_workspace_manager
+                and getattr(active_workspace_manager, "root_goal_task_id", None)
+            ),
             agent_definition_prompt=agent_definition_prompt,
             primary_agent_prompt=primary_agent_prompt,
             selected_agent_name=selected_agent_name,
@@ -1977,6 +1991,18 @@ class ReActAgent:
 
         self._stream_tools_to_use = tools_to_use
 
+    @classmethod
+    def _filter_workspace_root_tools(
+        cls,
+        tools_to_use: list[ToolDefinition],
+        workspace_root_task: Any | None,
+    ) -> list[ToolDefinition]:
+        if workspace_root_task is None:
+            return tools_to_use
+        return [
+            tool for tool in tools_to_use if tool.name not in cls._WORKSPACE_ROOT_TOOL_BYPASS_NAMES
+        ]
+
     def _stream_inject_subagent_tools(  # noqa: PLR0915
         self,
         tools_to_use: list[ToolDefinition],
@@ -2039,6 +2065,7 @@ class ReActAgent:
             return (
                 "[workspace-task-binding]\n"
                 f"workspace_task_id={task_binding['workspace_task_id']}\n"
+                f"attempt_id={task_binding.get('attempt_id', '')}\n"
                 f"root_goal_task_id={task_binding['root_goal_task_id']}\n"
                 f"workspace_id={task_binding['workspace_id']}\n"
                 "[/workspace-task-binding]\n\n"
@@ -2062,6 +2089,7 @@ class ReActAgent:
                 workspace_id=task_binding["workspace_id"],
                 root_goal_task_id=task_binding["root_goal_task_id"],
                 task_id=task_binding["workspace_task_id"],
+                attempt_id=task_binding.get("attempt_id"),
                 actor_user_id=actor_user_id,
                 worker_agent_id=None,
                 report_type=report_type,
@@ -2683,12 +2711,24 @@ class ReActAgent:
         runtime_workspace_manager = self._build_runtime_workspace_manager(selected_agent)
 
         # Phase 5: Skill matching
-        for event in self._stream_match_skill(
-            processed_user_message,
-            forced_skill_name,
-            available_skills=cast("list[SkillProtocol]", runtime_profile.available_skills),
-        ):
-            yield event
+        if workspace_root_task is not None and not forced_skill_name:
+            self._stream_skill_state = {
+                "matched_skill": None,
+                "is_forced": False,
+                "should_inject_prompt": False,
+            }
+            logger.info(
+                "[ReActAgent] Skipping non-forced skill matching because workspace authority is active "
+                "for conversation %s",
+                conversation_id,
+            )
+        else:
+            for event in self._stream_match_skill(
+                processed_user_message,
+                forced_skill_name,
+                available_skills=cast("list[SkillProtocol]", runtime_profile.available_skills),
+            ):
+                yield event
         skill_state = self._stream_skill_state
         matched_skill: Skill | None = cast("Skill | None", skill_state["matched_skill"])
         is_forced: bool = cast(bool, skill_state["is_forced"])
@@ -2851,7 +2891,10 @@ class ReActAgent:
         # Phase 10: Tool preparation
         for event in self._stream_prepare_tools(selection_context, is_forced, matched_skill):
             yield event
-        tools_to_use = self._stream_tools_to_use
+        tools_to_use = self._filter_workspace_root_tools(
+            self._stream_tools_to_use,
+            workspace_root_task,
+        )
 
         # Phase 10b: Inject skill-embedded MCP tools
         if self._skill_mcp_tools:

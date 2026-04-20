@@ -47,6 +47,14 @@ def is_goal_root_task(task: WorkspaceTask) -> bool:
     return task.metadata.get("task_role") == "goal_root"
 
 
+def is_execution_task(task: WorkspaceTask) -> bool:
+    return task.metadata.get("task_role") == "execution_task"
+
+
+def is_autonomy_task(task: WorkspaceTask) -> bool:
+    return is_goal_root_task(task) or is_execution_task(task)
+
+
 def is_agent_inferred_root_task(task: WorkspaceTask) -> bool:
     return is_goal_root_task(task) and task.metadata.get("goal_origin") == "agent_inferred"
 
@@ -104,7 +112,9 @@ def ensure_goal_completion_allowed(task: WorkspaceTask) -> None:
         if isinstance(maybe_requires_external, bool):
             requires_external_proof = maybe_requires_external
     if requires_external_proof and not evidence.artifacts:
-        raise ValueError("Root goals requiring external proof must include proof artifacts before completion")
+        raise ValueError(
+            "Root goals requiring external proof must include proof artifacts before completion"
+        )
 
 
 def build_projected_objective_root_metadata(objective: CyberObjective) -> dict[str, Any]:
@@ -232,7 +242,8 @@ def synthesize_goal_evidence_from_children(
     dedup_verifications = list(dict.fromkeys(verifications))
     verification_grade = (
         "pass"
-        if evidence_rich_children == len(child_tasks) and len(dedup_verifications) >= len(child_tasks) * 2
+        if evidence_rich_children == len(child_tasks)
+        and len(dedup_verifications) >= len(child_tasks) * 2
         else "warn"
     )
 
@@ -259,7 +270,11 @@ async def reconcile_root_goal_progress(
     root_goal_task_id: str,
 ) -> WorkspaceTask | None:
     root_task = await task_repo.find_by_id(root_goal_task_id)
-    if root_task is None or root_task.workspace_id != workspace_id or not is_goal_root_task(root_task):
+    if (
+        root_task is None
+        or root_task.workspace_id != workspace_id
+        or not is_goal_root_task(root_task)
+    ):
         return None
 
     child_tasks = await task_repo.find_by_root_goal_task_id(workspace_id, root_goal_task_id)
@@ -270,9 +285,13 @@ async def reconcile_root_goal_progress(
     ]
     blocked_tasks = [task for task in child_tasks if task.status == WorkspaceTaskStatus.BLOCKED]
     blocked_child_task_ids = [task.id for task in blocked_tasks]
-    in_progress_count = sum(1 for task in child_tasks if task.status == WorkspaceTaskStatus.IN_PROGRESS)
+    in_progress_count = sum(
+        1 for task in child_tasks if task.status == WorkspaceTaskStatus.IN_PROGRESS
+    )
     done_count = sum(1 for task in child_tasks if task.status == WorkspaceTaskStatus.DONE)
-    assigned_count = sum(1 for task in child_tasks if task.assignee_agent_id or task.assignee_user_id)
+    assigned_count = sum(
+        1 for task in child_tasks if task.assignee_agent_id or task.assignee_user_id
+    )
     total_count = len(child_tasks)
 
     if blocked_tasks:
@@ -291,7 +310,9 @@ async def reconcile_root_goal_progress(
         goal_health = "achieved"
         blocked_reason = None
         remediation_status = "ready_for_completion"
-        remediation_summary = "All child tasks are done; root goal should now validate completion evidence"
+        remediation_summary = (
+            "All child tasks are done; root goal should now validate completion evidence"
+        )
     else:
         goal_health = "healthy"
         blocked_reason = None

@@ -146,6 +146,10 @@ class ExecutionTaskMetadataModel(ContractModel):
     parent_task_id: str | None = None
     lineage_source: Literal["human", "agent"]
     derived_from_internal_plan_step: str | None = None
+    current_attempt_id: str | None = None
+    last_attempt_id: str | None = None
+    current_attempt_number: int | None = Field(default=None, ge=1)
+    last_attempt_status: str | None = None
     execution_state: ExecutionStateModel | None = None
     evidence_refs: list[str] = Field(default_factory=list)
     execution_verifications: list[str] = Field(default_factory=list)
@@ -157,6 +161,8 @@ class ExecutionTaskMetadataModel(ContractModel):
     last_worker_report_fingerprint: str | None = None
     last_worker_report_id: str | None = None
     pending_leader_adjudication: bool | None = None
+    last_leader_adjudication_status: str | None = None
+    last_leader_adjudicated_at: str | None = None
     last_mutation_actor: LastMutationActorModel | None = None
 
 

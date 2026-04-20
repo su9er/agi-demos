@@ -876,6 +876,7 @@ class SubAgentSessionRunner:
         workspace_id = metadata.get("workspace_id")
         root_goal_task_id = metadata.get("root_goal_task_id")
         workspace_task_id = metadata.get("workspace_task_id")
+        attempt_id = metadata.get("attempt_id")
         actor_user_id = metadata.get("actor_user_id")
         leader_agent_id = metadata.get("leader_agent_id")
         if not all(isinstance(value, str) and value for value in (workspace_id, root_goal_task_id, workspace_task_id, actor_user_id)):
@@ -906,6 +907,8 @@ class SubAgentSessionRunner:
                 workspace_id=workspace_id_str,
                 root_goal_task_id=root_goal_task_id_str,
                 task_id=workspace_task_id_str,
+                attempt_id=(attempt_id if isinstance(attempt_id, str) and attempt_id else None),
+                conversation_id=final_run.conversation_id,
                 actor_user_id=actor_user_id_str,
                 worker_agent_id=None,
                 report_type=report_type,

@@ -8,7 +8,10 @@ from src.application.services.workspace_task_event_publisher import (
     PendingWorkspaceTaskEvent,
     serialize_workspace_task,
 )
-from src.application.services.workspace_task_service import WorkspaceTaskService
+from src.application.services.workspace_task_service import (
+    WorkspaceTaskAuthorityContext,
+    WorkspaceTaskService,
+)
 from src.domain.events.types import AgentEventType
 from src.domain.model.workspace.workspace_task import (
     WorkspaceTask,
@@ -44,6 +47,7 @@ class WorkspaceTaskCommandService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         task = await self._task_service.create_task(
             workspace_id=workspace_id,
@@ -59,6 +63,7 @@ class WorkspaceTaskCommandService:
             actor_agent_id=actor_agent_id,
             workspace_agent_binding_id=workspace_agent_binding_id,
             reason=reason,
+            authority=authority,
         )
         if task.assignee_user_id or task.assignee_agent_id:
             self._queue_assigned(task)
@@ -89,6 +94,7 @@ class WorkspaceTaskCommandService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         task = await self._task_service.update_task(
             workspace_id=workspace_id,
@@ -106,6 +112,7 @@ class WorkspaceTaskCommandService:
             actor_agent_id=actor_agent_id,
             workspace_agent_binding_id=workspace_agent_binding_id,
             reason=reason,
+            authority=authority,
         )
         if assignee_user_id is not None:
             self._queue_assigned(task)
@@ -124,6 +131,7 @@ class WorkspaceTaskCommandService:
         workspace_id: str,
         task_id: str,
         actor_user_id: str,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> bool:
         root_goal_task_id = await self._task_service.get_root_goal_task_id(
             workspace_id=workspace_id,
@@ -134,6 +142,7 @@ class WorkspaceTaskCommandService:
             workspace_id=workspace_id,
             task_id=task_id,
             actor_user_id=actor_user_id,
+            authority=authority,
         )
         if deleted:
             self._pending_events.append(
@@ -155,6 +164,7 @@ class WorkspaceTaskCommandService:
         actor_type: str = "human",
         actor_agent_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         task = await self._task_service.assign_task_to_agent(
             workspace_id=workspace_id,
@@ -164,6 +174,7 @@ class WorkspaceTaskCommandService:
             actor_type=actor_type,
             actor_agent_id=actor_agent_id,
             reason=reason,
+            authority=authority,
         )
         self._queue_assigned(task, workspace_agent_id=workspace_agent_id)
         await self.queue_root_snapshot_async(
@@ -184,6 +195,7 @@ class WorkspaceTaskCommandService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         task = await self._task_service.unassign_task_from_agent(
             workspace_id=workspace_id,
@@ -193,6 +205,7 @@ class WorkspaceTaskCommandService:
             actor_agent_id=actor_agent_id,
             workspace_agent_binding_id=workspace_agent_binding_id,
             reason=reason,
+            authority=authority,
         )
         self._queue_task_snapshot(task, AgentEventType.WORKSPACE_TASK_UPDATED)
         await self.queue_root_snapshot_async(
@@ -213,6 +226,7 @@ class WorkspaceTaskCommandService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         task = await self._task_service.claim_task(
             workspace_id=workspace_id,
@@ -222,6 +236,7 @@ class WorkspaceTaskCommandService:
             actor_agent_id=actor_agent_id,
             workspace_agent_binding_id=workspace_agent_binding_id,
             reason=reason,
+            authority=authority,
         )
         self._queue_task_snapshot(task, AgentEventType.WORKSPACE_TASK_UPDATED)
         await self.queue_root_snapshot_async(
@@ -242,6 +257,7 @@ class WorkspaceTaskCommandService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         task = await self._task_service.start_task(
             workspace_id=workspace_id,
@@ -251,6 +267,7 @@ class WorkspaceTaskCommandService:
             actor_agent_id=actor_agent_id,
             workspace_agent_binding_id=workspace_agent_binding_id,
             reason=reason,
+            authority=authority,
         )
         self._queue_status_changed(task)
         await self.queue_root_snapshot_async(
@@ -271,6 +288,7 @@ class WorkspaceTaskCommandService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         task = await self._task_service.block_task(
             workspace_id=workspace_id,
@@ -280,6 +298,7 @@ class WorkspaceTaskCommandService:
             actor_agent_id=actor_agent_id,
             workspace_agent_binding_id=workspace_agent_binding_id,
             reason=reason,
+            authority=authority,
         )
         self._queue_status_changed(task)
         await self.queue_root_snapshot_async(
@@ -300,6 +319,7 @@ class WorkspaceTaskCommandService:
         actor_agent_id: str | None = None,
         workspace_agent_binding_id: str | None = None,
         reason: str | None = None,
+        authority: WorkspaceTaskAuthorityContext | None = None,
     ) -> WorkspaceTask:
         task = await self._task_service.complete_task(
             workspace_id=workspace_id,
@@ -309,6 +329,7 @@ class WorkspaceTaskCommandService:
             actor_agent_id=actor_agent_id,
             workspace_agent_binding_id=workspace_agent_binding_id,
             reason=reason,
+            authority=authority,
         )
         self._queue_status_changed(task)
         await self.queue_root_snapshot_async(
@@ -341,7 +362,9 @@ class WorkspaceTaskCommandService:
             )
         )
 
-    def _queue_assigned(self, task: WorkspaceTask, *, workspace_agent_id: str | None = None) -> None:
+    def _queue_assigned(
+        self, task: WorkspaceTask, *, workspace_agent_id: str | None = None
+    ) -> None:
         self._pending_events.append(
             PendingWorkspaceTaskEvent(
                 workspace_id=task.workspace_id,

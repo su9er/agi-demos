@@ -34,6 +34,10 @@ from src.domain.model.workspace.workspace_task import (
     WorkspaceTask,
     WorkspaceTaskStatus,
 )
+from src.domain.model.workspace.workspace_task_session_attempt import (
+    WorkspaceTaskSessionAttempt,
+    WorkspaceTaskSessionAttemptStatus,
+)
 
 __all__ = [
     "WORKSPACE_PERMISSION_MATRIX",
@@ -55,6 +59,8 @@ __all__ = [
     "WorkspaceMessage",
     "WorkspaceRole",
     "WorkspaceTask",
+    "WorkspaceTaskSessionAttempt",
+    "WorkspaceTaskSessionAttemptStatus",
     "WorkspaceTaskStatus",
     "get_allowed_actions",
     "has_permission",

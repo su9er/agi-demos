@@ -31,12 +31,15 @@ from src.infrastructure.adapters.primary.web.routers.workspace_chat import (
     _fire_mention_routing,
     get_message_service,
 )
+from src.infrastructure.adapters.primary.web.routers.workspace_leader_bootstrap import (
+    ensure_workspace_leader_binding,
+)
 from src.infrastructure.adapters.primary.web.routers.workspace_tasks import (
     WorkspaceTaskResponse,
     _to_response as _task_to_response,
 )
 from src.infrastructure.adapters.secondary.persistence.database import get_db
-from src.infrastructure.adapters.secondary.persistence.models import User
+from src.infrastructure.adapters.secondary.persistence.models import User, WorkspaceMessageModel
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +91,39 @@ def _format_agent_mention(display_name: str | None, agent_id: str) -> str:
     return f'@"{handle}"' if " " in handle else f"@{handle}"
 
 
+async def _ensure_objective_root_task(
+    *,
+    request: Request,
+    db: AsyncSession,
+    workspace_id: str,
+    current_user: User,
+    objective: CyberObjective,
+) -> None:
+    container = get_container_with_db(request, db)
+    task_repo = container.workspace_task_repository()
+    existing_task = await task_repo.find_root_by_objective_id(workspace_id, objective.id)
+    if existing_task is not None:
+        return
+
+    command_service = _get_workspace_task_command_service(request, db)
+    event_publisher = _get_workspace_task_event_publisher(request)
+    task = await command_service.create_task(
+        workspace_id=workspace_id,
+        actor_user_id=current_user.id,
+        title=objective.title,
+        description=objective.description,
+        metadata=build_projected_objective_root_metadata(objective),
+    )
+    await db.commit()
+    try:
+        await event_publisher.publish_pending_events(command_service.consume_pending_events())
+    except Exception:
+        logger.exception(
+            "Failed to publish auto-projected objective workspace task events",
+            extra={"workspace_id": workspace_id, "objective_id": objective.id, "task_id": task.id},
+        )
+
+
 async def _auto_trigger_objective_execution(
     *,
     request: Request,
@@ -98,17 +134,20 @@ async def _auto_trigger_objective_execution(
     current_user: User,
     objective: CyberObjective,
 ) -> None:
-    container = get_container_with_db(request, db)
-    bindings = await container.workspace_agent_repository().find_by_workspace(
+    leader_binding, _ = await ensure_workspace_leader_binding(
+        request=request,
+        db=db,
         workspace_id=workspace_id,
-        active_only=True,
-        limit=1,
-        offset=0,
     )
-    if not bindings:
-        return
 
-    leader_binding = bindings[0]
+    await _ensure_objective_root_task(
+        request=request,
+        db=db,
+        workspace_id=workspace_id,
+        current_user=current_user,
+        objective=objective,
+    )
+
     mention = _format_agent_mention(leader_binding.display_name, leader_binding.agent_id)
     content = (
         f"{mention} 中央黑板新增目标：{objective.title}。"
@@ -124,6 +163,13 @@ async def _auto_trigger_objective_execution(
         content=content,
     )
     message.metadata["conversation_scope"] = f"objective:{objective.id}"
+    if leader_binding.agent_id not in message.mentions:
+        message.mentions = [*message.mentions, leader_binding.agent_id]
+    message_row = await db.get(WorkspaceMessageModel, message.id)
+    if message_row is not None:
+        message_row.metadata_json = dict(message.metadata)
+        message_row.mentions_json = list(message.mentions)
+        await db.flush()
     await db.commit()
     _fire_mention_routing(
         request=request,

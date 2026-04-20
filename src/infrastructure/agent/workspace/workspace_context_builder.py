@@ -265,6 +265,10 @@ def _format_tasks(tasks: list[WorkspaceTask]) -> str | None:
         last_worker_report_verifications = metadata.get("last_worker_report_verifications")
         last_worker_report_id = metadata.get("last_worker_report_id")
         last_worker_report_fingerprint = metadata.get("last_worker_report_fingerprint")
+        current_attempt_id = metadata.get("current_attempt_id")
+        current_attempt_number = metadata.get("current_attempt_number")
+        last_attempt_id = metadata.get("last_attempt_id")
+        last_attempt_status = metadata.get("last_attempt_status")
         goal_evidence = metadata.get("goal_evidence")
         description_attr = f' description="{truncate(task.description, 160)}"' if task.description else ""
         goal_health_attr = (
@@ -315,6 +319,26 @@ def _format_tasks(tasks: list[WorkspaceTask]) -> str | None:
             if isinstance(last_worker_report_fingerprint, str)
             else ""
         )
+        current_attempt_id_attr = (
+            f' current_attempt_id="{current_attempt_id}"'
+            if isinstance(current_attempt_id, str)
+            else ""
+        )
+        current_attempt_number_attr = (
+            f' current_attempt_number="{current_attempt_number}"'
+            if isinstance(current_attempt_number, int)
+            else ""
+        )
+        last_attempt_id_attr = (
+            f' last_attempt_id="{last_attempt_id}"'
+            if isinstance(last_attempt_id, str)
+            else ""
+        )
+        last_attempt_status_attr = (
+            f' last_attempt_status="{last_attempt_status}"'
+            if isinstance(last_attempt_status, str)
+            else ""
+        )
         evidence_grade_attr = (
             f' evidence_grade="{goal_evidence.get("verification_grade")}"'
             if isinstance(goal_evidence, dict)
@@ -327,6 +351,8 @@ def _format_tasks(tasks: list[WorkspaceTask]) -> str | None:
             + f'{remediation_attr}{progress_summary_attr}{pending_adjudication_attr}'
             + f'{worker_report_attr}{worker_summary_attr}{worker_artifacts_attr}'
             + f'{worker_verifications_attr}{worker_report_id_attr}{worker_report_fingerprint_attr}'
+            + f'{current_attempt_id_attr}{current_attempt_number_attr}{last_attempt_id_attr}'
+            + f'{last_attempt_status_attr}'
             + f"{evidence_grade_attr}>"
             + f"{truncate(task.title, 120)}</task>"
         )

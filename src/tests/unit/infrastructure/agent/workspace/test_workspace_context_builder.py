@@ -110,6 +110,10 @@ def _make_pending_execution_task(title: str = "Draft checklist") -> WorkspaceTas
             "task_role": "execution_task",
             "root_goal_task_id": "task-1",
             "lineage_source": "agent",
+            "current_attempt_id": "attempt-1",
+            "current_attempt_number": 2,
+            "last_attempt_id": "attempt-1",
+            "last_attempt_status": "awaiting_leader_adjudication",
             "pending_leader_adjudication": True,
             "last_worker_report_type": "completed",
             "last_worker_report_summary": "Checklist drafted",
@@ -271,6 +275,10 @@ class TestFormatWorkspaceContext:
         assert 'last_worker_report_verifications="worker_report:completed"' in result
         assert 'last_worker_report_id="run-1"' in result
         assert 'last_worker_report_fingerprint="abc123fingerprint"' in result
+        assert 'current_attempt_id="attempt-1"' in result
+        assert 'current_attempt_number="2"' in result
+        assert 'last_attempt_id="attempt-1"' in result
+        assert 'last_attempt_status="awaiting_leader_adjudication"' in result
 
 
 @pytest.mark.unit

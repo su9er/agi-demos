@@ -7,13 +7,17 @@ PostgreSQL and streamed to the frontend via SSE events.
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import uuid
 from collections.abc import Callable
 from typing import Any
 
-from src.application.services.workspace_task_service import WorkspaceTaskService
+from src.application.services.workspace_task_service import (
+    WorkspaceTaskAuthorityContext,
+    WorkspaceTaskService,
+)
 from src.domain.model.agent.task import AgentTask, TaskPriority, TaskStatus
 from src.domain.model.workspace.workspace_task import (
     WorkspaceTask,
@@ -88,6 +92,13 @@ def _workspace_task_to_todo(task: WorkspaceTask) -> dict[str, Any]:
     }
     if task.metadata.get("pending_leader_adjudication") is True:
         todo["pending_leader_adjudication"] = True
+    for key in ("current_attempt_id", "last_attempt_id", "last_attempt_status"):
+        value = task.metadata.get(key)
+        if isinstance(value, str) and value:
+            todo[key] = value
+    current_attempt_number = task.metadata.get("current_attempt_number")
+    if isinstance(current_attempt_number, int) and current_attempt_number >= 1:
+        todo["current_attempt_number"] = current_attempt_number
     for key in (
         "last_worker_report_type",
         "last_worker_report_summary",
@@ -408,17 +419,42 @@ async def _workspace_todowrite_replace(
         match = existing_by_key.get(key or "")
         if match is not None:
             matched_keys.add(key or "")
+            next_status = (
+                _todo_status_to_workspace(todo.get("status"))
+                if todo.get("status") is not None
+                else None
+            )
+            if next_status == WorkspaceTaskStatus.IN_PROGRESS:
+                root_goal_task_id = match.metadata.get("root_goal_task_id")
+                if isinstance(root_goal_task_id, str) and root_goal_task_id:
+                    finder = getattr(task_repo, "find_by_id", None)
+                    if callable(finder):
+                        try:
+                            root_task_result = finder(root_goal_task_id)
+                            root_task = (
+                                await root_task_result
+                                if inspect.isawaitable(root_task_result)
+                                else root_task_result
+                            )
+                        except Exception:
+                            root_task = None
+                        root_status = getattr(root_task, "status", None)
+                        if root_task is not None and root_status == WorkspaceTaskStatus.TODO:
+                            await command_service.start_task(
+                                workspace_id=workspace_id,
+                                task_id=root_goal_task_id,
+                                actor_user_id=actor_user_id,
+                                actor_type="agent",
+                                reason="todowrite.workspace_authority.replace.start_root",
+                                authority=WorkspaceTaskAuthorityContext.leader(None),
+                            )
             updated_tasks.append(
                 await command_service.update_task(
                     workspace_id=workspace_id,
                     task_id=match.id,
                     actor_user_id=actor_user_id,
                     title=todo.get("content"),
-                    status=(
-                        _todo_status_to_workspace(todo.get("status"))
-                        if todo.get("status") is not None
-                        else None
-                    ),
+                    status=next_status,
                     priority=(
                         _todo_priority_to_workspace(todo.get("priority"))
                         if todo.get("priority") is not None
@@ -426,6 +462,7 @@ async def _workspace_todowrite_replace(
                     ),
                     actor_type="agent",
                     reason="todowrite.workspace_authority.replace",
+                    authority=WorkspaceTaskAuthorityContext.leader(None),
                 )
             )
             continue
@@ -449,6 +486,7 @@ async def _workspace_todowrite_replace(
                 ),
                 actor_type="agent",
                 reason="todowrite.workspace_authority.replace",
+                authority=WorkspaceTaskAuthorityContext.leader(None),
             )
         )
 
@@ -461,6 +499,7 @@ async def _workspace_todowrite_replace(
             workspace_id=workspace_id,
             task_id=task.id,
             actor_user_id=actor_user_id,
+            authority=WorkspaceTaskAuthorityContext.leader(None),
         )
 
     return updated_tasks, created_tasks, deleted_ids
@@ -495,6 +534,7 @@ async def _workspace_todowrite_add(
                 ),
                 actor_type="agent",
                 reason="todowrite.workspace_authority.add",
+                authority=WorkspaceTaskAuthorityContext.leader(None),
             )
         )
     return created_tasks
@@ -660,7 +700,9 @@ async def todowrite_tool(  # noqa: C901, PLR0912, PLR0915
                     updated_count = 0
                     deleted_count = 0
                 await session.commit()
-                all_tasks = await task_repo.find_by_root_goal_task_id(workspace_id, root_goal_task_id)
+                all_tasks = await task_repo.find_by_root_goal_task_id(
+                    workspace_id, root_goal_task_id
+                )
                 await ctx.emit(
                     {
                         "type": "task_list_updated",
@@ -720,7 +762,10 @@ async def todowrite_tool(  # noqa: C901, PLR0912, PLR0915
                         )
                         if (
                             next_status is not None
-                            and existing_task.metadata.get("pending_leader_adjudication") is True
+                            and (
+                                existing_task.metadata.get("pending_leader_adjudication") is True
+                                or isinstance(existing_task.metadata.get("current_attempt_id"), str)
+                            )
                         ):
                             from src.infrastructure.agent.workspace.workspace_goal_runtime import (
                                 adjudicate_workspace_worker_report,
@@ -729,12 +774,45 @@ async def todowrite_tool(  # noqa: C901, PLR0912, PLR0915
                             updated = await adjudicate_workspace_worker_report(
                                 workspace_id=workspace_id,
                                 task_id=existing_task.id,
+                                attempt_id=(
+                                    existing_task.metadata.get("current_attempt_id")
+                                    if isinstance(
+                                        existing_task.metadata.get("current_attempt_id"), str
+                                    )
+                                    else None
+                                ),
                                 actor_user_id=ctx.user_id,
                                 status=next_status,
                                 title=todo_patch.get("content"),
                                 priority=next_priority,
                             )
                         else:
+                            if next_status == WorkspaceTaskStatus.IN_PROGRESS:
+                                root_goal_task_id = existing_task.metadata.get("root_goal_task_id")
+                                if isinstance(root_goal_task_id, str) and root_goal_task_id:
+                                    finder = getattr(task_repo, "find_by_id", None)
+                                    if callable(finder):
+                                        try:
+                                            root_task_result = finder(root_goal_task_id)
+                                            root_task = (
+                                                await root_task_result
+                                                if inspect.isawaitable(root_task_result)
+                                                else root_task_result
+                                            )
+                                        except Exception:
+                                            root_task = None
+                                        root_status = getattr(root_task, "status", None)
+                                        if root_task is not None and root_status == WorkspaceTaskStatus.TODO:
+                                            await command_service.start_task(
+                                                workspace_id=workspace_id,
+                                                task_id=root_goal_task_id,
+                                                actor_user_id=ctx.user_id,
+                                                actor_type="agent",
+                                                reason="todowrite.workspace_authority.start_root",
+                                                authority=WorkspaceTaskAuthorityContext.leader(
+                                                    None
+                                                ),
+                                            )
                             updated = await command_service.update_task(
                                 workspace_id=workspace_id,
                                 task_id=existing_task.id,
@@ -744,6 +822,7 @@ async def todowrite_tool(  # noqa: C901, PLR0912, PLR0915
                                 priority=next_priority,
                                 actor_type="agent",
                                 reason="todowrite.workspace_authority",
+                                authority=WorkspaceTaskAuthorityContext.leader(None),
                             )
                         if updated is None:
                             result = {

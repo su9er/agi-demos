@@ -28,6 +28,9 @@ from src.domain.ports.repositories.workspace.workspace_repository import (
 from src.domain.ports.repositories.workspace.workspace_task_repository import (
     WorkspaceTaskRepository,
 )
+from src.domain.ports.repositories.workspace.workspace_task_session_attempt_repository import (
+    WorkspaceTaskSessionAttemptRepository,
+)
 
 __all__ = [
     "BlackboardFileRepository",
@@ -40,4 +43,5 @@ __all__ = [
     "WorkspaceMessageRepository",
     "WorkspaceRepository",
     "WorkspaceTaskRepository",
+    "WorkspaceTaskSessionAttemptRepository",
 ]
