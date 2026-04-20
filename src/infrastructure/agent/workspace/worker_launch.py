@@ -300,26 +300,9 @@ async def launch_worker_session(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     "reason": "cooling_down",
                 }
 
-            # Bind conversation to attempt so the UI (via task metadata
-            # projection below) and downstream record_candidate_output
-            # always observe the same conversation_id.
-            try:
-                attempt = await attempt_service.bind_conversation(
-                    attempt.id, resolved_conversation_id
-                )
-            except ValueError:
-                logger.warning(
-                    "workspace_worker_launch.bind_conversation_failed",
-                    extra={
-                        "event": "workspace_worker_launch.bind_conversation_failed",
-                        "workspace_id": workspace_id,
-                        "task_id": task.id,
-                        "attempt_id": resolved_attempt_id,
-                        "conversation_id": resolved_conversation_id,
-                    },
-                    exc_info=True,
-                )
-
+            # Create Conversation row FIRST so the FK on
+            # workspace_task_session_attempts.conversation_id is satisfied
+            # when we bind below.
             container = DIContainer(db=db, redis_client=redis_client)
             conversation_repo = container.conversation_repository()
             existing = await conversation_repo.find_by_id(resolved_conversation_id)
@@ -346,6 +329,26 @@ async def launch_worker_session(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     created_at=datetime.now(UTC),
                 )
                 await conversation_repo.save(conversation)
+
+            # Bind conversation to attempt so the UI (via task metadata
+            # projection below) and downstream record_candidate_output
+            # always observe the same conversation_id.
+            try:
+                attempt = await attempt_service.bind_conversation(
+                    attempt.id, resolved_conversation_id
+                )
+            except ValueError:
+                logger.warning(
+                    "workspace_worker_launch.bind_conversation_failed",
+                    extra={
+                        "event": "workspace_worker_launch.bind_conversation_failed",
+                        "workspace_id": workspace_id,
+                        "task_id": task.id,
+                        "attempt_id": resolved_attempt_id,
+                        "conversation_id": resolved_conversation_id,
+                    },
+                    exc_info=True,
+                )
 
             # Project conversation_id onto task.metadata so the frontend
             # blackboard / status panel can surface a "View conversation"
