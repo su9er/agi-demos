@@ -569,6 +569,7 @@ async def _auto_adjudicate_pending_reports(
         "completed": WorkspaceTaskStatus.DONE,
         "blocked": WorkspaceTaskStatus.BLOCKED,
         "failed": WorkspaceTaskStatus.BLOCKED,
+        "needs_replan": WorkspaceTaskStatus.BLOCKED,
     }
 
     adjudicated = 0
