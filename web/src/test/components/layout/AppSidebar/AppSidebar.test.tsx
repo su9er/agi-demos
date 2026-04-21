@@ -48,24 +48,8 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-vi.mock('@/config/navigation', () => ({
-  getTenantSidebarConfig: () => ({
-    width: 256,
-    collapsedWidth: 80,
-    showUser: true,
-    groups: [
-      {
-        id: 'platform',
-        title: 'Platform',
-        collapsible: false,
-        items: [
-          { id: 'overview', icon: 'dashboard', label: 'Overview', path: '' },
-          { id: 'projects', icon: 'folder', label: 'Projects', path: '/projects' },
-        ],
-      },
-    ],
-  }),
-  getProjectSidebarConfig: () => ({
+vi.mock('@/config/navigation', () => {
+  const baseProjectConfig = {
     width: 256,
     collapsedWidth: 80,
     showUser: true,
@@ -82,27 +66,62 @@ vi.mock('@/config/navigation', () => ({
         ],
       },
     ],
-  }),
-  getAgentConfig: () => ({
-    sidebar: {
+  };
+  const deriveProjectConfig = (runtimeContext?: { preferredWorkspaceId?: string | null }) => {
+    const wsId = runtimeContext?.preferredWorkspaceId;
+    if (!wsId) return baseProjectConfig;
+    return {
+      ...baseProjectConfig,
+      groups: baseProjectConfig.groups.map((group) => ({
+        ...group,
+        items: group.items.map((item) =>
+          item.id === 'blackboard'
+            ? { ...item, path: `/blackboard?workspaceId=${wsId}` }
+            : item
+        ),
+      })),
+    };
+  };
+  return {
+    getTenantSidebarConfig: () => ({
       width: 256,
       collapsedWidth: 80,
       showUser: true,
       groups: [
         {
-          id: 'main',
-          title: '',
+          id: 'platform',
+          title: 'Platform',
           collapsible: false,
           items: [
-            { id: 'back', icon: 'arrow_back', label: 'Back', path: '' },
-            { id: 'memories', icon: 'database', label: 'Memories', path: '/memories' },
+            { id: 'overview', icon: 'dashboard', label: 'Overview', path: '' },
+            { id: 'projects', icon: 'folder', label: 'Projects', path: '/projects' },
           ],
         },
       ],
-    },
-    tabs: [],
-  }),
-}));
+    }),
+    getProjectSidebarConfig: deriveProjectConfig,
+    deriveProjectSidebarConfig: deriveProjectConfig,
+    getAgentConfig: () => ({
+      sidebar: {
+        width: 256,
+        collapsedWidth: 80,
+        showUser: true,
+        groups: [
+          {
+            id: 'main',
+            title: '',
+            collapsible: false,
+            items: [
+              { id: 'back', icon: 'arrow_back', label: 'Back', path: '' },
+              { id: 'memories', icon: 'database', label: 'Memories', path: '/memories' },
+            ],
+          },
+        ],
+      },
+      tabs: [],
+    }),
+  };
+});
 
 // Import components after mocks
 import {

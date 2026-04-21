@@ -205,7 +205,7 @@ describe('Blackboard', () => {
     renderBlackboard();
 
     expect(screen.getByRole('status')).toBeInTheDocument();
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 
   // 2. Workspace selector visible after load

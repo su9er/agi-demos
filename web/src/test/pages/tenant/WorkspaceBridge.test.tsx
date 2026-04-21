@@ -69,11 +69,39 @@ vi.mock('../../../stores/agentV3', () => ({
     }),
 }));
 
-vi.mock('../../../stores/workspace', () => ({
-  useCurrentWorkspace: () => workspaceState.currentWorkspace,
-  useWorkspaceLoading: () => workspaceState.isLoading,
-  useWorkspaceActions: () => workspaceState.actions,
-}));
+vi.mock('../../../stores/workspace', () => {
+  const buildState = () => ({
+    currentWorkspace: workspaceState.currentWorkspace,
+    isLoading: workspaceState.isLoading,
+    actions: workspaceState.actions,
+    posts: [],
+    repliesByPostId: {},
+    loadedReplyPostIds: [],
+    tasks: [],
+    objectives: [],
+    genes: [],
+    agents: [],
+    topologyNodes: [],
+    topologyEdges: [],
+    error: null,
+    clearPresence: vi.fn(),
+    subscribeWorkspaceEvents: vi.fn(),
+    unsubscribeWorkspaceEvents: vi.fn(),
+  });
+  const useWorkspaceStoreMock: any = (selector?: (state: any) => unknown) => {
+    const state = buildState();
+    return selector ? selector(state) : state;
+  };
+  useWorkspaceStoreMock.getState = () => buildState();
+  useWorkspaceStoreMock.setState = vi.fn();
+  useWorkspaceStoreMock.subscribe = vi.fn(() => vi.fn());
+  return {
+    useCurrentWorkspace: () => workspaceState.currentWorkspace,
+    useWorkspaceLoading: () => workspaceState.isLoading,
+    useWorkspaceActions: () => workspaceState.actions,
+    useWorkspaceStore: useWorkspaceStoreMock,
+  };
+});
 
 describe('workspace/agent workspace bridge', () => {
   beforeEach(() => {

@@ -22,15 +22,19 @@ import { CentralBlackboardContent } from '@/components/blackboard/CentralBlackbo
 import type { BlackboardTab } from '@/components/blackboard/BlackboardTabBar';
 
 function LoadingShell() {
+  const { t } = useTranslation();
   return (
     <div
       role="status"
       aria-live="polite"
-      className="flex h-full min-h-[420px] items-center justify-center rounded-2xl border border-border-light bg-surface-light dark:border-border-dark dark:bg-surface-dark-alt"
+      className="flex h-full min-h-[420px] items-center justify-center rounded-lg border border-border-light bg-surface-light dark:border-border-dark dark:bg-surface-dark-alt"
     >
       <div className="flex items-center gap-3 text-sm text-text-secondary dark:text-text-muted">
-        <span className="h-3 w-3 animate-spin rounded-full border-2 border-border-separator border-t-primary" />
-        Loading…
+        <span
+          aria-hidden="true"
+          className="h-3 w-3 animate-spin rounded-full border-2 border-border-separator border-t-primary motion-reduce:animate-none"
+        />
+        {t('common.loading', 'Loading…')}
       </div>
     </div>
   );
@@ -200,7 +204,7 @@ export function Blackboard() {
               onChange={(event) => {
                 setSelectedWorkspaceId(event.target.value || null);
               }}
-              className="min-h-11 w-full rounded-2xl border border-border-light bg-surface-light px-4 text-sm normal-case tracking-normal text-text-primary transition focus:border-primary/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse"
+              className="min-h-11 w-full rounded-md border border-border-light bg-surface-light px-4 text-sm normal-case tracking-normal text-text-primary transition focus:border-primary/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse"
             >
               {workspaces.map((workspace) => (
                 <option
@@ -218,12 +222,12 @@ export function Blackboard() {
             {selectedWorkspaceId ? (
               <Link
                 to={agentWorkspacePath}
-                className="inline-flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded-2xl border border-border-light bg-surface-light px-5 text-sm font-medium text-text-primary transition motion-reduce:transition-none hover:border-primary/30 hover:bg-primary/8 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse sm:flex-none"
+                className="inline-flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded-md border border-border-light bg-surface-light px-5 text-sm font-medium text-text-primary transition motion-reduce:transition-none hover:border-primary/30 hover:bg-primary/5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:border-border-dark dark:bg-surface-dark-alt dark:text-text-inverse sm:flex-none"
               >
                 {t('blackboard.openInAgentWorkspace', 'Open in Agent Workspace')}
               </Link>
             ) : (
-              <span className="inline-flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded-2xl border border-border-light px-5 text-sm font-medium text-text-muted dark:border-border-dark dark:text-text-muted sm:flex-none">
+              <span className="inline-flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded-md border border-border-light px-5 text-sm font-medium text-text-muted dark:border-border-dark dark:text-text-muted sm:flex-none">
                 {t('blackboard.openInAgentWorkspace', 'Open in Agent Workspace')}
               </span>
             )}
@@ -242,7 +246,7 @@ export function Blackboard() {
                 void handleRetrySurface();
               }}
               disabled={surfaceLoading || !selectedWorkspaceId}
-              className="min-h-10 rounded-2xl border border-error/25 bg-surface-light px-4 text-sm font-medium text-status-text-error transition motion-reduce:transition-none hover:bg-error/15 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/5 dark:text-status-text-error-dark"
+              className="min-h-10 rounded-md border border-error/25 bg-surface-light px-4 text-sm font-medium text-status-text-error transition motion-reduce:transition-none hover:bg-error/15 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/5 dark:text-status-text-error-dark"
             >
               {surfaceLoading ? t('common.loading', 'Loading…') : t('common.retry', 'Retry')}
             </button>
