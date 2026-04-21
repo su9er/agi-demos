@@ -134,6 +134,30 @@ class TaskDecomposerProtocol(Protocol):
     async def decompose(self, query: str) -> DecompositionResult: ...
 
 
+# ``workspace_tasks.title`` is ``VARCHAR(255)``. Decomposed step descriptions
+# occasionally exceed this when a mention payload or long instruction is used
+# verbatim — truncate for the title column but preserve the full text in the
+# ``description`` column (``Text``). Keep a small safety margin so ellipsis fits.
+_TITLE_MAX_CHARS = 240
+
+
+def _split_title_description(text: str) -> tuple[str, str | None]:
+    """Return a (title, description) pair sized for the DB columns.
+
+    If ``text`` fits in the title column, ``description`` is ``None``. Otherwise
+    the title is truncated at the last whitespace boundary within
+    ``_TITLE_MAX_CHARS`` (falling back to a hard cut) with an ellipsis, and the
+    full original text is placed into ``description`` so no information is lost.
+    """
+    normalized = (text or "").strip() or "Untitled task"
+    if len(normalized) <= _TITLE_MAX_CHARS:
+        return normalized, None
+    cut = normalized.rfind(" ", 0, _TITLE_MAX_CHARS)
+    if cut < int(_TITLE_MAX_CHARS * 0.6):
+        cut = _TITLE_MAX_CHARS
+    return normalized[:cut].rstrip() + "…", normalized
+
+
 def _select_existing_root_candidate(
     candidates: Sequence[GoalCandidateRecordModel],
     tasks: list[WorkspaceTask],
@@ -654,11 +678,13 @@ async def _maybe_bootstrap_execution_tasks(
     )
     created_tasks: list[WorkspaceTask] = []
     for index, (step_id, description) in enumerate(decomposed_steps, start=1):
+        step_title, step_description = _split_title_description(description)
         created_tasks.append(
             await command_service.create_task(
                 workspace_id=workspace_id,
                 actor_user_id=actor_user_id,
-                title=description,
+                title=step_title,
+                description=step_description,
                 metadata={
                     AUTONOMY_SCHEMA_VERSION_KEY: 1,
                     TASK_ROLE: "execution_task",
@@ -730,11 +756,13 @@ async def _replan_execution_tasks(
     )
     created_tasks: list[WorkspaceTask] = []
     for index, (step_id, description) in enumerate(decomposed_steps, start=1):
+        step_title, step_description = _split_title_description(description)
         created_tasks.append(
             await command_service.create_task(
                 workspace_id=workspace_id,
                 actor_user_id=actor_user_id,
-                title=description,
+                title=step_title,
+                description=step_description,
                 metadata={
                     AUTONOMY_SCHEMA_VERSION_KEY: 1,
                     TASK_ROLE: "execution_task",

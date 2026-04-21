@@ -12,6 +12,7 @@ from src.domain.model.workspace.workspace_task import WorkspaceTaskStatus
 from src.infrastructure.agent.subagent.task_decomposer import DecompositionResult, SubTask
 from src.infrastructure.agent.workspace.workspace_goal_runtime import (
     _launch_workspace_retry_attempt,
+    _split_title_description,
     adjudicate_workspace_worker_report,
     apply_workspace_worker_report,
     maybe_materialize_workspace_goal_candidate,
@@ -55,6 +56,33 @@ def _attempt(
     attempt.attempt_number = attempt_number
     attempt.status = MagicMock(value=status)
     return attempt
+
+
+@pytest.mark.unit
+class TestSplitTitleDescription:
+    def test_short_text_kept_as_title_no_description(self) -> None:
+        title, description = _split_title_description("Short task")
+        assert title == "Short task"
+        assert description is None
+
+    def test_blank_text_falls_back_to_placeholder(self) -> None:
+        title, description = _split_title_description("   ")
+        assert title == "Untitled task"
+        assert description is None
+
+    def test_long_text_truncates_title_preserves_description(self) -> None:
+        long_text = "Execute goal: " + ("word " * 200)
+        title, description = _split_title_description(long_text)
+        assert len(title) <= 255
+        assert title.endswith("…")
+        assert description == long_text.strip()
+
+    def test_long_text_without_spaces_uses_hard_cut(self) -> None:
+        long_text = "a" * 900
+        title, description = _split_title_description(long_text)
+        assert len(title) <= 255
+        assert title.endswith("…")
+        assert description == long_text
 
 
 @pytest.mark.unit
