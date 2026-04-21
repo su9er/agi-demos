@@ -186,6 +186,102 @@ class TestLaunchWorkerSession:
         assert out["reason"] == "workspace_not_found"
         assert out["conversation_id"] is None
 
+    @pytest.mark.asyncio
+    async def test_rejects_when_worker_equals_leader(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Leader must never be dispatched as a worker for its own tasks.
+
+        Regression: a workspace leader could self-assign a task (via
+        ``todowrite``) or be picked up by the heal sweep, causing a
+        "Workspace Worker - ..." conversation to be opened for the leader.
+        ``worker_launch`` is the single enforcement point.
+        """
+        task = _make_task()
+
+        class _Workspace:
+            id = "w"
+            project_id = "p"
+            tenant_id = "t"
+
+        class _WorkspaceRepo:
+            def __init__(self, db: object) -> None:
+                pass
+
+            async def find_by_id(self, _wid: str) -> _Workspace:
+                return _Workspace()
+
+        class _Binding:
+            is_active = True
+
+        class _AgentRepo:
+            def __init__(self, db: object) -> None:
+                pass
+
+            async def find_by_workspace_and_agent_id(
+                self, *, workspace_id: str, agent_id: str
+            ) -> _Binding:
+                return _Binding()
+
+        class _Session:
+            async def __aenter__(self) -> object:
+                return object()
+
+            async def __aexit__(self, *_: object) -> None:
+                return None
+
+        def _fake_session_factory() -> _Session:
+            return _Session()
+
+        monkeypatch.setattr(
+            "src.infrastructure.adapters.secondary.persistence."
+            "sql_workspace_repository.SqlWorkspaceRepository",
+            _WorkspaceRepo,
+        )
+        monkeypatch.setattr(
+            "src.infrastructure.adapters.secondary.persistence."
+            "sql_workspace_agent_repository.SqlWorkspaceAgentRepository",
+            _AgentRepo,
+        )
+        monkeypatch.setattr(
+            "src.infrastructure.adapters.secondary.persistence.database.async_session_factory",
+            _fake_session_factory,
+        )
+
+        async def _fake_redis() -> None:
+            return None
+
+        monkeypatch.setattr(
+            "src.infrastructure.agent.state.agent_worker_state.get_redis_client",
+            _fake_redis,
+        )
+
+        # Sentinels: if the guard fails, these would be imported/invoked and
+        # raise, making the test fail loudly instead of silently creating a
+        # Conversation row.
+        def _boom(*_a: object, **_kw: object) -> None:
+            raise AssertionError(
+                "worker_is_leader guard failed: downstream code invoked"
+            )
+
+        monkeypatch.setattr(
+            "src.infrastructure.agent.workspace.workspace_goal_runtime."
+            "_build_attempt_service",
+            _boom,
+        )
+
+        leader_id = "builtin:sisyphus"
+        out = await wl.launch_worker_session(
+            workspace_id="w",
+            task=task,
+            worker_agent_id=leader_id,
+            actor_user_id="u1",
+            leader_agent_id=leader_id,
+        )
+        assert out["launched"] is False
+        assert out["reason"] == "worker_is_leader"
+        assert out["conversation_id"] is None
+
 
 class TestScheduleWorkerSession:
     @pytest.mark.asyncio

@@ -296,6 +296,32 @@ async def launch_worker_session(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     "reason": "worker_not_workspace_member",
                 }
 
+            # Leader-as-worker guard: the workspace leader orchestrates but
+            # must never be dispatched as a worker for its own tasks. This
+            # happens when a leader's todowrite/create_task self-assigns,
+            # or when a heal sweep trusts a stale ``assignee_agent_id`` that
+            # points at the leader. A single "Workspace Worker - ..."
+            # conversation is created per launch (L345), so rejecting here
+            # is the definitive chokepoint.
+            if leader_agent_id and worker_agent_id == leader_agent_id:
+                logger.warning(
+                    "workspace_worker_launch.worker_is_leader",
+                    extra={
+                        "event": "workspace_worker_launch.worker_is_leader",
+                        "workspace_id": workspace_id,
+                        "task_id": task.id,
+                        "worker_agent_id": worker_agent_id,
+                        "leader_agent_id": leader_agent_id,
+                        "attempt_id": resolved_attempt_id,
+                    },
+                )
+                return {
+                    "launched": False,
+                    "conversation_id": None,
+                    "attempt_id": resolved_attempt_id,
+                    "reason": "worker_is_leader",
+                }
+
             attempt_service = _build_attempt_service(db)
             attempt = await _ensure_execution_attempt(
                 attempt_service=attempt_service,
