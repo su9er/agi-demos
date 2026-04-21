@@ -227,11 +227,12 @@ def synthesize_goal_evidence_from_children(
     evidence_rich_children = 0
     for task in child_tasks:
         evidence_refs = task.metadata.get("evidence_refs")
+        normalized_refs: list[str] = []
         if isinstance(evidence_refs, list):
             normalized_refs = [str(ref) for ref in evidence_refs if ref]
+        if normalized_refs:
             artifacts.extend(normalized_refs)
-            if normalized_refs:
-                evidence_rich_children += 1
+            evidence_rich_children += 1
         else:
             artifacts.append(f"workspace_task:{task.id}")
 

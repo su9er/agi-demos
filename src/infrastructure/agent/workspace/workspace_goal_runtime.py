@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -427,8 +427,13 @@ async def _ensure_root_goal_evidence(
     generated_by_agent_id: str,
 ) -> None:
     metadata = dict(getattr(root_task, "metadata", {}) or {})
-    if "goal_evidence" in metadata:
-        return
+    existing = metadata.get("goal_evidence")
+    if isinstance(existing, Mapping):
+        existing_artifacts = existing.get("artifacts")
+        if isinstance(existing_artifacts, list) and len(existing_artifacts) > 0:
+            return
+        # Stale evidence with empty artifacts: fall through and re-synthesize
+        # so that required external-proof artifacts are populated from children.
 
     root_task_id = getattr(root_task, "id", None)
     workspace_id = getattr(root_task, "workspace_id", None)
@@ -570,10 +575,42 @@ async def auto_complete_ready_root(
     current_status = getattr(root_task.status, "value", root_task.status)
     if current_status == "done":
         return None
+
+    # The root goal policy requires metadata.goal_evidence before completion.
+    # Synthesize it from the done children so the completion guardrail accepts
+    # the transition. Mirrors _handle_remediation_complete_root_goal.
     try:
+        await _ensure_root_goal_evidence(
+            root_task=root_task,
+            task_repo=task_repo,
+            generated_by_agent_id=leader_agent_id or str(actor_user_id),
+        )
+    except Exception:
+        logger.warning(
+            "auto_complete_ready_root: ensure_goal_evidence failed", exc_info=True
+        )
+        return None
+
+    refreshed = await task_repo.find_by_id(root_task.id)
+    if refreshed is None:
+        return None
+    if getattr(refreshed.status, "value", refreshed.status) == "done":
+        return None
+
+    try:
+        if getattr(refreshed.status, "value", refreshed.status) == "todo":
+            refreshed = await command_service.start_task(
+                workspace_id=workspace_id,
+                task_id=refreshed.id,
+                actor_user_id=actor_user_id,
+                actor_type="agent",
+                actor_agent_id=leader_agent_id,
+                reason="workspace_goal_runtime.auto_complete_ready_root.start_root",
+                authority=WorkspaceTaskAuthorityContext.leader(leader_agent_id),
+            )
         return await command_service.complete_task(
             workspace_id=workspace_id,
-            task_id=root_task.id,
+            task_id=refreshed.id,
             actor_user_id=actor_user_id,
             actor_type="agent",
             actor_agent_id=leader_agent_id,
