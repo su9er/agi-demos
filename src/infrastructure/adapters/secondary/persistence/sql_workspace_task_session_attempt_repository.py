@@ -1,8 +1,9 @@
 """SQLAlchemy repository for WorkspaceTaskSessionAttempt persistence."""
 
+from datetime import datetime
 from typing import override
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.workspace.workspace_task_session_attempt import (
@@ -95,6 +96,40 @@ class SqlWorkspaceTaskSessionAttemptRepository(
             refresh_select_statement(self._refresh_statement(stmt))
         )
         return self._to_domain(result.scalar_one_or_none())
+
+    @override
+    async def find_stale_non_terminal(
+        self,
+        *,
+        older_than: datetime,
+        limit: int = 500,
+    ) -> list[WorkspaceTaskSessionAttempt]:
+        """Return non-terminal attempts whose last activity is older than ``older_than``.
+
+        Falls back to ``created_at`` for attempts that never had an update (so a
+        freshly-inserted PENDING attempt whose worker never started will be
+        recovered once it ages past the threshold).
+        """
+        non_terminal = [
+            WorkspaceTaskSessionAttemptStatus.PENDING.value,
+            WorkspaceTaskSessionAttemptStatus.RUNNING.value,
+            WorkspaceTaskSessionAttemptStatus.AWAITING_LEADER_ADJUDICATION.value,
+        ]
+        last_activity = func.coalesce(
+            WorkspaceTaskSessionAttemptModel.updated_at,
+            WorkspaceTaskSessionAttemptModel.created_at,
+        )
+        stmt = (
+            select(WorkspaceTaskSessionAttemptModel)
+            .where(WorkspaceTaskSessionAttemptModel.status.in_(non_terminal))
+            .where(last_activity < older_than)
+            .order_by(last_activity.asc())
+            .limit(limit)
+        )
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(stmt))
+        )
+        return [d for row in result.scalars().all() if (d := self._to_domain(row)) is not None]
 
     @override
     def _to_domain(

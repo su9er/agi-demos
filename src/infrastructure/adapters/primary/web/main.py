@@ -91,6 +91,7 @@ from src.infrastructure.adapters.primary.web.routers.agent import (
     router as agent_router,
 )
 from src.infrastructure.adapters.primary.web.startup import (
+    initialize_attempt_recovery,
     initialize_autonomy_idle_waker,
     initialize_channel_manager,
     initialize_container,
@@ -103,6 +104,7 @@ from src.infrastructure.adapters.primary.web.startup import (
     initialize_telemetry,
     initialize_websocket_manager,
     initialize_workflow_engine,
+    shutdown_attempt_recovery,
     shutdown_autonomy_idle_waker,
     shutdown_channel_manager,
     shutdown_docker_services,
@@ -214,6 +216,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
     except Exception:
         logger.exception("Failed to start WorkspaceSupervisor -- WTP fan-in disabled")
 
+    # Start attempt recovery service (restart-safe orphaned-attempt watchdog)
+    await initialize_attempt_recovery()
+
     # Initialize Channel Connection Manager for IM integrations
     channel_manager = await initialize_channel_manager()
     if channel_manager:
@@ -250,6 +255,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
 
     # Stop workspace autonomy idle waker
     await shutdown_autonomy_idle_waker()
+
+    # Stop attempt recovery service
+    await shutdown_attempt_recovery()
 
     # Stop Workspace Supervisor (WTP fan-in consumer)
     try:

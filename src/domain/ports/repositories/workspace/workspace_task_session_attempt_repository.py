@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from src.domain.model.workspace.workspace_task_session_attempt import (
     WorkspaceTaskSessionAttempt,
@@ -39,3 +40,16 @@ class WorkspaceTaskSessionAttemptRepository(ABC):
         self, conversation_id: str
     ) -> WorkspaceTaskSessionAttempt | None:
         """Find the attempt bound to a scoped conversation."""
+
+    @abstractmethod
+    async def find_stale_non_terminal(
+        self,
+        *,
+        older_than: datetime,
+        limit: int = 500,
+    ) -> list[WorkspaceTaskSessionAttempt]:
+        """Return non-terminal attempts (pending/running/awaiting_leader_adjudication)
+        whose ``updated_at`` (falling back to ``created_at``) is older than
+        ``older_than``. Used by the orphan-recovery sweep.
+        """
+
