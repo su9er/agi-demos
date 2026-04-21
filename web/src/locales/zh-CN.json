@@ -2080,10 +2080,13 @@
       "openAction": "打开黑板",
       "count_one": "{{count}} 个工作空间",
       "count_other": "{{count}} 个工作空间",
-      "objectiveProgress": "目标进度",
-      "loadingObjectives": "正在加载目标…",
+      "objectiveProgress": "进度",
+      "loadingObjectives": "加载中…",
+      "noObjectives": "暂无目标",
       "objectivesCount_one": "{{count}} 个目标",
       "objectivesCount_other": "{{count}} 个目标",
+      "tasksCount_one": "{{count}} 个任务",
+      "tasksCount_other": "{{count}} 个任务",
       "completedCount": "已完成 {{completed}} / {{total}}"
     },
     "workflowPatterns": {

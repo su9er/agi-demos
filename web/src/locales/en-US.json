@@ -1933,10 +1933,13 @@
       "openAction": "Open blackboard",
       "count_one": "{{count}} workspace",
       "count_other": "{{count}} workspaces",
-      "objectiveProgress": "Objective progress",
-      "loadingObjectives": "Loading objectives…",
+      "objectiveProgress": "Progress",
+      "loadingObjectives": "Loading…",
+      "noObjectives": "No objectives yet",
       "objectivesCount_one": "{{count}} objective",
       "objectivesCount_other": "{{count}} objectives",
+      "tasksCount_one": "{{count}} task",
+      "tasksCount_other": "{{count}} tasks",
       "completedCount": "{{completed}} of {{total}} complete"
     },
     "workflowPatterns": {

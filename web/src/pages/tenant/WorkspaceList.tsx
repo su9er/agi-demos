@@ -12,12 +12,15 @@ import { useCurrentProject, useProjectStore } from '@/stores/project';
 import { useCurrentTenant } from '@/stores/tenant';
 import { useWorkspaceActions, useWorkspaceLoading, useWorkspaces } from '@/stores/workspace';
 
-import { workspaceObjectiveService } from '@/services/workspaceService';
-import type { CyberObjective } from '@/types/workspace';
+import { workspaceObjectiveService, workspaceTaskService } from '@/services/workspaceService';
+import type { CyberObjective, WorkspaceTask } from '@/types/workspace';
 
 import { EmptyStateSimple } from '@/components/shared/ui/EmptyStateVariant';
 
+type SummarySource = 'objectives' | 'tasks' | 'empty';
+
 interface ObjectiveSummary {
+  source: SummarySource;
   total: number;
   objectives: number;
   avgProgress: number;
@@ -26,6 +29,7 @@ interface ObjectiveSummary {
 }
 
 const EMPTY_SUMMARY: ObjectiveSummary = {
+  source: 'empty',
   total: 0,
   objectives: 0,
   avgProgress: 0,
@@ -33,19 +37,52 @@ const EMPTY_SUMMARY: ObjectiveSummary = {
   loading: true,
 };
 
-function summarize(items: CyberObjective[]): ObjectiveSummary {
+// Domain validates CyberObjective.progress in [0.0, 1.0], but some
+// UIs send 0-100. Auto-detect scale: if any value > 1, assume the
+// collection is on a 0-100 scale; otherwise multiply by 100.
+function normaliseProgress(items: CyberObjective[]): number[] {
+  const raw = items.map((o) => (Number.isFinite(o.progress) ? Number(o.progress) : 0));
+  const max = raw.reduce((m, v) => (v > m ? v : m), 0);
+  const scale = max > 1 ? 1 : 100;
+  return raw.map((v) => Math.max(0, Math.min(100, v * scale)));
+}
+
+function summarizeObjectives(items: CyberObjective[]): ObjectiveSummary | null {
   const objectives = items.filter((o) => o.obj_type === 'objective');
   const relevant = objectives.length > 0 ? objectives : items;
   const total = relevant.length;
-  if (total === 0) {
-    return { total: 0, objectives: 0, avgProgress: 0, completed: 0, loading: false };
-  }
-  const sum = relevant.reduce((acc, o) => acc + (Number.isFinite(o.progress) ? o.progress : 0), 0);
-  const completed = relevant.filter((o) => o.progress >= 100).length;
+  if (total === 0) return null;
+  const percents = normaliseProgress(relevant);
+  const sum = percents.reduce((acc, p) => acc + p, 0);
+  const completed = percents.filter((p) => p >= 100).length;
   return {
+    source: 'objectives',
     total: items.length,
     objectives: objectives.length,
     avgProgress: Math.round(sum / total),
+    completed,
+    loading: false,
+  };
+}
+
+function summarizeTasks(tasks: WorkspaceTask[]): ObjectiveSummary {
+  const total = tasks.length;
+  if (total === 0) {
+    return {
+      source: 'empty',
+      total: 0,
+      objectives: 0,
+      avgProgress: 0,
+      completed: 0,
+      loading: false,
+    };
+  }
+  const completed = tasks.filter((t) => t.status === 'done').length;
+  return {
+    source: 'tasks',
+    total,
+    objectives: 0,
+    avgProgress: Math.round((completed / total) * 100),
     completed,
     loading: false,
   };
@@ -100,14 +137,35 @@ export function WorkspaceList() {
       await Promise.all(
         ids.map(async (id) => {
           try {
-            const items = await workspaceObjectiveService.list(tenantId, projectId, id);
+            const [items, tasks] = await Promise.all([
+              workspaceObjectiveService.list(tenantId, projectId, id).catch(() => []),
+              workspaceTaskService.list(id).catch(() => []),
+            ]);
             if (cancelled) return;
-            setSummaries((prev) => ({ ...prev, [id]: summarize(items) }));
+            const fromObjectives = summarizeObjectives(items);
+            // Prefer objectives when they exist AND have any progress.
+            // Otherwise fall back to task completion rate so cards
+            // remain informative for workspaces that rely on tasks only.
+            const useObjectives =
+              fromObjectives !== null && fromObjectives.avgProgress > 0;
+            const summary = useObjectives
+              ? (fromObjectives as ObjectiveSummary)
+              : fromObjectives && tasks.length === 0
+                ? fromObjectives
+                : summarizeTasks(tasks);
+            setSummaries((prev) => ({ ...prev, [id]: summary }));
           } catch {
             if (cancelled) return;
             setSummaries((prev) => ({
               ...prev,
-              [id]: { total: 0, objectives: 0, avgProgress: 0, completed: 0, loading: false },
+              [id]: {
+                source: 'empty',
+                total: 0,
+                objectives: 0,
+                avgProgress: 0,
+                completed: 0,
+                loading: false,
+              },
             }));
           }
         })
@@ -280,7 +338,7 @@ export function WorkspaceList() {
                     {workspace.description?.trim() || '—'}
                   </p>
 
-                  {/* Objective progress */}
+                  {/* Objective / task progress */}
                   <div
                     className="mt-1 rounded border border-border-light/60 bg-surface-muted px-3 py-2 dark:border-border-dark dark:bg-surface-dark-alt"
                     aria-label={t('tenant.workspaceList.objectiveProgress', 'Objective progress')}
@@ -288,15 +346,25 @@ export function WorkspaceList() {
                     <div className="mb-1 flex items-center justify-between gap-2 text-xs">
                       <span className="flex items-center gap-1.5 text-text-secondary dark:text-text-muted">
                         <Target size={12} aria-hidden />
-                        {summary && !summary.loading
-                          ? t('tenant.workspaceList.objectivesCount', {
-                              count: summary.objectives > 0 ? summary.objectives : summary.total,
-                              defaultValue: `${String(summary.objectives > 0 ? summary.objectives : summary.total)} objectives`,
-                            })
-                          : t('tenant.workspaceList.loadingObjectives', 'Loading objectives…')}
+                        {!summary || summary.loading
+                          ? t('tenant.workspaceList.loadingObjectives', 'Loading…')
+                          : summary.source === 'objectives'
+                            ? t('tenant.workspaceList.objectivesCount', {
+                                count:
+                                  summary.objectives > 0 ? summary.objectives : summary.total,
+                                defaultValue: `${String(summary.objectives > 0 ? summary.objectives : summary.total)} objectives`,
+                              })
+                            : summary.source === 'tasks'
+                              ? t('tenant.workspaceList.tasksCount', {
+                                  count: summary.total,
+                                  defaultValue: `${String(summary.total)} tasks`,
+                                })
+                              : t('tenant.workspaceList.noObjectives', 'No objectives yet')}
                       </span>
                       <span className="font-medium tabular-nums text-text-primary dark:text-text-inverse">
-                        {summary && !summary.loading ? `${String(summary.avgProgress)}%` : '—'}
+                        {summary && !summary.loading && summary.source !== 'empty'
+                          ? `${String(summary.avgProgress)}%`
+                          : '—'}
                       </span>
                     </div>
                     <Progress
@@ -308,13 +376,22 @@ export function WorkspaceList() {
                         : {})}
                       aria-hidden
                     />
-                    {summary && !summary.loading && summary.total > 0 ? (
+                    {summary && !summary.loading && summary.source !== 'empty' ? (
                       <div className="mt-1 text-[11px] text-text-muted">
                         {t('tenant.workspaceList.completedCount', {
                           completed: summary.completed,
-                          total: summary.objectives > 0 ? summary.objectives : summary.total,
+                          total:
+                            summary.source === 'objectives'
+                              ? summary.objectives > 0
+                                ? summary.objectives
+                                : summary.total
+                              : summary.total,
                           defaultValue: `${String(summary.completed)} of ${String(
-                            summary.objectives > 0 ? summary.objectives : summary.total
+                            summary.source === 'objectives'
+                              ? summary.objectives > 0
+                                ? summary.objectives
+                                : summary.total
+                              : summary.total
                           )} complete`,
                         })}
                       </div>

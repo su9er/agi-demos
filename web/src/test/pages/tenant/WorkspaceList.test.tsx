@@ -32,6 +32,9 @@ vi.mock('../../../services/workspaceService', () => ({
   workspaceObjectiveService: {
     list: vi.fn().mockResolvedValue([]),
   },
+  workspaceTaskService: {
+    list: vi.fn().mockResolvedValue([]),
+  },
 }));
 
 describe('WorkspaceList', () => {
