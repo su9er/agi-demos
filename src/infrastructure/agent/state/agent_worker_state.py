@@ -707,6 +707,7 @@ def _add_agent_tools(tools: dict[str, Any], project_id: str) -> None:
         from src.infrastructure.agent.tools.agent_spawn import configure_agent_spawn
         from src.infrastructure.agent.tools.agent_stop import configure_agent_stop
         from src.infrastructure.agent.tools.define import get_registered_tools
+        from src.infrastructure.agent.tools.workspace_wtp import configure_workspace_wtp
 
         configure_agent_spawn(orchestrator=orchestrator)
         configure_agent_list(orchestrator=orchestrator)
@@ -715,6 +716,7 @@ def _add_agent_tools(tools: dict[str, Any], project_id: str) -> None:
         configure_agent_history(orchestrator=orchestrator)
         configure_agent_stop(orchestrator=orchestrator)
         configure_agent_definition_manage(orchestrator=orchestrator)
+        configure_workspace_wtp(orchestrator=orchestrator)
 
         registry = get_registered_tools()
         agent_tool_names = (
@@ -725,6 +727,9 @@ def _add_agent_tools(tools: dict[str, Any], project_id: str) -> None:
             "agent_history",
             "agent_stop",
             "agent_definition_manage",
+            "workspace_report_progress",
+            "workspace_report_complete",
+            "workspace_report_blocked",
         )
         for name in agent_tool_names:
             if name in registry:

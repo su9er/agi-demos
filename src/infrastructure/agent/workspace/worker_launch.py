@@ -91,10 +91,11 @@ def _build_worker_brief(
 ) -> str:
     """Compose the initial prompt the worker agent receives.
 
-    The binding block makes it easy for the worker (or its tooling) to
-    extract identifiers and call ``report_workspace_task`` with the right
-    parameters. Free-form context after the block carries the human-readable
-    task brief.
+    The binding block makes it easy for the worker to extract identifiers and
+    call the workspace reporting tools (``workspace_report_progress``,
+    ``workspace_report_complete``, ``workspace_report_blocked``) with the
+    right parameters. Free-form context after the block carries the
+    human-readable task brief.
     """
     root_goal_task_id = ""
     if isinstance(task.metadata, dict):
@@ -117,9 +118,18 @@ def _build_worker_brief(
         binding_lines.append(f"leader_agent_id={leader_agent_id}")
     binding_lines.append("[/workspace-task-binding]")
 
+    reporting_guidance = (
+        "You have been assigned a workspace task. Execute it autonomously, then "
+        "report the outcome via the workspace reporting tools:\n"
+        "- Call `workspace_report_progress` periodically during long-running work.\n"
+        "- Call `workspace_report_complete` ONCE when finished successfully.\n"
+        "- Call `workspace_report_blocked` if you hit a hard blocker and cannot recover.\n"
+        "All three tools require `task_id`, `attempt_id`, and `leader_agent_id` — "
+        "copy those verbatim from the [workspace-task-binding] block below."
+    )
+
     sections: list[str] = [
-        "You have been assigned a workspace task. Execute it autonomously and report "
-        "back via the report_workspace_task tool when done (or if blocked).",
+        reporting_guidance,
         "\n".join(binding_lines),
         f"## Task title\n{task.title}",
     ]

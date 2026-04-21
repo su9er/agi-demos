@@ -913,6 +913,7 @@ class TestSendMessage:
             session_id="sess-to-b",
             content="hello",
             message_type=AgentMessageType.REQUEST,
+            metadata=None,
         )
 
     async def test_send_message_target_allowlist_rejects_sender(

@@ -470,11 +470,23 @@ class AgentOrchestrator:
         sender_session_id: str | None = None,
         project_id: str | None = None,
         tenant_id: str = "",
+        message_type: AgentMessageType | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> SendResult | SendDenied:
         """Send a message from one agent to another.
 
         Sender and target must both resolve within the current tenant/project
         scope and explicitly opt in to agent-to-agent messaging.
+
+        Parameters
+        ----------
+        message_type
+            Override the default ``AgentMessageType.REQUEST``. Used by
+            WTP-layer tools to emit NOTIFICATION/ANNOUNCE/RESPONSE traffic
+            without bypassing orchestration policy.
+        metadata
+            Optional message metadata dict forwarded verbatim to the bus.
+            WTP envelopes ride here under reserved keys (``wtp_verb`` etc.).
 
         Returns
         -------
@@ -579,12 +591,14 @@ class AgentOrchestrator:
             )
 
         # ── deliver message ─────────────────────────────────────────────
+        effective_message_type = message_type or AgentMessageType.REQUEST
         message_id = await self._message_bus.send_message(
             from_agent_id=from_agent.id,
             to_agent_id=to_agent.id,
             session_id=resolved_session_id,
             content=message,
-            message_type=AgentMessageType.REQUEST,
+            message_type=effective_message_type,
+            metadata=metadata,
         )
 
         logger.info(
