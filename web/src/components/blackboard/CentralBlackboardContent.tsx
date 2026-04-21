@@ -1,12 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo, useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import {
   useWorkspaceActions,
-  useWorkspaceGoalCandidates,
-  useWorkspaceGoalCandidatesError,
-  useWorkspaceGoalCandidatesLoading,
 } from '@/stores/workspace';
 
 import { WorkspaceSettingsPanel } from '@/pages/tenant/WorkspaceSettings';
@@ -101,9 +98,6 @@ export function CentralBlackboardContent({
   const { t } = useTranslation();
   const message = useLazyMessage();
   const workspaceActions = useWorkspaceActions();
-  const goalCandidates = useWorkspaceGoalCandidates();
-  const goalCandidatesLoading = useWorkspaceGoalCandidatesLoading();
-  const goalCandidatesError = useWorkspaceGoalCandidatesError();
   const tabListRef = useRef<HTMLDivElement | null>(null);
   const verticalTabListRef = useRef<HTMLDivElement | null>(null);
 
@@ -126,13 +120,6 @@ export function CentralBlackboardContent({
     message,
     t,
   });
-
-  useEffect(() => {
-    if (activeTab !== 'goals') {
-      return;
-    }
-    void workspaceActions.loadGoalCandidates(workspaceId);
-  }, [activeTab, workspaceActions, workspaceId]);
 
   const stats = useMemo(
     () => buildBlackboardStats(tasks, posts, agents, topologyNodes),
@@ -184,9 +171,6 @@ export function CentralBlackboardContent({
           {activeTab === 'goals' && (
                   <GoalsTab
                     objectives={objectives}
-                    goalCandidates={goalCandidates}
-                    goalCandidatesLoading={goalCandidatesLoading}
-                    goalCandidatesError={goalCandidatesError}
                     tasks={tasks}
                     completionRatio={stats.completionRatio}
                     workspaceId={workspaceId}
@@ -200,12 +184,6 @@ export function CentralBlackboardContent({
                     }}
                     onCreateObjective={() => {
                       actions.setShowCreateObjective(true);
-                    }}
-                    onRefreshGoalCandidates={() => {
-                      void workspaceActions.loadGoalCandidates(workspaceId);
-                    }}
-                    onMaterializeGoalCandidate={(candidateId) => {
-                      void workspaceActions.materializeGoalCandidate(workspaceId, candidateId);
                     }}
                   />
                 )}

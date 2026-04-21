@@ -11,17 +11,12 @@ const workspaceActionsMock = {
   createObjective: vi.fn(),
   deleteObjective: vi.fn(),
   projectObjectiveToTask: vi.fn(),
-  loadGoalCandidates: vi.fn(),
-  materializeGoalCandidate: vi.fn(),
   deleteGene: vi.fn(),
   updateGene: vi.fn(),
 };
 
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceActions: () => workspaceActionsMock,
-  useWorkspaceGoalCandidates: () => [],
-  useWorkspaceGoalCandidatesLoading: () => false,
-  useWorkspaceGoalCandidatesError: () => null,
   useWorkspaceStore: (selector: (state: any) => unknown) =>
     selector({
       chatMessages: [],
@@ -131,12 +126,6 @@ function getTabByName(name: RegExp): HTMLElement {
 describe('CentralBlackboardContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it('auto-loads goal candidates when goals tab is active', () => {
-    render(<CentralBlackboardContent {...defaultProps()} />);
-
-    expect(workspaceActionsMock.loadGoalCandidates).toHaveBeenCalledWith('workspace-1');
   });
 
   it('renders the tablist with all blackboard tab controls', () => {

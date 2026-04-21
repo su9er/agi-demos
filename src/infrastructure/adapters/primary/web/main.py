@@ -83,7 +83,6 @@ from src.infrastructure.adapters.primary.web.routers import (
     webhooks,
     workspace_autonomy,
     workspace_chat,
-    workspace_goal_candidates,
     workspace_tasks,
     workspaces,
 )
@@ -445,7 +444,6 @@ Check the `/api/v1/tenant/config` endpoint for your current limits.
     app.include_router(data_export.router)
     app.include_router(maintenance.router)
     app.include_router(tasks.router)
-    app.include_router(workspace_goal_candidates.router)
     app.include_router(workspace_autonomy.router)
     app.include_router(workspace_tasks.router)
     app.include_router(workspaces.router)

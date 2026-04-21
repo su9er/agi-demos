@@ -6,7 +6,6 @@ import {
   workspaceBlackboardService,
   workspaceService,
   workspaceTaskService,
-  workspaceGoalCandidateService,
   workspaceTopologyService,
   workspaceObjectiveService,
   workspaceGeneService,
@@ -25,7 +24,6 @@ import type {
   WorkspaceAgent,
   WorkspaceMember,
   WorkspaceTask,
-  WorkspaceGoalCandidate,
   CyberObjective,
   CyberGene,
   CyberObjectiveType,
@@ -43,9 +41,6 @@ type WorkspaceSurfaceState = Pick<
   | 'loadedReplyPostIds'
   | 'replyLoadingPostIds'
   | 'tasks'
-  | 'goalCandidates'
-  | 'goalCandidatesLoading'
-  | 'goalCandidatesError'
   | 'topologyNodes'
   | 'topologyEdges'
   | 'objectives'
@@ -62,9 +57,6 @@ const createEmptySurfaceState = (): WorkspaceSurfaceState => ({
   loadedReplyPostIds: {},
   replyLoadingPostIds: {},
   tasks: [],
-  goalCandidates: [],
-  goalCandidatesLoading: false,
-  goalCandidatesError: null,
   topologyNodes: [],
   topologyEdges: [],
   objectives: [],
@@ -148,9 +140,6 @@ interface WorkspaceState {
   loadedReplyPostIds: Record<string, boolean>;
   replyLoadingPostIds: Record<string, boolean>;
   tasks: WorkspaceTask[];
-  goalCandidates: WorkspaceGoalCandidate[];
-  goalCandidatesLoading: boolean;
-  goalCandidatesError: string | null;
   topologyNodes: TopologyNode[];
   topologyEdges: TopologyEdge[];
   objectives: CyberObjective[];
@@ -193,8 +182,6 @@ interface WorkspaceState {
     workspaceId: string,
     objectiveId: string
   ) => Promise<void>;
-  loadGoalCandidates: (workspaceId: string) => Promise<void>;
-  materializeGoalCandidate: (workspaceId: string, candidateId: string) => Promise<void>;
   projectObjectiveToTask: (
     tenantId: string,
     projectId: string,
@@ -414,9 +401,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       loadedReplyPostIds: {},
       replyLoadingPostIds: {},
       tasks: [],
-      goalCandidates: [],
-      goalCandidatesLoading: false,
-      goalCandidatesError: null,
       topologyNodes: [],
       topologyEdges: [],
       objectives: [],
@@ -455,7 +439,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             agents,
             posts,
             tasks,
-            goalCandidates,
             topologyNodes,
             topologyEdges,
             objectives,
@@ -467,7 +450,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             workspaceService.listAgents(tenantId, projectId, workspaceId),
             workspaceBlackboardService.listPosts(tenantId, projectId, workspaceId),
             workspaceTaskService.list(workspaceId),
-            workspaceGoalCandidateService.list(workspaceId),
             workspaceTopologyService.listNodes(workspaceId),
             workspaceTopologyService.listEdges(workspaceId),
             workspaceObjectiveService.list(tenantId, projectId, workspaceId),
@@ -486,7 +468,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             agents,
             posts,
             tasks,
-            goalCandidates,
             topologyNodes,
             topologyEdges,
             objectives,
@@ -551,41 +532,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ? state.tasks.map((existing) => (existing.id === task.id ? task : existing))
             : [task, ...state.tasks],
         }));
-      },
-
-      loadGoalCandidates: async (workspaceId) => {
-        set({ goalCandidatesLoading: true, goalCandidatesError: null });
-        try {
-          const goalCandidates = await workspaceGoalCandidateService.list(workspaceId);
-          set({ goalCandidates, goalCandidatesLoading: false, goalCandidatesError: null });
-        } catch (error) {
-          set({
-            goalCandidatesLoading: false,
-            goalCandidatesError: getErrorMessage(error),
-          });
-          throw error;
-        }
-      },
-
-      materializeGoalCandidate: async (workspaceId, candidateId) => {
-        const candidate = get().goalCandidates.find((item) => item.candidate_id === candidateId);
-        if (!candidate) {
-          return;
-        }
-        set({ goalCandidatesError: null });
-        try {
-          const task = await workspaceGoalCandidateService.materialize(workspaceId, candidate);
-          set((state) => ({
-            tasks: state.tasks.some((existing) => existing.id === task.id)
-              ? state.tasks.map((existing) => (existing.id === task.id ? task : existing))
-              : [task, ...state.tasks],
-            goalCandidates: state.goalCandidates.filter((item) => item.candidate_id !== candidateId),
-            goalCandidatesError: null,
-          }));
-        } catch (error) {
-          set({ goalCandidatesError: getErrorMessage(error) });
-          throw error;
-        }
       },
 
       loadGenes: async (tenantId, projectId, workspaceId) => {
@@ -1160,11 +1106,6 @@ export const useWorkspaceMembers = () => useWorkspaceStore((state) => state.memb
 export const useWorkspaceAgents = () => useWorkspaceStore((state) => state.agents);
 export const useWorkspacePosts = () => useWorkspaceStore((state) => state.posts);
 export const useWorkspaceTasks = () => useWorkspaceStore((state) => state.tasks);
-export const useWorkspaceGoalCandidates = () => useWorkspaceStore((state) => state.goalCandidates);
-export const useWorkspaceGoalCandidatesLoading = () =>
-  useWorkspaceStore((state) => state.goalCandidatesLoading);
-export const useWorkspaceGoalCandidatesError = () =>
-  useWorkspaceStore((state) => state.goalCandidatesError);
 export const useWorkspaceObjectives = () => useWorkspaceStore((state) => state.objectives);
 export const useWorkspaceGenes = () => useWorkspaceStore((state) => state.genes);
 export const useWorkspaceTopology = () =>
@@ -1192,8 +1133,6 @@ export const useWorkspaceActions = () =>
       updateObjective: state.updateObjective,
       deleteObjective: state.deleteObjective,
       projectObjectiveToTask: state.projectObjectiveToTask,
-      loadGoalCandidates: state.loadGoalCandidates,
-      materializeGoalCandidate: state.materializeGoalCandidate,
       loadGenes: state.loadGenes,
       createGene: state.createGene,
       updateGene: state.updateGene,

@@ -26,17 +26,12 @@ describe('GoalsTab', () => {
             created_at: '2026-04-17T05:00:00Z',
           },
         ]}
-        goalCandidates={[]}
-        goalCandidatesLoading={false}
-        goalCandidatesError={null}
         tasks={[]}
         completionRatio={0}
         workspaceId="ws-1"
         onDeleteObjective={vi.fn()}
         onProjectObjective={vi.fn()}
         onCreateObjective={vi.fn()}
-        onRefreshGoalCandidates={vi.fn()}
-        onMaterializeGoalCandidate={vi.fn()}
       />
     );
 
@@ -69,9 +64,6 @@ describe('GoalsTab', () => {
             created_at: '2026-04-17T05:00:00Z',
           },
         ]}
-        goalCandidates={[]}
-        goalCandidatesLoading={false}
-        goalCandidatesError={null}
         tasks={[
           {
             id: 'root-1',
@@ -119,8 +111,6 @@ describe('GoalsTab', () => {
         onDeleteObjective={vi.fn()}
         onProjectObjective={vi.fn()}
         onCreateObjective={vi.fn()}
-        onRefreshGoalCandidates={vi.fn()}
-        onMaterializeGoalCandidate={vi.fn()}
       />
     );
 
