@@ -63,15 +63,52 @@ def _make_service(
     schedule_tick: MagicMock | None = None,
     liveness_lookup: Any = None,
     task_lookup: dict[str, str] | None = None,
+    task_status_lookup: dict[str, Any] | None = None,
+    attempt_lookup: dict[str, WorkspaceTaskSessionAttempt] | None = None,
+    attempt_saves: list[WorkspaceTaskSessionAttempt] | None = None,
 ) -> tuple[WorkspaceAttemptRecoveryService, AsyncMock, MagicMock]:
-    apply_report = apply_report or AsyncMock(return_value=None)
+    apply_report = apply_report or AsyncMock(return_value=MagicMock())
     schedule_tick = schedule_tick or MagicMock()
     lookup = task_lookup if task_lookup is not None else {"task-1": "user-1"}
+    from src.domain.model.workspace.workspace_task import WorkspaceTaskStatus
+    status_lookup = (
+        task_status_lookup
+        if task_status_lookup is not None
+        else {tid: WorkspaceTaskStatus.IN_PROGRESS for tid in lookup}
+    )
+    attempts_by_id = attempt_lookup if attempt_lookup is not None else {
+        a.id: a for a in stale_attempts
+    }
+    saves_sink = attempt_saves if attempt_saves is not None else []
 
-    session_factory = lambda: _SessionContext(MagicMock())
+    class _Session:
+        async def commit(self) -> None:
+            return None
+
+    def _session_cm() -> Any:
+        class _CM:
+            async def __aenter__(self_inner) -> Any:
+                return _Session()
+
+            async def __aexit__(self_inner, *_a: object) -> None:
+                return None
+
+        return _CM()
+
+    session_factory = lambda: _session_cm()
 
     repo_instance = MagicMock()
     repo_instance.find_stale_non_terminal = AsyncMock(return_value=stale_attempts)
+
+    async def _find_by_id_attempt(attempt_id: str) -> Any:
+        return attempts_by_id.get(attempt_id)
+
+    async def _save_attempt(attempt: WorkspaceTaskSessionAttempt) -> Any:
+        saves_sink.append(attempt)
+        return attempt
+
+    repo_instance.find_by_id = AsyncMock(side_effect=_find_by_id_attempt)
+    repo_instance.save = AsyncMock(side_effect=_save_attempt)
 
     def _task_repo(_session: Any) -> Any:
         task_repo = MagicMock()
@@ -82,6 +119,7 @@ def _make_service(
                 return None
             task = MagicMock()
             task.created_by = uid
+            task.status = status_lookup.get(task_id, WorkspaceTaskStatus.IN_PROGRESS)
             return task
 
         task_repo.find_by_id = AsyncMock(side_effect=_find_by_id)
@@ -106,6 +144,7 @@ def _make_service(
         side_effect=_task_repo,
     )
     service._patches = (patch_attempt_repo, patch_task_repo)  # type: ignore[attr-defined]
+    service._saves = saves_sink  # type: ignore[attr-defined]
     return service, apply_report, schedule_tick
 
 
@@ -174,6 +213,59 @@ class TestStartupSweep:
         assert recovered == 0
         apply_report.assert_not_awaited()
         schedule_tick.assert_not_called()
+        # Orphan attempt must be flipped BLOCKED at the attempt-row level.
+        assert len(service._saves) == 1  # type: ignore[attr-defined]
+        saved = service._saves[0]  # type: ignore[attr-defined]
+        assert saved.status == WorkspaceTaskSessionAttemptStatus.BLOCKED
+
+    @pytest.mark.asyncio
+    async def test_skips_cascade_when_parent_task_already_done(self) -> None:
+        from src.domain.model.workspace.workspace_task import WorkspaceTaskStatus
+
+        att = _make_attempt(workspace_task_id="task-1")
+        service, apply_report, schedule_tick = _make_service(
+            stale_attempts=[att],
+            task_lookup={"task-1": "user-1"},
+            task_status_lookup={"task-1": WorkspaceTaskStatus.DONE},
+        )
+        for p in service._patches:  # type: ignore[attr-defined]
+            p.start()
+        try:
+            recovered = await service.startup_sweep()
+        finally:
+            for p in service._patches:  # type: ignore[attr-defined]
+                p.stop()
+
+        # Must NOT cascade (would raise done->blocked transition error)
+        apply_report.assert_not_awaited()
+        schedule_tick.assert_not_called()
+        assert recovered == 0
+        # Attempt itself flipped BLOCKED so next sweep ignores it.
+        assert len(service._saves) == 1  # type: ignore[attr-defined]
+        assert service._saves[0].status == WorkspaceTaskSessionAttemptStatus.BLOCKED  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_skips_cascade_when_parent_task_already_blocked(self) -> None:
+        from src.domain.model.workspace.workspace_task import WorkspaceTaskStatus
+
+        att = _make_attempt(workspace_task_id="task-1")
+        service, apply_report, schedule_tick = _make_service(
+            stale_attempts=[att],
+            task_lookup={"task-1": "user-1"},
+            task_status_lookup={"task-1": WorkspaceTaskStatus.BLOCKED},
+        )
+        for p in service._patches:  # type: ignore[attr-defined]
+            p.start()
+        try:
+            recovered = await service.startup_sweep()
+        finally:
+            for p in service._patches:  # type: ignore[attr-defined]
+                p.stop()
+
+        apply_report.assert_not_awaited()
+        schedule_tick.assert_not_called()
+        assert recovered == 0
+        assert len(service._saves) == 1  # type: ignore[attr-defined]
 
 
 class TestPeriodicSweep:
@@ -229,10 +321,11 @@ class TestApplyReportFailure:
 
         calls = {"n": 0}
 
-        async def _apply(**kwargs: Any) -> None:
+        async def _apply(**kwargs: Any) -> Any:
             calls["n"] += 1
             if kwargs["attempt_id"] == "bad":
                 raise RuntimeError("boom")
+            return MagicMock()
 
         apply_report = AsyncMock(side_effect=_apply)
         service, _, schedule_tick = _make_service(

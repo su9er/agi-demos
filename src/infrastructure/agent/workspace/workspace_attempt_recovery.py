@@ -34,8 +34,10 @@ from typing import Awaitable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.domain.model.workspace.workspace_task import WorkspaceTaskStatus
 from src.domain.model.workspace.workspace_task_session_attempt import (
     WorkspaceTaskSessionAttempt,
+    WorkspaceTaskSessionAttemptStatus,
 )
 from src.infrastructure.adapters.secondary.persistence.sql_workspace_task_session_attempt_repository import (  # noqa: E501
     SqlWorkspaceTaskSessionAttemptRepository,
@@ -207,20 +209,47 @@ class WorkspaceAttemptRecoveryService:
     ) -> int:
         recovered = 0
         scheduled_roots: set[tuple[str, str]] = set()
+        terminal_parent_statuses = {
+            WorkspaceTaskStatus.DONE,
+            WorkspaceTaskStatus.BLOCKED,
+        }
         for attempt in attempts:
-            actor_user_id = await self._resolve_actor_user_id(attempt.workspace_task_id)
-            if not actor_user_id:
-                logger.warning(
-                    "workspace_attempt_recovery.skip_no_actor",
+            resolution = await self._resolve_parent_task(attempt.workspace_task_id)
+            if resolution is None:
+                logger.info(
+                    "workspace_attempt_recovery.skip_no_parent_task",
                     extra={
-                        "event": "workspace_attempt_recovery.skip_no_actor",
+                        "event": "workspace_attempt_recovery.skip_no_parent_task",
                         "attempt_id": attempt.id,
                         "workspace_task_id": attempt.workspace_task_id,
                     },
                 )
+                # Parent task was deleted -- mark the orphan attempt terminal
+                # directly so we stop re-discovering it.
+                await self._quiet_block_attempt(
+                    attempt, reason="parent_task_missing"
+                )
+                continue
+            actor_user_id, parent_status = resolution
+            if parent_status in terminal_parent_statuses:
+                # Parent already completed / blocked. Do NOT cascade a new
+                # worker report -- that would attempt an invalid transition
+                # (e.g. done -> blocked). Just flip the dangling attempt row.
+                logger.info(
+                    "workspace_attempt_recovery.parent_already_terminal",
+                    extra={
+                        "event": "workspace_attempt_recovery.parent_already_terminal",
+                        "attempt_id": attempt.id,
+                        "workspace_task_id": attempt.workspace_task_id,
+                        "parent_status": parent_status.value,
+                    },
+                )
+                await self._quiet_block_attempt(
+                    attempt, reason=f"parent_{parent_status.value}"
+                )
                 continue
             try:
-                await self._apply_report(
+                result = await self._apply_report(
                     workspace_id=attempt.workspace_id,
                     root_goal_task_id=attempt.root_goal_task_id,
                     task_id=attempt.workspace_task_id,
@@ -234,6 +263,22 @@ class WorkspaceAttemptRecoveryService:
                     leader_agent_id=attempt.leader_agent_id,
                     report_id=f"recovery:{attempt.id}",
                 )
+                if result is None:
+                    # Cascade failed internally (the function swallows the
+                    # exception and returns None). Still flip the attempt row
+                    # so we do not loop forever on the same broken attempt.
+                    logger.info(
+                        "workspace_attempt_recovery.cascade_returned_none",
+                        extra={
+                            "event": "workspace_attempt_recovery.cascade_returned_none",
+                            "attempt_id": attempt.id,
+                            "workspace_task_id": attempt.workspace_task_id,
+                        },
+                    )
+                    await self._quiet_block_attempt(
+                        attempt, reason="cascade_returned_none"
+                    )
+                    continue
                 recovered += 1
                 scheduled_roots.add((attempt.workspace_id, actor_user_id))
                 logger.warning(
@@ -251,6 +296,11 @@ class WorkspaceAttemptRecoveryService:
                     "workspace_attempt_recovery.apply_report_failed attempt=%s",
                     attempt.id,
                 )
+                # Still flip the attempt itself so we don't loop forever on
+                # the same broken row.
+                await self._quiet_block_attempt(
+                    attempt, reason="apply_report_failed"
+                )
         for workspace_id, actor_user_id in scheduled_roots:
             try:
                 self._schedule_tick(workspace_id, actor_user_id)
@@ -265,21 +315,60 @@ class WorkspaceAttemptRecoveryService:
                 )
         return recovered
 
-    async def _resolve_actor_user_id(self, workspace_task_id: str) -> str | None:
-        """Look up the ``created_by`` on the workspace task so the autonomy tick
-        runs in the correct user scope. Returns None if the task has been
-        archived/deleted between the sweep and recovery.
-        """
+    async def _resolve_parent_task(
+        self, workspace_task_id: str
+    ) -> tuple[str, WorkspaceTaskStatus] | None:
+        """Return ``(actor_user_id, task_status)`` or None if the task is gone."""
         try:
             async with self._session_factory() as session:
                 task_repo = SqlWorkspaceTaskRepository(session)
                 task = await task_repo.find_by_id(workspace_task_id)
                 if task is None:
                     return None
-                return task.created_by
+                if not task.created_by:
+                    return None
+                return task.created_by, task.status
         except Exception:
             logger.exception(
-                "workspace_attempt_recovery.resolve_actor_failed task=%s",
+                "workspace_attempt_recovery.resolve_parent_failed task=%s",
                 workspace_task_id,
             )
             return None
+
+    async def _quiet_block_attempt(
+        self, attempt: WorkspaceTaskSessionAttempt, *, reason: str
+    ) -> None:
+        """Mark an attempt BLOCKED at the attempt-row level only (no cascade).
+
+        Used when the parent workspace_task is already terminal or deleted;
+        cascading a blocked report would raise an invalid transition, but
+        we still need to stop re-discovering the dangling attempt on each
+        sweep.
+        """
+        if attempt.status == WorkspaceTaskSessionAttemptStatus.BLOCKED:
+            return
+        try:
+            async with self._session_factory() as session:
+                repo = SqlWorkspaceTaskSessionAttemptRepository(session)
+                stored = await repo.find_by_id(attempt.id)
+                if stored is None:
+                    return
+                if stored.status == WorkspaceTaskSessionAttemptStatus.BLOCKED:
+                    return
+                stored.status = WorkspaceTaskSessionAttemptStatus.BLOCKED
+                stored.leader_feedback = (
+                    stored.leader_feedback or f"recovery:{reason}"
+                )
+                stored.adjudication_reason = (
+                    stored.adjudication_reason or f"recovery:{reason}"
+                )
+                now = datetime.now(UTC)
+                stored.completed_at = stored.completed_at or now
+                stored.updated_at = now
+                await repo.save(stored)
+                await session.commit()
+        except Exception:
+            logger.exception(
+                "workspace_attempt_recovery.quiet_block_failed attempt=%s",
+                attempt.id,
+            )

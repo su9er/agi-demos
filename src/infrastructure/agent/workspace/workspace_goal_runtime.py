@@ -1479,7 +1479,10 @@ async def adjudicate_workspace_worker_report(  # noqa: C901, PLR0912, PLR0915
                     reason="workspace_goal_runtime.leader_adjudication.completed.complete",
                     authority=WorkspaceTaskAuthorityContext.leader(leader_agent_id),
                 )
-            elif status == WorkspaceTaskStatus.BLOCKED and updated.status.value != "blocked":
+            elif status == WorkspaceTaskStatus.BLOCKED and updated.status.value not in (
+                "blocked",
+                "done",
+            ):
                 updated = await command_service.block_task(
                     workspace_id=workspace_id,
                     task_id=task_id,
