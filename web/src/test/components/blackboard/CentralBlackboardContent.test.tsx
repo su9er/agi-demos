@@ -124,8 +124,8 @@ function defaultProps(
 }
 
 function getTabByName(name: RegExp): HTMLElement {
-  const tablist = screen.getByRole('tablist');
-  return within(tablist).getByRole('tab', { name });
+  const tablists = screen.getAllByRole('tablist');
+  return within(tablists[0]).getByRole('tab', { name });
 }
 
 describe('CentralBlackboardContent', () => {
@@ -142,8 +142,8 @@ describe('CentralBlackboardContent', () => {
   it('renders the tablist with all blackboard tab controls', () => {
     render(<CentralBlackboardContent {...defaultProps()} />);
 
-    const tablist = screen.getByRole('tablist');
-    const tabs = within(tablist).getAllByRole('tab');
+    const tablists = screen.getAllByRole('tablist');
+    const tabs = within(tablists[0]).getAllByRole('tab');
 
     expect(tabs.length).toBeGreaterThan(0);
   });

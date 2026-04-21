@@ -20,9 +20,15 @@ export interface BlackboardTabBarProps {
   activeTab: BlackboardTab;
   onTabChange: (tab: BlackboardTab) => void;
   tabListRef: RefObject<HTMLDivElement | null>;
+  orientation?: 'horizontal' | 'vertical';
 }
 
-export function BlackboardTabBar({ activeTab, onTabChange, tabListRef }: BlackboardTabBarProps) {
+export function BlackboardTabBar({
+  activeTab,
+  onTabChange,
+  tabListRef,
+  orientation = 'horizontal',
+}: BlackboardTabBarProps) {
   const { t } = useTranslation();
 
   const tabs = useMemo(
@@ -64,14 +70,16 @@ export function BlackboardTabBar({ activeTab, onTabChange, tabListRef }: Blackbo
   const handleTabKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
       const lastIndex = tabs.length - 1;
+      const nextKey = orientation === 'vertical' ? 'ArrowDown' : 'ArrowRight';
+      const prevKey = orientation === 'vertical' ? 'ArrowUp' : 'ArrowLeft';
 
-      if (event.key === 'ArrowRight') {
+      if (event.key === nextKey) {
         event.preventDefault();
         moveTabFocus(index === lastIndex ? 0 : index + 1);
         return;
       }
 
-      if (event.key === 'ArrowLeft') {
+      if (event.key === prevKey) {
         event.preventDefault();
         moveTabFocus(index === 0 ? lastIndex : index - 1);
         return;
@@ -88,15 +96,24 @@ export function BlackboardTabBar({ activeTab, onTabChange, tabListRef }: Blackbo
         moveTabFocus(lastIndex);
       }
     },
-    [moveTabFocus, tabs.length],
+    [moveTabFocus, orientation, tabs.length],
   );
+
+  const isVertical = orientation === 'vertical';
+  const listClassName = isVertical
+    ? 'flex min-h-0 w-full flex-col gap-1 overflow-y-auto border-r border-border-light p-3 dark:border-border-dark'
+    : 'flex gap-1 overflow-x-auto border-b border-border-light px-4 py-3 dark:border-border-dark sm:px-6';
+  const buttonBase = isVertical
+    ? 'min-h-11 w-full rounded-xl px-3 py-2 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50'
+    : 'min-h-11 whitespace-nowrap rounded-full px-4 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
 
   return (
     <div
       ref={tabListRef}
       role="tablist"
       aria-label={t('blackboard.tabs.ariaLabel', 'Blackboard sections')}
-      className="flex gap-1 overflow-x-auto border-b border-border-light px-4 py-3 dark:border-border-dark sm:px-6"
+      aria-orientation={orientation}
+      className={listClassName}
     >
       {tabs.map((tab) => (
         <button
@@ -113,7 +130,7 @@ export function BlackboardTabBar({ activeTab, onTabChange, tabListRef }: Blackbo
           onClick={() => {
             onTabChange(tab.key);
           }}
-          className={`rounded-full px-4 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+          className={`${buttonBase} ${
             activeTab === tab.key
               ? 'bg-primary/10 font-medium text-primary'
               : 'text-text-secondary hover:bg-surface-muted hover:text-text-primary dark:text-text-muted dark:hover:bg-surface-elevated dark:hover:text-text-inverse'

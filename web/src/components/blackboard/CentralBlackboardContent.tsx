@@ -17,7 +17,7 @@ import { MemberPanel } from '@/components/workspace/MemberPanel';
 import { ObjectiveCreateModal } from '@/components/workspace/objectives/ObjectiveCreateModal';
 
 
-import { BlackboardTabBar, BLACKBOARD_TABS } from './BlackboardTabBar';
+import { BlackboardTabBar } from './BlackboardTabBar';
 import {
   buildBlackboardNotes,
   buildBlackboardStats,
@@ -105,6 +105,7 @@ export function CentralBlackboardContent({
   const goalCandidatesLoading = useWorkspaceGoalCandidatesLoading();
   const goalCandidatesError = useWorkspaceGoalCandidatesError();
   const tabListRef = useRef<HTMLDivElement | null>(null);
+  const verticalTabListRef = useRef<HTMLDivElement | null>(null);
 
   const actions = useBlackboardActions({
     tenantId,
@@ -154,27 +155,33 @@ export function CentralBlackboardContent({
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border-light bg-surface-light dark:border-border-dark dark:bg-surface-dark">
-        <BlackboardTabBar
-          activeTab={activeTab}
-          onTabChange={onActiveTabChange}
-          tabListRef={tabListRef}
-        />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border-light bg-surface-light dark:border-border-dark dark:bg-surface-dark md:flex-row">
+        <div className="md:hidden">
+          <BlackboardTabBar
+            activeTab={activeTab}
+            onTabChange={onActiveTabChange}
+            tabListRef={tabListRef}
+            orientation="horizontal"
+          />
+        </div>
+        <aside className="hidden shrink-0 md:flex md:w-56 md:min-h-0 lg:w-60">
+          <BlackboardTabBar
+            activeTab={activeTab}
+            onTabChange={onActiveTabChange}
+            tabListRef={verticalTabListRef}
+            orientation="vertical"
+          />
+        </aside>
 
-        {BLACKBOARD_TABS.map((tabKey) => (
-          <div
-            key={tabKey}
-            id={`blackboard-panel-${tabKey}`}
-            role="tabpanel"
-            aria-labelledby={`blackboard-tab-${tabKey}`}
-            aria-live="polite"
-            tabIndex={activeTab === tabKey ? 0 : -1}
-            hidden={activeTab !== tabKey}
-            className="min-h-0 flex-1 overflow-y-auto px-4 py-4 focus-visible:outline-none sm:px-6 sm:py-5"
-          >
-            {activeTab === tabKey && (
-              <>
-                {activeTab === 'goals' && (
+        <div
+          key={activeTab}
+          id={`blackboard-panel-${activeTab}`}
+          role="tabpanel"
+          aria-labelledby={`blackboard-tab-${activeTab}`}
+          tabIndex={0}
+          className="min-h-0 flex-1 overflow-y-auto px-4 py-4 focus-visible:outline-none sm:px-6 sm:py-5"
+        >
+          {activeTab === 'goals' && (
                   <GoalsTab
                     objectives={objectives}
                     goalCandidates={goalCandidates}
@@ -314,10 +321,7 @@ export function CentralBlackboardContent({
                     />
                   </div>
                 )}
-              </>
-            )}
-          </div>
-        ))}
+        </div>
       </div>
 
       <ObjectiveCreateModal
