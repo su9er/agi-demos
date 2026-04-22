@@ -1,0 +1,76 @@
+/**
+ * participantsService tests — Track B P2-3 phase-2 (b-fe-roster).
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@/services/client/httpClient', () => ({
+  httpClient: {
+    get: vi.fn(),
+    post: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
+
+import { httpClient } from '@/services/client/httpClient';
+import { participantsService } from '@/services/participantsService';
+
+describe('participantsService', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('listRoster hits the relative /agent/conversations/.../participants path', async () => {
+    (httpClient.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      conversation_id: 'c1',
+      conversation_mode: 'multi_agent_shared',
+      effective_mode: 'multi_agent_shared',
+      participant_agents: ['agent-1'],
+      coordinator_agent_id: 'agent-1',
+      focused_agent_id: null,
+    });
+
+    const roster = await participantsService.listRoster('c1');
+
+    expect(httpClient.get).toHaveBeenCalledWith('/agent/conversations/c1/participants');
+    expect(roster.participant_agents).toEqual(['agent-1']);
+  });
+
+  it('addParticipant POSTs the add-participant payload', async () => {
+    (httpClient.post as ReturnType<typeof vi.fn>).mockResolvedValue({
+      conversation_id: 'c1',
+      conversation_mode: 'multi_agent_shared',
+      effective_mode: 'multi_agent_shared',
+      participant_agents: ['agent-1', 'agent-2'],
+      coordinator_agent_id: 'agent-1',
+      focused_agent_id: null,
+    });
+
+    await participantsService.addParticipant('c1', {
+      agent_id: 'agent-2',
+      set_as_focused: true,
+    });
+
+    expect(httpClient.post).toHaveBeenCalledWith('/agent/conversations/c1/participants', {
+      agent_id: 'agent-2',
+      set_as_focused: true,
+    });
+  });
+
+  it('removeParticipant encodes the agent_id and uses DELETE', async () => {
+    (httpClient.delete as ReturnType<typeof vi.fn>).mockResolvedValue({
+      conversation_id: 'c1',
+      conversation_mode: 'multi_agent_shared',
+      effective_mode: 'multi_agent_shared',
+      participant_agents: [],
+      coordinator_agent_id: null,
+      focused_agent_id: null,
+    });
+
+    await participantsService.removeParticipant('c1', 'agent/with/slash');
+
+    expect(httpClient.delete).toHaveBeenCalledWith(
+      '/agent/conversations/c1/participants/agent%2Fwith%2Fslash'
+    );
+  });
+});
