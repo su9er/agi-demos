@@ -524,6 +524,7 @@ class ReActAgent:
         self._init_tool_definitions(
             _cached_tool_definitions, model, api_key, base_url, temperature, max_tokens, max_steps
         )
+        self._reset_stream_state()
 
         # -- Create CommandRegistry and interceptor for slash commands --
         command_registry = CommandRegistry()
@@ -628,6 +629,21 @@ class ReActAgent:
         """Initialize memory runtime and its supporting infrastructure."""
         self._memory_runtime = memory_runtime
         self._session_factory = session_factory
+
+    def _reset_stream_state(self) -> None:
+        """Reset per-stream transient state before a new run starts."""
+        self._stream_skill_state = {
+            "matched_skill": None,
+            "is_forced": False,
+            "should_inject_prompt": False,
+        }
+        self._stream_memory_context = None
+        self._stream_context_result = None
+        self._stream_messages = []
+        self._stream_cached_summary = None
+        self._stream_tools_to_use = []
+        self._stream_final_content = ""
+        self._stream_success = False
 
     def _init_prompt_and_context(
         self,
@@ -2661,6 +2677,7 @@ class ReActAgent:
             - {"type": "error", "data": {...}}
         """
         conversation_context = conversation_context or []
+        self._reset_stream_state()
         start_time = time.time()
 
         logger.info(

@@ -31,6 +31,7 @@ from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user,
     get_current_user_tenant,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import get_db
 from src.infrastructure.adapters.secondary.persistence.models import (
     CuratedSkill,
@@ -175,7 +176,7 @@ async def list_curated_skills(
     stmt = select(CuratedSkill).order_by(CuratedSkill.created_at.desc())
     if not include_deprecated:
         stmt = stmt.where(CuratedSkill.status == "active")
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(refresh_select_statement(stmt))).scalars().all()
     return [_curated_to_response(r) for r in rows]
 
 
@@ -291,7 +292,7 @@ async def list_my_submissions(
         .where(SkillSubmission.submitter_tenant_id == tenant_id)
         .order_by(SkillSubmission.created_at.desc())
     )
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(refresh_select_statement(stmt))).scalars().all()
     return [_submission_to_response(r) for r in rows]
 
 
@@ -406,7 +407,7 @@ async def admin_list_submissions(
         .where(SkillSubmission.status == status_filter)
         .order_by(SkillSubmission.created_at.asc())
     )
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(refresh_select_statement(stmt))).scalars().all()
     return [_submission_to_response(r) for r in rows]
 
 
@@ -439,10 +440,12 @@ async def admin_approve_submission(
     if submission.source_skill_id is not None:
         prior_active = (
             await db.execute(
-                select(CuratedSkill)
-                .where(CuratedSkill.source_skill_id == submission.source_skill_id)
-                .where(CuratedSkill.status == "active")
-                .order_by(CuratedSkill.created_at.desc())
+                refresh_select_statement(
+                    select(CuratedSkill)
+                    .where(CuratedSkill.source_skill_id == submission.source_skill_id)
+                    .where(CuratedSkill.status == "active")
+                    .order_by(CuratedSkill.created_at.desc())
+                )
             )
         ).scalars().first()
 
@@ -462,7 +465,9 @@ async def admin_approve_submission(
     # twice under different semvers is a no-op by construction.
     existing = (
         await db.execute(
-            select(CuratedSkill).where(CuratedSkill.revision_hash == rhash)
+            refresh_select_statement(
+                select(CuratedSkill).where(CuratedSkill.revision_hash == rhash)
+            )
         )
     ).scalar_one_or_none()
     if existing is not None:

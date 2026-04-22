@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.model.agent.conversation.decision_log import DecisionLogEntry
 from src.domain.ports.agent.decision_log_repository import DecisionLogRepository
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     DecisionLogModel,
 )
@@ -76,19 +77,23 @@ class SqlDecisionLogRepository(DecisionLogRepository):
         offset: int = 0,
     ) -> list[DecisionLogEntry]:
         result = await self._session.execute(
-            select(DecisionLogModel)
-            .where(DecisionLogModel.conversation_id == conversation_id)
-            .order_by(DecisionLogModel.created_at.asc())
-            .offset(offset)
-            .limit(limit)
+            refresh_select_statement(
+                select(DecisionLogModel)
+                .where(DecisionLogModel.conversation_id == conversation_id)
+                .order_by(DecisionLogModel.created_at.asc())
+                .offset(offset)
+                .limit(limit)
+            )
         )
         return [_to_domain(row) for row in result.scalars().all()]
 
     @override
     async def count(self, conversation_id: str) -> int:
         result = await self._session.execute(
-            select(func.count(DecisionLogModel.id)).where(
-                DecisionLogModel.conversation_id == conversation_id
+            refresh_select_statement(
+                select(func.count(DecisionLogModel.id)).where(
+                    DecisionLogModel.conversation_id == conversation_id
+                )
             )
         )
         return int(result.scalar_one())

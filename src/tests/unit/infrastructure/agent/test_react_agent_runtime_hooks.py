@@ -56,6 +56,27 @@ class TestReActAgentRuntimeHooks:
         assert payload["project_id"] == "proj-1"
 
     @pytest.mark.asyncio
+    async def test_before_prompt_build_hook_uses_initialized_default_memory_context(self) -> None:
+        registry = _make_registry(payload={})
+        agent = _make_agent(registry=registry)
+
+        resolved, emitted_events = await agent._apply_before_prompt_build_hook(
+            processed_user_message="hello",
+            conversation_context=[{"role": "user", "content": "hello"}],
+            project_id="proj-1",
+            tenant_id="tenant-1",
+            conversation_id="conv-1",
+            effective_mode="build",
+            matched_skill=None,
+            selected_agent=SimpleNamespace(id="agent-1", name="Atlas"),
+        )
+
+        assert resolved is None
+        assert emitted_events == []
+        payload = registry.apply_hook.await_args.kwargs["payload"]
+        assert payload["memory_context"] is None
+
+    @pytest.mark.asyncio
     async def test_context_overflow_hook_fires_on_compression(self) -> None:
         registry = _make_registry()
         agent = _make_agent(registry=registry)

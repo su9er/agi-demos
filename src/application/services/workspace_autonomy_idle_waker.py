@@ -23,6 +23,7 @@ from collections.abc import Callable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     WorkspaceModel,
     WorkspaceTaskModel,
@@ -169,5 +170,5 @@ class WorkspaceAutonomyIdleWaker:
                 .where(WorkspaceTaskModel.status.notin_(list(_TERMINAL_ROOT_STATUSES)))
                 .where(WorkspaceModel.is_archived.is_(False))
             )
-            result = await session.execute(query)
+            result = await session.execute(refresh_select_statement(query))
             return [(row[0], row[1], row[2]) for row in result.all()]

@@ -32,6 +32,7 @@ from src.domain.model.workspace_plan.plan_node import (
     TaskIntent,
 )
 from src.domain.ports.services.plan_repository_port import PlanRepositoryPort
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     PlanModel,
     PlanNodeModel,
@@ -81,7 +82,7 @@ class SqlPlanRepository(PlanRepositoryPort):
         stmt = (
             select(PlanModel).options(selectinload(PlanModel.nodes)).where(PlanModel.id == plan_id)
         )
-        result = await self._db.execute(stmt)
+        result = await self._db.execute(refresh_select_statement(stmt))
         model = result.scalar_one_or_none()
         if model is None:
             return None
@@ -95,7 +96,7 @@ class SqlPlanRepository(PlanRepositoryPort):
             .order_by(PlanModel.created_at.desc())
             .limit(1)
         )
-        result = await self._db.execute(stmt)
+        result = await self._db.execute(refresh_select_statement(stmt))
         model = result.scalar_one_or_none()
         if model is None:
             return None

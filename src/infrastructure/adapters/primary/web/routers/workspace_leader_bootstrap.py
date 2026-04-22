@@ -22,6 +22,7 @@ from src.infrastructure.adapters.primary.web.routers.workspace_chat import (
     get_message_service,
 )
 from src.infrastructure.adapters.primary.web.startup.container import get_app_container
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.database import async_session_factory
 from src.infrastructure.adapters.secondary.persistence.models import (
     AgentDefinitionModel,
@@ -104,10 +105,12 @@ def _legacy_builtin_conflict_name(agent_id: str) -> str:
 async def _rename_legacy_sisyphus_name_conflict(db: AsyncSession) -> AgentDefinitionModel | None:
     conflicting_row = (
         await db.execute(
-            select(AgentDefinitionModel)
-            .where(AgentDefinitionModel.name == BUILTIN_SISYPHUS_NAME)
-            .where(AgentDefinitionModel.id != BUILTIN_SISYPHUS_ID)
-            .limit(1)
+            refresh_select_statement(
+                select(AgentDefinitionModel)
+                .where(AgentDefinitionModel.name == BUILTIN_SISYPHUS_NAME)
+                .where(AgentDefinitionModel.id != BUILTIN_SISYPHUS_ID)
+                .limit(1)
+            )
         )
     ).scalar_one_or_none()
     if conflicting_row is None:
@@ -438,7 +441,7 @@ async def _heal_assigned_execution_tasks_without_sessions(
     ticks are safe. Returns the number of sessions scheduled.
     """
     from src.domain.model.workspace.workspace_task import WorkspaceTaskStatus
-    from src.infrastructure.adapters.secondary.persistence.sql_workspace_task_session_attempt_repository import (  # noqa: E501
+    from src.infrastructure.adapters.secondary.persistence.sql_workspace_task_session_attempt_repository import (
         SqlWorkspaceTaskSessionAttemptRepository,
     )
     from src.infrastructure.agent.workspace import worker_launch as worker_launch_mod
@@ -696,7 +699,7 @@ async def _try_auto_complete_root(
             workspace_id=workspace_id,
             actor_user_id=current_user.id,
             root_task=root_task,
-            task_repo=task_repo,
+            task_repo=task_repo,  # pyright: ignore[reportArgumentType]
             command_service=command_service,
             leader_agent_id=leader_binding.agent_id,
         )
@@ -821,7 +824,7 @@ def _build_autonomy_mention_content(mention: str, title: str, remediation_status
     )
 
 
-async def maybe_auto_trigger_existing_root_execution(
+async def maybe_auto_trigger_existing_root_execution(  # noqa: C901, PLR0912, PLR0915
     *,
     request: Request | None = None,
     db: AsyncSession,

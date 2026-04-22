@@ -16,6 +16,7 @@ from src.domain.model.agent.conversation.pending_review import (
 from src.domain.ports.agent.pending_review_repository import (
     PendingReviewRepository,
 )
+from src.infrastructure.adapters.secondary.common.base_repository import refresh_select_statement
 from src.infrastructure.adapters.secondary.persistence.models import (
     PendingReviewModel,
 )
@@ -80,7 +81,9 @@ class SqlPendingReviewRepository(PendingReviewRepository):
     @override
     async def get(self, review_id: str) -> PendingReview | None:
         result = await self._session.execute(
-            select(PendingReviewModel).where(PendingReviewModel.id == review_id)
+            refresh_select_statement(
+                select(PendingReviewModel).where(PendingReviewModel.id == review_id)
+            )
         )
         row = result.scalar_one_or_none()
         return _to_domain(row) if row else None
@@ -88,12 +91,14 @@ class SqlPendingReviewRepository(PendingReviewRepository):
     @override
     async def list_open(self, conversation_id: str) -> list[PendingReview]:
         result = await self._session.execute(
-            select(PendingReviewModel)
-            .where(
-                PendingReviewModel.conversation_id == conversation_id,
-                PendingReviewModel.status == PendingReviewStatus.OPEN.value,
+            refresh_select_statement(
+                select(PendingReviewModel)
+                .where(
+                    PendingReviewModel.conversation_id == conversation_id,
+                    PendingReviewModel.status == PendingReviewStatus.OPEN.value,
+                )
+                .order_by(PendingReviewModel.created_at.asc())
             )
-            .order_by(PendingReviewModel.created_at.asc())
         )
         return [_to_domain(row) for row in result.scalars().all()]
 
@@ -105,7 +110,9 @@ class SqlPendingReviewRepository(PendingReviewRepository):
         resolution_payload: dict[str, Any] | None = None,
     ) -> PendingReview | None:
         result = await self._session.execute(
-            select(PendingReviewModel).where(PendingReviewModel.id == review_id)
+            refresh_select_statement(
+                select(PendingReviewModel).where(PendingReviewModel.id == review_id)
+            )
         )
         row = result.scalar_one_or_none()
         if row is None:

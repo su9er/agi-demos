@@ -592,6 +592,95 @@ class TestReActAgentWorkspaceDelegation:
             runtime_hook.to_dict()
         ]
 
+    async def test_stream_resets_stale_memory_context_before_before_prompt_build(self):
+        agent = _make_react_agent()
+        registry = MagicMock()
+        registry.apply_hook = AsyncMock(
+            return_value=HookDispatchResult(
+                payload={"memory_context": "", "emitted_events": []},
+                diagnostics=[],
+            )
+        )
+        agent.config.plugin_registry = registry
+
+        async def _empty_async_gen(*args, **kwargs):
+            if False:
+                yield args, kwargs
+
+        async def _process_events(**kwargs):
+            del kwargs
+            agent._stream_final_content = "done"
+            agent._stream_success = True
+            yield {"type": "complete", "data": {"content": "done"}}
+
+        with (
+            patch.object(agent, "_stream_detect_plan_mode", side_effect=_empty_async_gen),
+            patch.object(
+                agent,
+                "_stream_decide_route",
+                return_value=(SimpleNamespace(), None, None, {}, None, None),
+            ),
+            patch.object(
+                agent,
+                "_load_selected_agent",
+                new=AsyncMock(
+                    return_value=SimpleNamespace(
+                        id="agent-1",
+                        name="Atlas",
+                        allowed_skills=[],
+                    )
+                ),
+            ),
+            patch.object(
+                agent,
+                "_build_runtime_profile",
+                return_value=SimpleNamespace(
+                    available_skills=[],
+                    allow_tools=[],
+                    deny_tools=[],
+                    tenant_agent_config=SimpleNamespace(runtime_hooks=[]),
+                    agent_definition_prompt="",
+                    effective_model="test-model",
+                    effective_temperature=0.2,
+                    effective_max_tokens=1024,
+                    effective_max_steps=4,
+                ),
+            ),
+            patch.object(agent, "_build_runtime_workspace_manager", return_value=None),
+            patch.object(agent, "_stream_match_skill", return_value=iter(())),
+            patch.object(
+                agent,
+                "_stream_resolve_mode",
+                return_value=("build", SimpleNamespace(metadata={})),
+            ),
+            patch.object(agent, "_build_primary_agent_prompt", return_value=""),
+            patch.object(agent, "_build_system_prompt", new=AsyncMock(return_value="system")),
+            patch.object(agent, "_stream_build_context", side_effect=_empty_async_gen),
+            patch.object(agent, "_stream_prepare_tools", return_value=[]),
+            patch.object(agent, "_stream_process_events", side_effect=_process_events),
+            patch.object(agent, "_stream_post_process", side_effect=_empty_async_gen),
+            patch.object(agent, "_stream_record_skill_usage", return_value=None),
+            patch.object(
+                agent,
+                "_processor_factory",
+                new=SimpleNamespace(create_for_main=lambda **kwargs: MagicMock()),
+            ),
+        ):
+            agent._stream_memory_context = "stale memory"
+            async for _event in agent.stream(
+                conversation_id="conv-1",
+                user_message="Reset stale memory state.",
+                project_id="proj-1",
+                user_id="user-1",
+                tenant_id="tenant-1",
+                conversation_context=[],
+                agent_id="agent-1",
+            ):
+                pass
+
+        payload = registry.apply_hook.await_args.kwargs["payload"]
+        assert payload["memory_context"] is None
+
     def test_filter_workspace_root_tools_removes_generic_agent_bypass_tools(self):
         from src.infrastructure.agent.core.processor import ToolDefinition
 
