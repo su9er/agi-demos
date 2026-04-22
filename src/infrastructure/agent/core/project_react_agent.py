@@ -308,7 +308,7 @@ class ProjectReActAgent:
             )
 
             # Phase 3: Memory services
-            memory_recall, memory_capture, memory_flush = self._init_memory_services(
+            memory_runtime, session_factory = self._init_memory_runtime(
                 graph_service, redis_client, llm_client
             )
 
@@ -319,9 +319,8 @@ class ProjectReActAgent:
                 artifact_service=artifact_service,
                 provider_config=provider_config,
                 llm_client=llm_client,
-                memory_recall=memory_recall,
-                memory_capture=memory_capture,
-                memory_flush=memory_flush,
+                memory_runtime=memory_runtime,
+                session_factory=session_factory,
             )
 
             # Phase 5: Finalize
@@ -486,6 +485,29 @@ class ProjectReActAgent:
 
         return memory_recall, memory_capture, memory_flush
 
+    def _init_memory_runtime(
+        self,
+        graph_service: Any,
+        redis_client: Any,
+        llm_client: Any,
+    ) -> tuple[Any, Any]:
+        """Initialize the default memory runtime and return it with session_factory."""
+        session_factory = self._get_session_factory()
+        try:
+            from src.infrastructure.agent.memory.runtime import DefaultMemoryRuntime
+
+            memory_runtime = DefaultMemoryRuntime(
+                llm_client=llm_client,
+                graph_service=graph_service,
+                session_factory=session_factory,
+                redis_client=redis_client,
+            )
+            logger.info(f"ProjectReActAgent[{self.project_key}]: Memory runtime enabled")
+            return memory_runtime, session_factory
+        except Exception as e:
+            logger.debug(f"Memory runtime not available: {e}")
+            return None, session_factory
+
     @staticmethod
     def _get_session_factory() -> Any:
         """Get async session factory, returning None on import error."""
@@ -505,9 +527,8 @@ class ProjectReActAgent:
         artifact_service: Any,
         provider_config: Any,
         llm_client: Any,
-        memory_recall: Any,
-        memory_capture: Any,
-        memory_flush: Any,
+        memory_runtime: Any,
+        session_factory: Any,
     ) -> None:
         """Create session context, build context window config, and instantiate ReActAgent."""
         from src.configuration.config import get_settings
@@ -626,9 +647,8 @@ class ProjectReActAgent:
             llm_client=llm_client,
             resource_sync_service=self._session_context.resource_sync_service,
             graph_service=graph_service,
-            memory_recall=memory_recall,
-            memory_capture=memory_capture,
-            memory_flush=memory_flush,
+            memory_runtime=memory_runtime,
+            session_factory=session_factory,
             max_subagent_delegation_depth=app_settings.agent_subagent_max_delegation_depth,
             max_subagent_active_runs=app_settings.agent_subagent_max_active_runs,
             max_subagent_children_per_requester=(

@@ -20,32 +20,10 @@ if TYPE_CHECKING:
 
 import contextlib
 
+from src.infrastructure.agent.memory.builtin_skill_prompts import get_memory_flush_prompt
 from src.infrastructure.memory.prompt_safety import looks_like_prompt_injection
 
 logger = logging.getLogger(__name__)
-
-FLUSH_SYSTEM_PROMPT = """\
-You are a memory extraction assistant. The conversation below is about to be \
-compressed (older messages will be summarized and discarded). Your job is to \
-extract any durable information worth preserving for future conversations.
-
-Extract ONLY facts that would be useful in a brand-new session:
-- User preferences, habits, working style
-- Personal facts (name, role, team, timezone)
-- Technical decisions, architecture choices, constraints
-- Important entities (project names, URLs, credentials names)
-- Agreements, action items, commitments
-- Anything the user explicitly asked to remember
-
-Rules:
-- Be concise. Each memory should be a self-contained statement.
-- Skip transient details (debugging steps, error messages, tool outputs).
-- Skip information the assistant knows from training data.
-- If nothing durable, return empty array.
-
-Respond ONLY with a JSON array. Each item: {"content": "...", "category": "..."}.
-Category: preference | fact | decision | entity.
-If nothing to remember: []"""
 
 FLUSH_USER_TEMPLATE = """\
 Conversation being compressed ({msg_count} messages):
@@ -227,13 +205,19 @@ class MemoryFlushService:
     async def _extract(self, conv_text: str, msg_count: int) -> list[dict[str, Any]]:
         """Call LLM to extract durable memories."""
         try:
+            system_prompt = get_memory_flush_prompt()
+        except Exception as e:
+            logger.warning(f"Failed to load builtin memory flush skill: {e}")
+            return []
+
+        try:
             user_prompt = FLUSH_USER_TEMPLATE.format(
                 msg_count=msg_count,
                 conversation_text=conv_text,
             )
             response = await self._llm_client.generate(
                 messages=[
-                    {"role": "system", "content": FLUSH_SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.0,

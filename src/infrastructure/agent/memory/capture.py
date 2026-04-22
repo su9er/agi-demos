@@ -14,6 +14,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any, cast
 
+from src.infrastructure.agent.memory.builtin_skill_prompts import get_memory_capture_prompt
 from src.infrastructure.memory.prompt_safety import looks_like_prompt_injection
 
 if TYPE_CHECKING:
@@ -24,27 +25,6 @@ if TYPE_CHECKING:
     from src.infrastructure.graph.embedding.embedding_service import EmbeddingService
 
 logger = logging.getLogger(__name__)
-
-MEMORY_EXTRACT_SYSTEM_PROMPT = """\
-You are a memory extraction assistant. Analyze the conversation and \
-extract durable facts worth remembering for future conversations.
-
-Extract ONLY information useful in future sessions:
-- User preferences and habits (e.g. "prefers dark mode")
-- Personal facts (name, role, location, team)
-- Technical decisions and constraints
-- Important entities (emails, project names, tools)
-- Explicit requests to remember something
-
-Rules:
-- Do NOT extract transient task details or ephemeral questions.
-- Do NOT extract information the assistant knows from training data.
-- Each memory should be a concise, self-contained statement.
-- If nothing worth remembering, return empty array.
-
-Respond ONLY with a JSON array. Each item: {"content": "...", "category": "..."}.
-Category must be one of: preference, fact, decision, entity.
-If nothing to remember: []"""
 
 MEMORY_EXTRACT_USER_TEMPLATE = """\
 Conversation to analyze:
@@ -248,9 +228,15 @@ class MemoryCapturePostprocessor:
         )
 
         try:
+            system_prompt = get_memory_capture_prompt()
+        except Exception as e:
+            logger.warning(f"Failed to load builtin memory capture skill: {e}")
+            return []
+
+        try:
             response = await self._llm_client.generate(
                 messages=[
-                    {"role": "system", "content": MEMORY_EXTRACT_SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.0,

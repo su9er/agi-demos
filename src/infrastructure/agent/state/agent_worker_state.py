@@ -426,32 +426,35 @@ async def get_or_create_tools(
     # 9. Configure register_mcp_server tool
     _add_register_mcp_server_tool(tools, tenant_id, project_id)
 
-    # 10. Add Memory Tools
-    _add_memory_tools(tools, project_id, graph_service, redis_client, tenant_id)
+    # 10. Add plugin tools
+    await _add_plugin_tools(
+        tools,
+        tenant_id,
+        project_id,
+        graph_service=graph_service,
+        redis_client=redis_client,
+    )
 
-    # 11. Add plugin tools
-    await _add_plugin_tools(tools, tenant_id, project_id)
-
-    # 11b. Add sandbox plugin tools (dependency-managed)
+    # 10b. Add sandbox plugin tools (dependency-managed)
     sandbox_id = kwargs.get("sandbox_id")
     sandbox_port = kwargs.get("sandbox_port")
     await _add_sandbox_plugin_tools(
         tools, tenant_id, project_id, sandbox_id, sandbox_port, redis_client
     )
 
-    # 12. Add custom tools from .memstack/tools/
+    # 11. Add custom tools from .memstack/tools/
     _add_custom_tools(tools, project_id)
 
-    # 13. Add Session Communication tools (agent-to-agent)
+    # 12. Add Session Communication tools (agent-to-agent)
     _add_session_comm_tools(tools, project_id, redis_client)
 
-    # 13b. Add Session Status tool
+    # 12b. Add Session Status tool
     _add_session_status_tool(tools, project_id)
 
-    # 14. Add Cron job management tool
+    # 13. Add Cron job management tool
     _add_cron_tool(tools, project_id)
 
-    # 15. Add Canvas tools (A2UI)
+    # 14. Add Canvas tools (A2UI)
     _add_canvas_tools(tools)
 
     # 16. Add Multi-Agent tools (behind feature flag)
@@ -835,9 +838,7 @@ def _add_memory_tools(
 
         embedding_service = getattr(graph_service, "embedder", None)
         cached_emb = (
-            CachedEmbeddingService(embedding_service, redis_client)
-            if embedding_service
-            else None
+            CachedEmbeddingService(embedding_service, redis_client) if embedding_service else None
         )
 
         configure_memory_get(
@@ -878,12 +879,21 @@ def _add_memory_tools(
         logger.debug(f"Agent Worker: Memory tools not available: {e}")
 
 
+add_memory_tools = _add_memory_tools
+
+
 async def _add_plugin_tools(
     tools: dict[str, Any],
     tenant_id: str,
     project_id: str,
+    *,
+    graph_service: Any,
+    redis_client: Any,
 ) -> None:
     """Load plugin runtime and add plugin-provided tools."""
+    from src.infrastructure.adapters.secondary.persistence.database import (
+        async_session_factory,
+    )
     from src.infrastructure.agent.core.plugin_tool_adapter import (
         adapt_plugin_tool,
     )
@@ -902,6 +912,9 @@ async def _add_plugin_tools(
             tenant_id=tenant_id,
             project_id=project_id,
             base_tools=tools,
+            graph_service=graph_service,
+            redis_client=redis_client,
+            session_factory=async_session_factory,
         )
     )
     for diagnostic in diagnostics:

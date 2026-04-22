@@ -241,9 +241,8 @@ class ReActAgent:
     _tool_policy_layers: dict[str, dict[str, Any]]
     _last_tool_selection_trace: tuple[ToolSelectionTraceStep, ...]
     # _init_memory_hooks
-    _memory_recall: Any
-    _memory_capture: Any
-    _memory_flush: Any
+    _memory_runtime: Any
+    _session_factory: Any
     # _init_prompt_and_context
     prompt_manager: Any
     context_manager: ContextWindowManager
@@ -368,10 +367,9 @@ class ReActAgent:
         _cached_subagent_router: Any | None = None,
         # Plan Mode detection
         plan_detector: PlanDetector | None = None,
-        # Memory auto-recall / auto-capture preprocessors
-        memory_recall: Any | None = None,
-        memory_capture: Any | None = None,
-        memory_flush: Any | None = None,
+        # Memory runtime + infrastructure
+        memory_runtime: Any | None = None,
+        session_factory: Any = None,
         tool_selection_pipeline: Any | None = None,
         tool_selection_max_tools: int = 40,
         tool_selection_semantic_backend: str = "embedding_vector",
@@ -473,7 +471,10 @@ class ReActAgent:
             router_mode_tool_count_threshold,
             tool_policy_layers,
         )
-        self._init_memory_hooks(memory_recall, memory_capture, memory_flush)
+        self._init_memory_hooks(
+            memory_runtime=memory_runtime,
+            session_factory=session_factory,
+        )
         self._init_prompt_and_context(
             _cached_system_prompt_manager,
             context_window_config,
@@ -620,14 +621,13 @@ class ReActAgent:
 
     def _init_memory_hooks(
         self,
-        memory_recall: Any,
-        memory_capture: Any,
-        memory_flush: Any,
+        *,
+        memory_runtime: Any,
+        session_factory: Any,
     ) -> None:
-        """Initialize memory auto-recall / auto-capture hooks."""
-        self._memory_recall = memory_recall
-        self._memory_capture = memory_capture
-        self._memory_flush = memory_flush
+        """Initialize memory runtime and its supporting infrastructure."""
+        self._memory_runtime = memory_runtime
+        self._session_factory = session_factory
 
     def _init_prompt_and_context(
         self,
@@ -963,6 +963,136 @@ class ReActAgent:
             policy_context=policy_context,
         )
 
+    async def _notify_runtime_hook(
+        self,
+        hook_name: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Dispatch one runtime hook via the shared plugin registry."""
+        effective_payload = dict(payload or {})
+        plugin_registry = getattr(self.config, "plugin_registry", None)
+        if plugin_registry is None:
+            return effective_payload
+
+        try:
+            result = await plugin_registry.apply_hook(
+                hook_name,
+                payload=effective_payload,
+                runtime_overrides=getattr(self.config, "runtime_hook_overrides", []),
+            )
+            for diagnostic in result.diagnostics:
+                log_level = logging.ERROR if diagnostic.level == "error" else logging.WARNING
+                logger.log(
+                    log_level,
+                    "[ReActAgent] Runtime hook %s diagnostic [%s]: %s",
+                    hook_name,
+                    diagnostic.plugin_name,
+                    diagnostic.message,
+                )
+            return dict(result.payload)
+        except Exception:
+            logger.warning("[ReActAgent] Runtime hook %r failed", hook_name, exc_info=True)
+            return effective_payload
+
+    async def _apply_before_prompt_build_hook(
+        self,
+        *,
+        processed_user_message: str,
+        conversation_context: list[dict[str, str]],
+        project_id: str,
+        tenant_id: str,
+        conversation_id: str,
+        effective_mode: str,
+        matched_skill: Skill | None,
+        selected_agent: Agent,
+    ) -> tuple[str | None, list[dict[str, Any]]]:
+        """Allow runtime hooks to refine prompt-bound memory context."""
+        hook_payload = await self._notify_runtime_hook(
+            "before_prompt_build",
+            {
+                "project_id": project_id,
+                "tenant_id": tenant_id,
+                "conversation_id": conversation_id,
+                "mode": effective_mode,
+                "user_message": processed_user_message,
+                "conversation_context": list(conversation_context),
+                "memory_context": self._stream_memory_context,
+                "memory_runtime": self._memory_runtime,
+                "matched_skill_name": matched_skill.name if matched_skill else None,
+                "selected_agent_id": selected_agent.id,
+                "selected_agent_name": selected_agent.name,
+            },
+        )
+        memory_context = hook_payload.get("memory_context", self._stream_memory_context)
+        if memory_context is not None and not isinstance(memory_context, str):
+            memory_context = self._stream_memory_context
+        self._stream_memory_context = cast(str | None, memory_context)
+        emitted_events = hook_payload.get("emitted_events")
+        return self._stream_memory_context, (
+            list(emitted_events) if isinstance(emitted_events, list) else []
+        )
+
+    async def _notify_context_overflow_hook(
+        self,
+        *,
+        tenant_id: str,
+        project_id: str,
+        conversation_id: str,
+        conversation_context: list[dict[str, str]],
+        context_result: Any,
+    ) -> list[dict[str, Any]]:
+        """Emit a runtime hook when context overflow causes compression."""
+        hook_payload = await self._notify_runtime_hook(
+            "on_context_overflow",
+            {
+                "tenant_id": tenant_id,
+                "project_id": project_id,
+                "conversation_id": conversation_id,
+                "conversation_context": list(conversation_context),
+                "memory_runtime": self._memory_runtime,
+                "compression_level": context_result.compression_strategy.value,
+                "summary_text": context_result.summary,
+                "original_message_count": context_result.original_message_count,
+                "final_message_count": context_result.final_message_count,
+                "summarized_message_count": context_result.summarized_message_count,
+                "estimated_tokens": context_result.estimated_tokens,
+            },
+        )
+        emitted_events = hook_payload.get("emitted_events")
+        return list(emitted_events) if isinstance(emitted_events, list) else []
+
+    async def _notify_after_turn_complete_hook(
+        self,
+        *,
+        processed_user_message: str,
+        final_content: str,
+        project_id: str,
+        tenant_id: str,
+        conversation_id: str,
+        conversation_context: list[dict[str, str]],
+        matched_skill: Skill | None,
+        success: bool,
+        llm_client_override: Any | None = None,
+    ) -> list[dict[str, Any]]:
+        """Emit a runtime hook after turn completion side effects finish."""
+        hook_payload = await self._notify_runtime_hook(
+            "after_turn_complete",
+            {
+                "project_id": project_id,
+                "tenant_id": tenant_id,
+                "conversation_id": conversation_id,
+                "conversation_context": list(conversation_context),
+                "user_message": processed_user_message,
+                "final_content": final_content,
+                "memory_runtime": self._memory_runtime,
+                "matched_skill_name": matched_skill.name if matched_skill else None,
+                "success": success,
+                "llm_client_override": llm_client_override,
+            },
+        )
+        emitted_events = hook_payload.get("emitted_events")
+        return list(emitted_events) if isinstance(emitted_events, list) else []
+
     def _infer_domain_lane(
         self,
         *,
@@ -1191,44 +1321,6 @@ class ReActAgent:
         """
         return self._match_subagent(query)
 
-    async def _background_index_conversation(
-        self,
-        messages: list[dict[str, Any]],
-        project_id: str,
-        conversation_id: str,
-    ) -> None:
-        """Index conversation messages as searchable chunks (fire-and-forget)."""
-        try:
-            if not self._memory_capture or not hasattr(self._memory_capture, "_session_factory"):
-                return
-            session_factory = self._memory_capture._session_factory
-            if session_factory is None:
-                return
-
-            from src.infrastructure.adapters.secondary.persistence.sql_chunk_repository import (
-                SqlChunkRepository,
-            )
-
-            session = session_factory()
-            try:
-                chunk_repo = SqlChunkRepository(session)
-                embedding_svc = self._memory_capture._embedding
-
-                from src.application.services.memory_index_service import MemoryIndexService
-
-                index_svc = MemoryIndexService(chunk_repo, embedding_svc)
-                indexed = await index_svc.index_conversation(conversation_id, messages, project_id)
-                if indexed > 0:
-                    await session.commit()
-                    logger.info(
-                        f"[ReActAgent] Indexed {indexed} conversation chunks "
-                        f"(conversation={conversation_id})"
-                    )
-            finally:
-                await session.close()
-        except Exception as e:
-            logger.debug(f"[ReActAgent] Background conversation indexing failed: {e}")
-
     async def _build_system_prompt(  # noqa: PLR0913
         self,
         user_query: str,
@@ -1410,7 +1502,7 @@ class ReActAgent:
             except Exception:
                 logger.exception("[ReActAgent] Failed orchestrator lookup for agent %s", agent_id)
 
-        session_factory = getattr(self._memory_capture, "_session_factory", None)
+        session_factory = self._session_factory
         if session_factory is None:
             logger.debug("[ReActAgent] No session_factory available for agent lookup: %s", agent_id)
             return None
@@ -1759,35 +1851,6 @@ class ReActAgent:
                 f"Skill resource sync failed for INJECT mode (skill={matched_skill.name}): {e}"
             )
 
-    async def _stream_recall_memory(
-        self,
-        processed_user_message: str,
-        project_id: str,
-    ) -> AsyncIterator[dict[str, Any]]:
-        """Recall memory context and yield memory recalled event.
-
-        Sets self._stream_memory_context with the result.
-        """
-        self._stream_memory_context = None
-        if not self._memory_recall:
-            return
-        try:
-            memory_context = await self._memory_recall.recall(processed_user_message, project_id)
-            self._stream_memory_context = memory_context
-            if memory_context and self._memory_recall.last_results:
-                from src.domain.events.agent_events import AgentMemoryRecalledEvent
-
-                yield cast(
-                    dict[str, Any],
-                    AgentMemoryRecalledEvent(
-                        memories=self._memory_recall.last_results,
-                        count=len(self._memory_recall.last_results),
-                        search_ms=self._memory_recall.last_search_ms,
-                    ).to_event_dict(),
-                )
-        except Exception as e:
-            logger.warning(f"[ReActAgent] Memory recall failed: {e}")
-
     async def _stream_build_context(
         self,
         *,
@@ -1797,6 +1860,7 @@ class ReActAgent:
         attachment_metadata: list[dict[str, Any]] | None,
         attachment_content: list[dict[str, Any]] | None,
         context_summary_data: dict[str, Any] | None,
+        tenant_id: str,
         project_id: str,
         conversation_id: str,
     ) -> AsyncIterator[dict[str, Any]]:
@@ -1859,24 +1923,15 @@ class ReActAgent:
                     ).to_event_dict(),
                 )
 
-            # Pre-compaction memory flush
-            if self._memory_flush and conversation_context:
-                try:
-                    flushed = await self._memory_flush.flush(
-                        conversation_context, project_id, conversation_id
-                    )
-                    if flushed > 0:
-                        from src.domain.events.agent_events import AgentMemoryCapturedEvent
-
-                        yield cast(
-                            dict[str, Any],
-                            AgentMemoryCapturedEvent(
-                                captured_count=flushed,
-                                categories=["flush"],
-                            ).to_event_dict(),
-                        )
-                except Exception as e:
-                    logger.warning(f"[ReActAgent] Pre-compaction flush failed: {e}")
+            hook_events = await self._notify_context_overflow_hook(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                conversation_id=conversation_id,
+                conversation_context=conversation_context,
+                context_result=context_result,
+            )
+            for event in hook_events:
+                yield event
 
         # Emit initial context_status
         compression_level = context_result.metadata.get("compression_level", "none")
@@ -2400,6 +2455,7 @@ class ReActAgent:
         processed_user_message: str,
         final_content: str,
         project_id: str,
+        tenant_id: str,
         conversation_id: str,
         conversation_context: list[dict[str, str]],
         matched_skill: Skill | None,
@@ -2407,47 +2463,19 @@ class ReActAgent:
         llm_client_override: Any | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Post-process: memory capture, conversation indexing, final complete event."""
-        # Auto-capture important user messages for memory indexing
-        if self._memory_capture and success:
-            original_client = self._memory_capture._llm_client
-            if llm_client_override is not None:
-                self._memory_capture._llm_client = llm_client_override
-            try:
-                captured = await self._memory_capture.capture(
-                    user_message=processed_user_message,
-                    assistant_response=final_content or "",
-                    project_id=project_id,
-                    conversation_id=conversation_id or "unknown",
-                )
-                if captured > 0:
-                    from src.domain.events.agent_events import AgentMemoryCapturedEvent
-
-                    yield cast(
-                        dict[str, Any],
-                        AgentMemoryCapturedEvent(
-                            captured_count=captured,
-                            categories=self._memory_capture.last_categories,
-                        ).to_event_dict(),
-                    )
-            except Exception as e:
-                logger.warning(f"[ReActAgent] Memory capture failed: {e}")
-            finally:
-                self._memory_capture._llm_client = original_client
-
-        # Async conversation indexing (fire-and-forget)
-        if conversation_id and conversation_context and success:
-            try:
-                import asyncio
-
-                _idx_task = asyncio.create_task(
-                    self._background_index_conversation(
-                        conversation_context, project_id, conversation_id
-                    )
-                )
-                _react_bg_tasks.add(_idx_task)
-                _idx_task.add_done_callback(_react_bg_tasks.discard)
-            except Exception as e:
-                logger.debug(f"[ReActAgent] Conversation indexing skipped: {e}")
+        hook_events = await self._notify_after_turn_complete_hook(
+            processed_user_message=processed_user_message,
+            final_content=final_content,
+            project_id=project_id,
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            conversation_context=conversation_context,
+            matched_skill=matched_skill,
+            success=success,
+            llm_client_override=llm_client_override,
+        )
+        for event in hook_events:
+            yield event
 
         # Yield final complete event
         yield cast(
@@ -2691,9 +2719,7 @@ class ReActAgent:
             )
 
             orchestrator = WorkspaceAutonomyOrchestrator()
-            has_workspace_binding = "[workspace-task-binding]" in (
-                processed_user_message or ""
-            )
+            has_workspace_binding = "[workspace-task-binding]" in (processed_user_message or "")
             if orchestrator.should_activate(
                 processed_user_message,
                 has_workspace_binding=has_workspace_binding,
@@ -2839,10 +2865,19 @@ class ReActAgent:
                 f"injecting into selection context for pipeline pinning"
             )
 
-        # Phase 7: Memory recall
-        async for event in self._stream_recall_memory(processed_user_message, project_id):
+        # Phase 7: Memory runtime prompt augmentation
+        memory_context, hook_events = await self._apply_before_prompt_build_hook(
+            processed_user_message=processed_user_message,
+            conversation_context=conversation_context,
+            project_id=project_id,
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            effective_mode=effective_mode,
+            matched_skill=matched_skill if should_inject_prompt else None,
+            selected_agent=selected_agent,
+        )
+        for event in hook_events:
             yield event
-        memory_context = self._stream_memory_context
 
         # Phase 7b: Heartbeat check
         heartbeat_prompt: str | None = None
@@ -2889,6 +2924,7 @@ class ReActAgent:
             attachment_metadata=attachment_metadata,
             attachment_content=attachment_content,
             context_summary_data=context_summary_data,
+            tenant_id=tenant_id,
             project_id=project_id,
             conversation_id=conversation_id,
         ):
@@ -2954,9 +2990,7 @@ class ReActAgent:
                 "workspace_id": getattr(workspace_root_task, "workspace_id", project_id),
                 "root_goal_task_id": getattr(workspace_root_task, "id", ""),
                 "task_authority": "workspace",
-                "workspace_session_role": (
-                    "worker" if has_workspace_binding else "leader"
-                ),
+                "workspace_session_role": ("worker" if has_workspace_binding else "leader"),
             }
         # Set session_id for announce message polling (P0.5)
         config.session_id = conversation_id
@@ -3180,6 +3214,7 @@ class ReActAgent:
             processed_user_message=processed_user_message,
             final_content=self._stream_final_content,
             project_id=project_id,
+            tenant_id=tenant_id,
             conversation_id=conversation_id,
             conversation_context=conversation_context,
             matched_skill=matched_skill,

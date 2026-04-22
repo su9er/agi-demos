@@ -280,8 +280,10 @@ def test_list_well_known_hooks_returns_documented_names() -> None:
     hooks = AgentPluginRegistry.list_well_known_hooks()
     assert isinstance(hooks, frozenset)
     expected_subset = {
+        "before_prompt_build",
         "before_tool_selection",
         "after_tool_execution",
+        "after_turn_complete",
         "before_response",
         "on_error",
         "on_session_start",

@@ -31,12 +31,14 @@ PluginHookHandler = Callable[
 # documented semantics and are invoked by the core pipeline.
 WELL_KNOWN_HOOKS: frozenset[str] = frozenset(
     {
+        "before_prompt_build",
         "before_tool_selection",
         "after_tool_selection",
         "before_tool_execution",
         "after_tool_execution",
         "before_response",
         "after_response",
+        "after_turn_complete",
         "before_planning",
         "after_planning",
         "on_error",
@@ -78,10 +80,12 @@ LIFECYCLE_EVENTS: frozenset[str] = frozenset(
 )
 
 HOOK_FAMILY_BY_NAME: dict[str, str] = {
+    "before_prompt_build": "mutating",
     "on_session_start": "mutating",
     "on_session_end": "side_effect",
     "before_response": "mutating",
     "after_response": "side_effect",
+    "after_turn_complete": "mutating",
     "before_tool_selection": "mutating",
     "after_tool_selection": "side_effect",
     "before_tool_execution": "policy",
@@ -89,7 +93,7 @@ HOOK_FAMILY_BY_NAME: dict[str, str] = {
     "before_planning": "mutating",
     "after_planning": "side_effect",
     "on_error": "side_effect",
-    "on_context_overflow": "side_effect",
+    "on_context_overflow": "mutating",
     "before_subagent_spawn": "policy",
     "after_subagent_spawn": "side_effect",
     "before_subagent_complete": "side_effect",
@@ -103,9 +107,11 @@ HOOK_DISPLAY_NAME_BY_NAME: dict[str, str] = {
 }
 
 HOOK_DEFAULT_DESCRIPTION_BY_NAME: dict[str, str] = {
+    "before_prompt_build": "Runs after pre-prompt preparation and may adjust prompt-bound payloads.",
     "before_tool_execution": "Runs before tool execution and may request continue / deny / ask decisions.",
     "after_tool_execution": "Runs after tool execution to mutate follow-up payloads or emit side effects.",
     "before_response": "Runs before the model drafts a response and may adjust response payloads.",
+    "after_turn_complete": "Runs after a turn completes to emit side effects such as indexing or durable capture.",
     "on_session_start": "Runs at the start of a processor session.",
     "on_error": "Runs when the processor catches an error.",
     "before_subagent_spawn": "Runs before a subagent starts and may enforce policy decisions.",
@@ -130,6 +136,9 @@ class PluginToolBuildContext:
     tenant_id: str
     project_id: str
     base_tools: dict[str, Any]
+    graph_service: Any | None = None
+    redis_client: Any | None = None
+    session_factory: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -1305,17 +1314,19 @@ _global_plugin_registry = AgentPluginRegistry()
 
 
 def _register_builtin_hooks() -> None:
-    """Ensure built-in runtime hooks are registered exactly once."""
-    if any(
-        entry.plugin_name == "sisyphus-runtime"
-        for entry in _global_plugin_registry.list_hook_catalog()
-    ):
-        return
+    """Ensure built-in runtime plugins are registered exactly once."""
+    from src.infrastructure.agent.plugins.memory_plugin import (
+        register_builtin_memory_plugin,
+    )
     from src.infrastructure.agent.sisyphus.runtime_plugin import (
         register_builtin_sisyphus_plugin,
     )
 
-    register_builtin_sisyphus_plugin(_global_plugin_registry)
+    hook_catalog = _global_plugin_registry.list_hook_catalog()
+    if not any(entry.plugin_name == "sisyphus-runtime" for entry in hook_catalog):
+        register_builtin_sisyphus_plugin(_global_plugin_registry)
+    if not any(entry.plugin_name == "memory-runtime" for entry in hook_catalog):
+        register_builtin_memory_plugin(_global_plugin_registry)
 
 
 def get_plugin_registry() -> AgentPluginRegistry:

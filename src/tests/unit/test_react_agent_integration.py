@@ -443,7 +443,11 @@ class TestReActAgentWorkspaceDelegation:
                 "_stream_resolve_mode",
                 return_value=("build", SimpleNamespace(metadata={})),
             ),
-            patch.object(agent, "_stream_recall_memory", side_effect=_empty_async_gen),
+            patch.object(
+                agent,
+                "_apply_before_prompt_build_hook",
+                new=AsyncMock(return_value=("", [])),
+            ),
             patch.object(agent, "_build_primary_agent_prompt", return_value=""),
             patch.object(agent, "_build_system_prompt", new=AsyncMock(return_value="system")),
             patch.object(agent, "_stream_build_context", side_effect=_empty_async_gen),
