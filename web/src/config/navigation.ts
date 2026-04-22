@@ -545,6 +545,16 @@ const CANONICAL_NAVIGATION_DESTINATIONS: readonly CanonicalDestinationDefinition
     buildPath: (context) => getCanonicalTenantDestinationPath(context.tenantId, '/skills'),
   },
   {
+    id: 'curated-skills',
+    label: 'nav.curatedSkills',
+    routeFamily: 'tenant',
+    contexts: ['tenant'],
+    displayRole: 'top-nav',
+    relativePath: '/curated-skills',
+    buildPath: (context) =>
+      getCanonicalTenantDestinationPath(context.tenantId, '/curated-skills'),
+  },
+  {
     id: 'subagents',
     label: 'nav.subagents',
     routeFamily: 'tenant',

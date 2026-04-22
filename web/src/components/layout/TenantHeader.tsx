@@ -69,6 +69,7 @@ const TENANT_NAV_FALLBACK_LABELS: Record<string, string> = {
   projects: 'Projects',
   providers: 'Model Services',
   skills: 'Skills',
+  'curated-skills': 'Curated Skills',
   subagents: 'Agents',
   tasks: 'Tasks',
   users: 'Users',

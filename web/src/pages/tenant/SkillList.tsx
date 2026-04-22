@@ -9,7 +9,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Input } from 'antd';
-import { BarChart, CheckCircle, Copy, GraduationCap, Pencil, Plus, RefreshCw, Trash2, TrendingUp } from 'lucide-react';
+import { BarChart, CheckCircle, Copy, GraduationCap, Pencil, Plus, RefreshCw, Send, Trash2, TrendingUp } from 'lucide-react';
 
 import {
   useLazyMessage,
@@ -18,6 +18,8 @@ import {
   LazyEmpty,
   LazySpin,
 } from '@/components/ui/lazyAntd';
+
+import { SubmitSkillDialog } from '../../components/skill/SubmitSkillDialog';
 
 import { SkillModal } from '../../components/skill/SkillModal';
 import {
@@ -46,6 +48,7 @@ export const SkillList: React.FC = () => {
   >('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<SkillResponse | null>(null);
+  const [submittingSkill, setSubmittingSkill] = useState<SkillResponse | null>(null);
 
   // Store hooks
   const { skills } = useSkillStore();
@@ -457,6 +460,16 @@ export const SkillList: React.FC = () => {
                   >
                     <Copy size={16} />
                   </button>
+                  <button
+                    onClick={() => {
+                      setSubmittingSkill(skill);
+                    }}
+                    className="p-2 text-slate-600 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"
+                    title="提交到精选库"
+                    aria-label="Submit skill to curated library"
+                  >
+                    <Send size={16} />
+                  </button>
                   <LazyPopconfirm
                     title={t('tenant.skills.deleteConfirm')}
                     onConfirm={() => handleDelete(skill.id)}
@@ -483,6 +496,14 @@ export const SkillList: React.FC = () => {
           onSuccess={handleModalSuccess}
         />
       )}
+      {/* Submit to curated library */}
+      <SubmitSkillDialog
+        skill={submittingSkill}
+        open={submittingSkill !== null}
+        onClose={() => {
+          setSubmittingSkill(null);
+        }}
+      />
     </div>
   );
 };
