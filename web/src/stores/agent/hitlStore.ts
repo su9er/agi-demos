@@ -164,14 +164,14 @@ export const useAgentHITLStore = create<AgentHITLState>()(
       },
 
       // Setter actions for bridge from agentV3.ts
-      setPendingClarification: (value) => set({ pendingClarification: value }),
-      setPendingDecision: (value) => set({ pendingDecision: value }),
-      setPendingEnvVarRequest: (value) => set({ pendingEnvVarRequest: value }),
-      setPendingPermission: (value) => set({ pendingPermission: value }),
-      setDoomLoopDetected: (value) => set({ doomLoopDetected: value }),
-      setCostTracking: (value) => set({ costTracking: value }),
-      setSuggestions: (value) => set({ suggestions: value }),
-      setPinnedEventIds: (value) => set({ pinnedEventIds: value }),
+      setPendingClarification: (value) => { set({ pendingClarification: value }); },
+      setPendingDecision: (value) => { set({ pendingDecision: value }); },
+      setPendingEnvVarRequest: (value) => { set({ pendingEnvVarRequest: value }); },
+      setPendingPermission: (value) => { set({ pendingPermission: value }); },
+      setDoomLoopDetected: (value) => { set({ doomLoopDetected: value }); },
+      setCostTracking: (value) => { set({ costTracking: value }); },
+      setSuggestions: (value) => { set({ suggestions: value }); },
+      setPinnedEventIds: (value) => { set({ pinnedEventIds: value }); },
 
       syncFromConversation: (fields) => {
         const updates: Partial<AgentHITLState> = {};

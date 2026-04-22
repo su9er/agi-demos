@@ -6,13 +6,15 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+
 import { agentService } from '../../services/agentService';
-import type { AgentStreamHandler, Message, UserMessageEvent } from '../../types/agent';
 import {
   type ConversationState,
   createDefaultConversationState,
   MAX_CONCURRENT_STREAMING_CONVERSATIONS,
 } from '../../types/conversationState';
+
+import { useConversationsStore } from './conversationsStore';
 import {
   TOKEN_BATCH_INTERVAL_MS,
   THOUGHT_BATCH_INTERVAL_MS,
@@ -24,7 +26,6 @@ import {
   flushTimelineBufferSync as flushTimelineBufferSyncRaw,
   bindTimelineBufferDeps,
 } from './deltaBuffers';
-import { useConversationsStore } from './conversationsStore';
 import { useExecutionStore } from './executionStore';
 import { useAgentHITLStore } from './hitlStore';
 import { createStreamEventHandlers } from './streamEventHandlers';
@@ -33,6 +34,7 @@ import { useTimelineStore } from './timelineStore';
 import { timelineToMessages } from './timelineUtils';
 
 import type { AdditionalAgentHandlers, AgentV3State } from './types';
+import type { AgentStreamHandler, Message, UserMessageEvent } from '../../types/agent';
 import type { StoreApi } from 'zustand';
 
 export interface MessageSendActionDeps {

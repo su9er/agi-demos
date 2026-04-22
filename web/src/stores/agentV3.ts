@@ -1,40 +1,39 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 
-import type {
-  HITLSummary,
-} from '../types/conversationState';
 import {
   type ConversationState,
   createDefaultConversationState,
   getHITLSummaryFromState,
-} from '../types/conversationState';
+
+  HITLSummary} from '../types/conversationState';
+
+import { createActiveConversationActions } from './agent/activeConversationActions';
+import { createConversationLifecycleActions } from './agent/conversationLifecycleActions';
 import {
   clearDeltaBuffers,
   clearAllDeltaBuffers,
   getDeltaBuffer,
 } from './agent/deltaBuffers';
+import { useExecutionStore } from './agent/executionStore';
 import { createHITLActions } from './agent/hitlActions';
+import { useAgentHITLStore } from './agent/hitlStore';
+import { createMessageLoadActions } from './agent/messageLoadActions';
+import { createMessageSendActions } from './agent/messageSendActions';
 import {
   scheduleSave,
 } from './agent/persistence';
+import { createSettingsActions } from './agent/settingsActions';
+import { useStreamingStore } from './agent/streamingStore';
 import {
   updateHITLEventInTimeline,
   timelineToMessages,
 } from './agent/timelineUtils';
-import { useExecutionStore } from './agent/executionStore';
-import { useAgentHITLStore } from './agent/hitlStore';
-import { useStreamingStore } from './agent/streamingStore';
 import { useTimelineStore } from './agent/timelineStore';
 import { useCanvasStore } from './canvasStore';
 import { useLayoutModeStore } from './layoutMode';
 
 // Extracted factory modules
-import { createSettingsActions } from './agent/settingsActions';
-import { createConversationLifecycleActions } from './agent/conversationLifecycleActions';
-import { createActiveConversationActions } from './agent/activeConversationActions';
-import { createMessageLoadActions } from './agent/messageLoadActions';
-import { createMessageSendActions } from './agent/messageSendActions';
 
 // Extracted modules
 import { initTabSync } from './agent/tabSync';

@@ -9,9 +9,9 @@ import { useExecutionStore } from './executionStore';
 import { useAgentHITLStore } from './hitlStore';
 import { useStreamingStore } from './streamingStore';
 
+import type { AgentV3State } from './types';
 import type { ConversationState } from '../../types/conversationState';
 import type { LLMConfigOverrides } from '../../types/memory';
-import type { AgentV3State } from './types';
 import type { StoreApi } from 'zustand';
 
 export interface SettingsActionDeps {

@@ -9,6 +9,7 @@
 
 import { logger } from '../../utils/logger';
 import { tabSync, type TabSyncMessage } from '../../utils/tabSync';
+
 import { useConversationsStore } from './conversationsStore';
 
 /**

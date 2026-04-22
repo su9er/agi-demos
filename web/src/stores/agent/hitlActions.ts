@@ -15,9 +15,9 @@ import {
   bindTimelineBufferDeps,
 } from './deltaBuffers';
 import { useExecutionStore } from './executionStore';
+import { createStreamEventHandlers, type StreamHandlerDeps } from './streamEventHandlers';
 import { useStreamingStore } from './streamingStore';
 import { useTimelineStore } from './timelineStore';
-import { createStreamEventHandlers, type StreamHandlerDeps } from './streamEventHandlers';
 
 import type { DeltaBufferState } from './deltaBuffers';
 import type { AgentV3State } from './types';

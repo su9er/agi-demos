@@ -17,6 +17,7 @@
  */
 
 import { isEventEnvelope } from '../types/generated/eventEnvelope';
+
 import { normalizeExecutionSummary } from './executionSummary';
 
 import type {

@@ -10,6 +10,7 @@ import { createDefaultConversationState } from '../../types/conversationState';
 import { deleteConversationState } from '../../utils/conversationDB';
 import { logger } from '../../utils/logger';
 import { tabSync } from '../../utils/tabSync';
+
 import { useConversationsStore } from './conversationsStore';
 import {
   clearDeltaBuffers,
@@ -25,8 +26,8 @@ import {
 import { useStreamingStore } from './streamingStore';
 import { useTimelineStore } from './timelineStore';
 
-import type { ConversationState } from '../../types/conversationState';
 import type { AgentV3State } from './types';
+import type { ConversationState } from '../../types/conversationState';
 import type { StoreApi } from 'zustand';
 
 export interface ConversationLifecycleDeps {

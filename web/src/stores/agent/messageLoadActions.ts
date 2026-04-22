@@ -7,19 +7,13 @@
  */
 
 import { agentService } from '../../services/agentService';
-import type {
-  AgentStreamHandler,
-  AgentTask,
-  Message,
-  SubscribeOptions,
-  TimelineEvent,
-} from '../../types/agent';
 import {
   type ConversationState,
   createDefaultConversationState,
 } from '../../types/conversationState';
 import { loadConversationState, saveConversationState } from '../../utils/conversationDB';
 import { logger } from '../../utils/logger';
+
 import { replayCanvasEventsFromTimeline } from './canvasReplay';
 import {
   TOKEN_BATCH_INTERVAL_MS,
@@ -39,6 +33,13 @@ import { useTimelineStore } from './timelineStore';
 import { mergeHITLResponseEvents, timelineToMessages } from './timelineUtils';
 
 import type { AgentV3State } from './types';
+import type {
+  AgentStreamHandler,
+  AgentTask,
+  Message,
+  SubscribeOptions,
+  TimelineEvent,
+} from '../../types/agent';
 import type { StoreApi } from 'zustand';
 
 export interface MessageLoadActionDeps {

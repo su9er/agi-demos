@@ -166,7 +166,7 @@ export function replayCanvasEventsFromTimeline(timeline: readonly TimelineEvent[
   const pendingRequestIds = new Map<string, string>();
   for (const event of timeline) {
     if (event.type === 'canvas_updated') {
-      const canvasEvent = event as CanvasUpdatedTimelineEvent;
+      const canvasEvent = event;
       replayCanvasEvent(canvasEvent);
       const pendingRequestId = pendingRequestIds.get(canvasEvent.block_id);
       if (pendingRequestId) {

@@ -5,8 +5,8 @@
  * This module creates the AgentStreamHandler used by sendMessage.
  */
 
-import { isCanvasPreviewable } from '../../utils/filePreview';
 import { normalizeExecutionSummary } from '../../utils/executionSummary';
+import { isCanvasPreviewable } from '../../utils/filePreview';
 import { appendSSEEventToTimeline } from '../../utils/sseEventAdapter';
 import { tabSync } from '../../utils/tabSync';
 import { useAgentDefinitionStore } from '../agentDefinitions';
