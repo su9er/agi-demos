@@ -706,7 +706,8 @@ async def test_create_objective_auto_triggers_workspace_agent_execution(
     assert '@"Leader Agent"' in message["content"]
     assert "objective" in message["content"].lower()
     assert "workspace task" in message["content"].lower()
-    assert should_activate_workspace_authority(message["content"]) is True
+    # Agent-First refactor: gate no longer parses text; with an open root it activates.
+    assert should_activate_workspace_authority(message["content"], has_open_root=True) is True
     assert triggered["workspace_id"] == workspace.id
     triggered_message = triggered["message"]
     assert triggered_message.mentions == [agent.id]

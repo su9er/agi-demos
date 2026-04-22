@@ -4,7 +4,7 @@ The original ``workspace_goal_runtime.py`` was a 1446-line God module that
 mixed six concerns. This package factors the leaf helpers out so each file
 carries a single responsibility (<= 300 lines each):
 
-* :mod:`activation`               — regex + protocol for "should workspace authority run?"
+* :mod:`activation`               — Agent-First gate: "should workspace authority run?"
 * :mod:`root_selection`           — select an existing root task as candidate source
 * :mod:`execution_state`          — build ``execution_state`` metadata dicts + task-id extraction
 * :mod:`worker_report_parsing`    — normalize worker report payloads, fingerprint them, service factory
@@ -16,7 +16,6 @@ that re-exports from here), so no call sites change.
 """
 
 from src.infrastructure.agent.workspace.goal_runtime.activation import (
-    _WORKSPACE_AUTONOMY_INTENT,
     _WORKSPACE_TASK_ID_PATTERN,
     TaskDecomposerProtocol,
     should_activate_workspace_authority,
@@ -48,7 +47,6 @@ from src.infrastructure.agent.workspace.goal_runtime.worker_report_parsing impor
 __all__ = [
     "MAX_AUTO_REPLAN_ATTEMPTS",
     "WORKER_TERMINAL_REPORT_TYPES",
-    "_WORKSPACE_AUTONOMY_INTENT",
     "_WORKSPACE_TASK_ID_PATTERN",
     "TaskDecomposerProtocol",
     "_build_attempt_service",

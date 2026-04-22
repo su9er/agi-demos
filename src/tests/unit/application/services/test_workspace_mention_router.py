@@ -261,7 +261,11 @@ class TestRouterTriggerAgent:
             "agent-1",
             conversation_scope="objective:obj-1",
         )
-        assert should_activate_workspace_authority(captured["user_message"]) is True
+        # Agent-First refactor: activation gate no longer parses text.
+        # The structural assertion is that a binding marker would activate it.
+        assert should_activate_workspace_authority(
+            captured["user_message"], has_workspace_binding=True
+        ) is True
 
 
 @pytest.mark.unit

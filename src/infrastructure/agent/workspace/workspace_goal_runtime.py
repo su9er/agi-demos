@@ -96,15 +96,6 @@ from src.infrastructure.agent.workspace.workspace_metadata_keys import (
 logger = logging.getLogger(__name__)
 _background_tasks: set[asyncio.Task[Any]] = set()
 _MAX_AUTO_REPLAN_ATTEMPTS = 2
-_WORKSPACE_AUTONOMY_INTENT = re.compile(
-    (
-        r"\b(workspace|goal|objective|task|tasks)\b.*"
-        r"\b(autonomy|execute|execution|plan|decompose|complete|finish|break down)\b"
-        r"|\b(autonomy|execute|execution|plan|decompose|complete|finish|break down)\b.*"
-        r"\b(workspace|goal|objective|task|tasks)\b"
-    ),
-    re.IGNORECASE,
-)
 _WORKSPACE_TASK_ID_PATTERN = re.compile(
     r"(?:workspace_task_id|task_id|child_task_id)\s*[:=]\s*([A-Za-z0-9._-]+)",
     re.IGNORECASE,
@@ -113,21 +104,30 @@ _WORKER_TERMINAL_REPORT_TYPES = frozenset({"completed", "failed", "blocked", "ne
 
 
 def should_activate_workspace_authority(
-    user_query: str,
+    user_query: str,  # reserved for future structured-signal use; never parsed
     *,
     has_workspace_binding: bool = False,
     has_open_root: bool = False,
 ) -> bool:
     """Return True when workspace-autonomy authority should activate.
 
-    Activation signals (any of):
-    - English keyword regex matches the user query.
-    - Caller has an existing workspace binding (agent already scoped to a workspace).
-    - Caller has an open root goal task in the workspace.
+    Agent-First iron rule (AGENTS.md): semantic verdicts must come from an
+    agent tool-call, not from regex / keyword matching. Activation here is
+    driven solely by **structural set-membership signals** the caller has
+    already established:
+
+    - ``has_workspace_binding``: the turn carries a ``[workspace-task-binding]``
+      marker (structural payload field), meaning the caller/agent has
+      explicitly scoped this turn to a workspace task.
+    - ``has_open_root``: the workspace has at least one open root goal task
+      (set-membership query against ``workspace_tasks``).
+
+    ``user_query`` is intentionally **not** inspected for keywords. If the
+    user expresses an unsolicited goal in chat, the sensing service's
+    ``message_signal`` path (fixed by H2 to be agent-judged) materializes
+    the candidate — not this gate.
     """
-    if has_workspace_binding or has_open_root:
-        return True
-    return bool(_WORKSPACE_AUTONOMY_INTENT.search(user_query))
+    return has_workspace_binding or has_open_root
 
 
 class TaskDecomposerProtocol(Protocol):
@@ -565,7 +565,7 @@ async def _mark_root_human_review_required(
         )
 
 
-async def auto_complete_ready_root(
+async def auto_complete_ready_root(  # noqa: PLR0911 — pre-existing; not touched in this change
     *,
     workspace_id: str,
     actor_user_id: str,
@@ -1509,10 +1509,25 @@ async def resolve_workspace_execution_task_for_delegate(
     workspace_id: str,
     root_goal_task_id: str,
     delegated_task_text: str,
-    subagent_name: str,
+    subagent_name: str,  # kept for API compat; previously used for title-tag match
     workspace_task_id: str | None = None,
 ) -> WorkspaceTask | None:
-    """Resolve a workspace execution task that best matches a delegated subagent task."""
+    """Resolve a workspace execution task that best matches a delegated subagent task.
+
+    Agent-First iron rule (AGENTS.md): task identity is never inferred from
+    text equality on ``title``. Resolution order:
+
+    1. Explicit ``workspace_task_id`` kwarg (caller-provided).
+    2. Structured ID extracted from ``delegated_task_text`` via
+       :func:`_extract_workspace_task_id` (reads a named ``task_id=...``
+       field — structural, analogous to a JSON field read).
+    3. Singleton fallback: if the root has exactly one open child, it must
+       be the one. (Pure set-membership, allowed.)
+
+    If multiple open children exist and no explicit ID was provided, the
+    caller must resolve the ambiguity through an agent tool-call (pick by
+    semantic judgment). We return ``None`` instead of guessing.
+    """
     normalized_text = delegated_task_text.strip()
     explicit_task_id = workspace_task_id or _extract_workspace_task_id(normalized_text)
     try:
@@ -1534,25 +1549,16 @@ async def resolve_workspace_execution_task_for_delegate(
             if not open_candidates:
                 return None
 
-            exact_title_matches = [
-                task
-                for task in open_candidates
-                if task.title.strip().lower() == normalized_text.lower()
-            ]
-            if len(exact_title_matches) == 1:
-                return exact_title_matches[0]
-
-            tagged_matches = [
-                task
-                for task in open_candidates
-                if task.metadata.get("delegated_subagent_name") == subagent_name
-                and task.title.strip().lower() == normalized_text.lower()
-            ]
-            if tagged_matches:
-                return tagged_matches[0]
-
+            # Agent-First: singleton fallback is pure set-membership (exactly one open task).
+            # Ambiguous multi-candidate cases require an explicit ID from the caller.
             if len(open_candidates) == 1:
                 return open_candidates[0]
+
+            logger.info(
+                "Workspace delegate resolution ambiguous: %d open candidates, "
+                "no explicit workspace_task_id provided (caller must supply one).",
+                len(open_candidates),
+            )
     except Exception:
         logger.warning("Workspace delegation task resolution failed", exc_info=True)
     return None
