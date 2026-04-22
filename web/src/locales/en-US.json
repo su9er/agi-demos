@@ -193,6 +193,8 @@
     "agentConfiguration": "Agent Configuration",
     "subagents": "Agents",
     "skills": "Skills",
+    "curatedSkills": "Curated Skills",
+    "skillReview": "Skill Review",
     "plugins": "Plugins",
     "templates": "Templates",
     "providers": "Model Services",

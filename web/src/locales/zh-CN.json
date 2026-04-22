@@ -193,6 +193,8 @@
     "agentConfiguration": "智能体配置",
     "subagents": "Agents",
     "skills": "技能",
+    "curatedSkills": "精选技能库",
+    "skillReview": "技能审核",
     "plugins": "插件",
     "templates": "模板市场",
     "providers": "模型服务",
