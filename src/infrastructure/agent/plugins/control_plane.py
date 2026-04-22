@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
+
+from src.configuration.config import get_settings
 
 from .manager import PluginRuntimeManager, get_plugin_runtime_manager
 from .registry import AgentPluginRegistry, PluginDiagnostic, get_plugin_registry
@@ -163,6 +165,7 @@ class PluginControlPlaneService:
         requirement: str | None = None,
         tenant_id: str | None = None,
     ) -> dict[str, Any]:
+        registered_tool_factories = self._registry.list_tool_factories()
         return {
             "trace_id": f"plugin-control-plane:{uuid4().hex}",
             "action": action,
@@ -172,13 +175,38 @@ class PluginControlPlaneService:
             "timestamp": datetime.now(UTC).isoformat(),
             "capability_counts": {
                 "channel_types": len(self._registry.list_channel_type_metadata()),
-                "tool_factories": len(self._registry.list_tool_factories()),
+                "tool_factories": self._count_effective_tool_factories(
+                    registered_tool_factories=registered_tool_factories,
+                    tenant_id=tenant_id,
+                ),
+                "registered_tool_factories": len(registered_tool_factories),
                 "hooks": len(self._registry.list_hooks()),
                 "commands": len(self._registry.list_commands()),
                 "services": len(self._registry.list_services()),
                 "providers": len(self._registry.list_providers()),
             },
         }
+
+    def _count_effective_tool_factories(
+        self,
+        *,
+        registered_tool_factories: Mapping[str, object],
+        tenant_id: str | None,
+    ) -> int:
+        settings = get_settings()
+        effective_count = 0
+        for candidate_plugin_name in registered_tool_factories:
+            if not self._runtime_manager.is_plugin_enabled(
+                candidate_plugin_name, tenant_id=tenant_id
+            ):
+                continue
+            if candidate_plugin_name == "memory-runtime" and (
+                settings.agent_memory_runtime_mode == "disabled"
+                or settings.agent_memory_tool_provider_mode == "disabled"
+            ):
+                continue
+            effective_count += 1
+        return effective_count
 
     @staticmethod
     def _serialize_diagnostics(diagnostics: list[PluginDiagnostic]) -> list[dict[str, str]]:

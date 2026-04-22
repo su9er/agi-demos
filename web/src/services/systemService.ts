@@ -8,6 +8,7 @@ export interface SystemInfoResponse {
   };
   memory_runtime: {
     mode: string;
+    tool_provider_mode: string;
     failure_persistence_enabled: boolean;
   };
 }

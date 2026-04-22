@@ -22,6 +22,7 @@ async def test_get_system_info_includes_memory_runtime_rollout_state() -> None:
             return_value=SimpleNamespace(
                 agent_runtime_mode="auto",
                 agent_memory_runtime_mode="plugin",
+                agent_memory_tool_provider_mode="plugin",
                 agent_memory_failure_persistence_enabled=True,
             ),
         ),
@@ -31,4 +32,5 @@ async def test_get_system_info_includes_memory_runtime_rollout_state() -> None:
     assert info["edition"] == "community"
     assert info["agent_runtime"]["mode"] == "auto"
     assert info["memory_runtime"]["mode"] == "plugin"
+    assert info["memory_runtime"]["tool_provider_mode"] == "plugin"
     assert info["memory_runtime"]["failure_persistence_enabled"] is True

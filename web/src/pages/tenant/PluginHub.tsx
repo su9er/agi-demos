@@ -27,6 +27,8 @@ import { useTenantStore } from '@/stores/tenant';
 
 import { channelService } from '@/services/channelService';
 
+import { formatPluginCapabilityCounts } from '@/utils/pluginCapabilityCounts';
+
 import type {
   ChannelConfig,
   ChannelPluginCatalogItem,
@@ -911,11 +913,11 @@ export const PluginHub: React.FC = () => {
               <Space wrap size={[8, 8]}>
                 <Tag color="processing">{lastPluginActionDetails.control_plane_trace.action}</Tag>
                 <Text code>{lastPluginActionDetails.control_plane_trace.trace_id}</Text>
-                {Object.entries(lastPluginActionDetails.control_plane_trace.capability_counts).map(
-                  ([key, value]) => (
-                    <Tag key={key}>{`${key}:${value}`}</Tag>
-                  )
-                )}
+                {formatPluginCapabilityCounts(
+                  lastPluginActionDetails.control_plane_trace.capability_counts
+                ).map(({ key, label, value }) => (
+                  <Tag key={key}>{`${label}: ${String(value)}`}</Tag>
+                ))}
                 {lastPluginActionDetails.channel_reload_plan && (
                   <Text type="secondary">
                     reload:{' '}

@@ -267,6 +267,10 @@ class Settings(BaseSettings):
         default="plugin",
         alias="AGENT_MEMORY_RUNTIME_MODE",
     )  # Memory runtime rollout mode. legacy/dual currently alias to plugin behavior.
+    agent_memory_tool_provider_mode: Literal["legacy", "plugin", "disabled"] = Field(
+        default="plugin",
+        alias="AGENT_MEMORY_TOOL_PROVIDER_MODE",
+    )  # Memory tool provider rollout mode. legacy is accepted and normalized to plugin.
     agent_memory_failure_persistence_enabled: bool = Field(
         default=True,
         alias="AGENT_MEMORY_FAILURE_PERSISTENCE_ENABLED",
@@ -550,9 +554,20 @@ class Settings(BaseSettings):
         normalized = str(value).strip().lower()
         if normalized in {"legacy", "dual", "plugin", "disabled"}:
             return normalized
-        raise ValueError(
-            "AGENT_MEMORY_RUNTIME_MODE must be one of: legacy, dual, plugin, disabled"
-        )
+        raise ValueError("AGENT_MEMORY_RUNTIME_MODE must be one of: legacy, dual, plugin, disabled")
+
+    @field_validator("agent_memory_tool_provider_mode", mode="before")
+    @classmethod
+    def normalize_agent_memory_tool_provider_mode(cls, value: str | None) -> str:
+        """Normalize memory tool provider rollout mode from environment."""
+        if value is None:
+            return "plugin"
+        normalized = str(value).strip().lower()
+        if normalized == "legacy":
+            return "plugin"
+        if normalized in {"plugin", "disabled"}:
+            return normalized
+        raise ValueError("AGENT_MEMORY_TOOL_PROVIDER_MODE must be one of: legacy, plugin, disabled")
 
     @field_validator("sandbox_pip_cache_path", mode="before")
     @classmethod

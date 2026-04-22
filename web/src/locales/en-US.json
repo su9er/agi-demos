@@ -918,7 +918,9 @@
         "agentRuntime": "Agent runtime",
         "agentRuntimeHint": "Global execution mode used by the agent runtime.",
         "memoryRuntime": "Memory runtime",
-        "memoryRuntimeHint": "Rollout mode currently applied to durable memory hooks and tools.",
+        "memoryRuntimeHint": "Rollout mode currently applied to durable memory hooks.",
+        "memoryTools": "Memory tools",
+        "memoryToolsHint": "Global rollout mode for plugin-provided durable memory tools.",
         "failurePersistence": "Failure persistence",
         "failurePersistenceHint": "Whether memory runtime failures are written into audit logs.",
         "runtimeUnavailable": "Unavailable",
@@ -1111,8 +1113,9 @@
       "runtimeStatus": {
         "title": "Runtime rollout status",
         "memoryDisabled": "Memory runtime is globally disabled. Hook overrides can still be edited, but they will not execute until the rollout mode is re-enabled.",
+        "memoryToolsDisabled": "Memory runtime hooks are active, but plugin-provided memory tools are globally disabled. Memory tool policy changes will not take effect until tool rollout is re-enabled.",
         "failurePersistenceDisabled": "Memory runtime is active, but failure persistence is globally disabled. Runtime failures will not be written into audit logs.",
-        "normal": "Agent runtime mode: {{agentMode}}. Memory runtime mode: {{memoryMode}}."
+        "normal": "Agent runtime mode: {{agentMode}}. Memory runtime mode: {{memoryMode}}. Memory tool mode: {{toolMode}}."
       }
     },
     "instances": {

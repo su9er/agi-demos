@@ -60,6 +60,12 @@ async def _log_memory_audit(
         logger.debug("Memory plugin audit logging failed", exc_info=True)
 
 
+def _memory_tool_provider_enabled() -> bool:
+    from src.configuration.config import get_settings
+
+    return get_settings().agent_memory_tool_provider_mode != "disabled"
+
+
 def _memory_runtime(payload: Mapping[str, Any]) -> MemoryRuntimeProtocol | None:
     runtime = payload.get("memory_runtime")
     if runtime is None:
@@ -142,6 +148,8 @@ async def _after_turn_complete(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _build_memory_tools(context: PluginToolBuildContext) -> dict[str, Any]:
+    if not _memory_tool_provider_enabled():
+        return {}
     session_factory = context.session_factory
     graph_service = context.graph_service
     if session_factory is None or graph_service is None:

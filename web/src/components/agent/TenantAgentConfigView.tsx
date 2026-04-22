@@ -117,6 +117,16 @@ function formatFailurePersistenceLabel(
     : t('common.status.disabled');
 }
 
+function formatToolProviderLabel(
+  runtimeInfo: SystemInfoResponse | null,
+  t: ReturnType<typeof useTranslation>['t']
+) {
+  if (!runtimeInfo) {
+    return t('tenant.agentConfigView.summary.runtimeUnavailable');
+  }
+  return formatRuntimeModeLabel(runtimeInfo.memory_runtime.tool_provider_mode, t);
+}
+
 function SummaryStat({ label, value, hint }: SummaryStatProps) {
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/90 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/70">
@@ -380,6 +390,11 @@ export function TenantAgentConfigView({
             label={t('tenant.agentConfigView.summary.memoryRuntime')}
             value={formatRuntimeModeLabel(runtimeInfo?.memory_runtime.mode, t)}
             hint={t('tenant.agentConfigView.summary.memoryRuntimeHint')}
+          />
+          <SummaryStat
+            label={t('tenant.agentConfigView.summary.memoryTools')}
+            value={formatToolProviderLabel(runtimeInfo, t)}
+            hint={t('tenant.agentConfigView.summary.memoryToolsHint')}
           />
           <SummaryStat
             label={t('tenant.agentConfigView.summary.failurePersistence')}

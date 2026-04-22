@@ -133,6 +133,33 @@ async def test_memory_plugin_tool_factory_builds_memory_tools() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_memory_plugin_tool_factory_skips_memory_tools_when_provider_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "src.configuration.config.get_settings",
+        lambda: SimpleNamespace(agent_memory_tool_provider_mode="disabled"),
+    )
+    registry = AgentPluginRegistry()
+    register_builtin_memory_plugin(registry)
+
+    plugin_tools, diagnostics = await registry.build_tools(
+        PluginToolBuildContext(
+            tenant_id="tenant-1",
+            project_id="proj-1",
+            base_tools={},
+            graph_service=SimpleNamespace(embedder=object()),
+            redis_client=None,
+            session_factory=MagicMock(name="session-factory"),
+        )
+    )
+
+    assert plugin_tools == {}
+    assert any(item.code == "plugin_loaded" for item in diagnostics)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("hook_name", "action", "payload", "runtime_attr"),
     [

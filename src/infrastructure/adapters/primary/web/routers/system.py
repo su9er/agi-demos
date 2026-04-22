@@ -40,6 +40,7 @@ async def get_system_info(
         },
         "memory_runtime": {
             "mode": settings.agent_memory_runtime_mode,
+            "tool_provider_mode": settings.agent_memory_tool_provider_mode,
             "failure_persistence_enabled": settings.agent_memory_failure_persistence_enabled,
         },
     }

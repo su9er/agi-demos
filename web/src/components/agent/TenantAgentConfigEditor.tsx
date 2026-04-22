@@ -450,6 +450,7 @@ export function TenantAgentConfigEditor({
         <Alert
           type={
             runtimeInfo.memory_runtime.mode === 'disabled' ||
+            runtimeInfo.memory_runtime.tool_provider_mode === 'disabled' ||
             !runtimeInfo.memory_runtime.failure_persistence_enabled
               ? 'warning'
               : 'info'
@@ -458,11 +459,14 @@ export function TenantAgentConfigEditor({
           description={
             runtimeInfo.memory_runtime.mode === 'disabled'
               ? t('tenant.agentConfigEditor.runtimeStatus.memoryDisabled')
+              : runtimeInfo.memory_runtime.tool_provider_mode === 'disabled'
+                ? t('tenant.agentConfigEditor.runtimeStatus.memoryToolsDisabled')
               : !runtimeInfo.memory_runtime.failure_persistence_enabled
                 ? t('tenant.agentConfigEditor.runtimeStatus.failurePersistenceDisabled')
                 : t('tenant.agentConfigEditor.runtimeStatus.normal', {
                     agentMode: runtimeInfo.agent_runtime.mode,
                     memoryMode: runtimeInfo.memory_runtime.mode,
+                    toolMode: runtimeInfo.memory_runtime.tool_provider_mode,
                   })
           }
           showIcon

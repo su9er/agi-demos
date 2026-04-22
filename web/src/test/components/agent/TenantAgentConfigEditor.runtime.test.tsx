@@ -19,6 +19,8 @@ vi.mock('react-i18next', () => ({
         'tenant.agentConfigEditor.runtimeStatus.title': 'Runtime rollout status',
         'tenant.agentConfigEditor.runtimeStatus.memoryDisabled':
           'Memory runtime is globally disabled.',
+        'tenant.agentConfigEditor.runtimeStatus.memoryToolsDisabled':
+          'Memory tools are globally disabled.',
         'tenant.agentConfigEditor.runtimeHooks.catalogUnavailableDescription':
           'Hook catalog unavailable.',
         'tenant.agentConfigEditor.sections.modelReasoning.title': 'Model & reasoning',
@@ -118,6 +120,7 @@ describe('TenantAgentConfigEditor runtime rollout', () => {
       agent_runtime: { mode: 'auto' },
       memory_runtime: {
         mode: 'disabled',
+        tool_provider_mode: 'plugin',
         failure_persistence_enabled: true,
       },
     });
@@ -138,5 +141,33 @@ describe('TenantAgentConfigEditor runtime rollout', () => {
 
     expect(await screen.findByText('Runtime rollout status')).toBeInTheDocument();
     expect(screen.getByText('Memory runtime is globally disabled.')).toBeInTheDocument();
+  });
+
+  it('shows runtime rollout warning when memory tools are globally disabled', async () => {
+    mockGetInfo.mockResolvedValue({
+      edition: 'community',
+      features: [],
+      agent_runtime: { mode: 'auto' },
+      memory_runtime: {
+        mode: 'plugin',
+        tool_provider_mode: 'disabled',
+        failure_persistence_enabled: true,
+      },
+    });
+
+    render(
+      <TenantAgentConfigEditor
+        tenantId="tenant-1"
+        open
+        onClose={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(mockGetConfig).toHaveBeenCalledWith('tenant-1');
+    });
+
+    expect(await screen.findByText('Runtime rollout status')).toBeInTheDocument();
+    expect(screen.getByText('Memory tools are globally disabled.')).toBeInTheDocument();
   });
 });

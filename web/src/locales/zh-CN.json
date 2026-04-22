@@ -710,7 +710,9 @@
         "agentRuntime": "智能体运行时",
         "agentRuntimeHint": "当前全局智能体执行模式。",
         "memoryRuntime": "记忆运行时",
-        "memoryRuntimeHint": "当前持久记忆 hooks 和工具的 rollout 模式。",
+        "memoryRuntimeHint": "当前持久记忆 hooks 的 rollout 模式。",
+        "memoryTools": "记忆工具",
+        "memoryToolsHint": "插件提供的持久记忆工具当前采用的全局 rollout 模式。",
         "failurePersistence": "失败持久化",
         "failurePersistenceHint": "记忆运行时失败是否会写入审计日志。",
         "runtimeUnavailable": "不可用",
@@ -847,8 +849,9 @@
       "runtimeStatus": {
         "title": "运行时 rollout 状态",
         "memoryDisabled": "记忆运行时已被全局禁用。你仍然可以编辑 Hook 覆盖，但在重新启用 rollout 模式前它们不会执行。",
+        "memoryToolsDisabled": "记忆运行时 hooks 仍然启用，但插件提供的记忆工具已被全局禁用。在重新开启工具 rollout 前，相关工具策略改动不会生效。",
         "failurePersistenceDisabled": "记忆运行时已启用，但失败持久化被全局关闭。运行时失败不会写入审计日志。",
-        "normal": "智能体运行时模式：{{agentMode}}。记忆运行时模式：{{memoryMode}}。"
+        "normal": "智能体运行时模式：{{agentMode}}。记忆运行时模式：{{memoryMode}}。记忆工具模式：{{toolMode}}。"
       }
     },
     "agentBindings": {

@@ -5,11 +5,13 @@ Endpoints for listing tools and tool compositions.
 
 import logging
 from collections import Counter
+from collections.abc import Mapping
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.tool_policy_debug_service import ToolPolicyDebugService
+from src.configuration.config import get_settings
 from src.domain.model.agent.sandbox_scope import SandboxScope
 from src.infrastructure.adapters.primary.web.dependencies import (
     get_current_user,
@@ -61,11 +63,52 @@ _CORE_TOOL_DEFINITIONS: tuple[tuple[str, str], ...] = (
     ),
 )
 
+_MEMORY_TOOL_NAMES = frozenset({"memory_search", "memory_create"})
 
-def _build_core_tools() -> list[ToolInfo]:
-    return [
-        ToolInfo(name=name, description=description) for name, description in _CORE_TOOL_DEFINITIONS
+
+async def _memory_tools_available(*, tenant_id: str | None) -> bool:
+    settings = get_settings()
+    if settings.agent_memory_runtime_mode == "disabled":
+        return False
+    if settings.agent_memory_tool_provider_mode == "disabled":
+        return False
+
+    from src.infrastructure.agent.plugins.manager import get_plugin_runtime_manager
+
+    runtime_manager = get_plugin_runtime_manager()
+    _ = await runtime_manager.ensure_loaded()
+    return runtime_manager.is_plugin_enabled("memory-runtime", tenant_id=tenant_id)
+
+
+async def _build_core_tools(*, tenant_id: str | None) -> list[ToolInfo]:
+    memory_tools_available = await _memory_tools_available(tenant_id=tenant_id)
+    definitions = [
+        (name, description)
+        for name, description in _CORE_TOOL_DEFINITIONS
+        if memory_tools_available or name not in _MEMORY_TOOL_NAMES
     ]
+    return [ToolInfo(name=name, description=description) for name, description in definitions]
+
+
+def _count_effective_tool_factories(
+    *,
+    plugin_records: list[dict[str, object]],
+    registered_factories: Mapping[str, object],
+    memory_tools_available: bool,
+) -> int:
+    enabled_plugins = {
+        str(plugin["name"])
+        for plugin in plugin_records
+        if plugin.get("enabled") and plugin.get("name") is not None
+    }
+    effective_count = 0
+    for plugin_name in registered_factories:
+        if plugin_name not in enabled_plugins:
+            continue
+        if plugin_name == "memory-runtime" and not memory_tools_available:
+            continue
+        effective_count += 1
+    return effective_count
 
 
 def _classify_domain(tool_name: str) -> str:
@@ -86,7 +129,8 @@ async def list_tools(
     current_user: User = Depends(get_current_user),
 ) -> ToolsListResponse:
     """List available agent tools."""
-    return ToolsListResponse(tools=_build_core_tools())
+    tenant_id = getattr(current_user, "tenant_id", None)
+    return ToolsListResponse(tools=await _build_core_tools(tenant_id=tenant_id))
 
 
 @router.get("/tools/capabilities", response_model=CapabilitySummaryResponse)
@@ -99,18 +143,26 @@ async def get_tool_capabilities(
         from src.infrastructure.agent.plugins.registry import get_plugin_registry
 
         runtime_manager = get_plugin_runtime_manager()
-        await runtime_manager.ensure_loaded()
-        plugin_records, _ = runtime_manager.list_plugins(tenant_id=current_user.tenant_id)  # type: ignore[attr-defined]
+        _ = await runtime_manager.ensure_loaded()
+        tenant_id = getattr(current_user, "tenant_id", None)
+        plugin_records, _ = runtime_manager.list_plugins(tenant_id=tenant_id)
         registry = get_plugin_registry()
 
-        core_tools = _build_core_tools()
+        memory_tools_available = await _memory_tools_available(tenant_id=tenant_id)
+        core_tools = await _build_core_tools(tenant_id=tenant_id)
         domain_counter = Counter(_classify_domain(tool.name) for tool in core_tools)
 
         hook_handlers = registry.list_hooks()
+        registered_tool_factories = registry.list_tool_factories()
         plugin_runtime = PluginRuntimeCapabilitySummary(
             plugins_total=len(plugin_records),
             plugins_enabled=sum(1 for plugin in plugin_records if bool(plugin.get("enabled"))),
-            tool_factories=len(registry.list_tool_factories()),
+            tool_factories=_count_effective_tool_factories(
+                plugin_records=plugin_records,
+                registered_factories=registered_tool_factories,
+                memory_tools_available=memory_tools_available,
+            ),
+            registered_tool_factories=len(registered_tool_factories),
             channel_types=len(registry.list_channel_type_metadata()),
             hook_handlers=sum(len(handlers) for handlers in hook_handlers.values()),
             commands=len(registry.list_commands()),

@@ -192,6 +192,7 @@ class PluginRuntimeCapabilitySummary(BaseModel):
     plugins_total: int
     plugins_enabled: int
     tool_factories: int
+    registered_tool_factories: int
     channel_types: int
     hook_handlers: int
     commands: int

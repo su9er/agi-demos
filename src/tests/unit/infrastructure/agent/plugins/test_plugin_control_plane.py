@@ -49,6 +49,9 @@ async def test_set_plugin_enabled_attaches_reload_plan_and_control_trace() -> No
     """Enable/disable actions should include reconcile plan and control-plane trace."""
     runtime_manager = SimpleNamespace(
         set_plugin_enabled=AsyncMock(return_value=[]),
+        is_plugin_enabled=lambda plugin_name, tenant_id=None: (
+            plugin_name == "plugin-a" and tenant_id == "tenant-1"
+        ),
     )
     registry = SimpleNamespace(
         list_channel_type_metadata=lambda: {"feishu": object()},
@@ -73,6 +76,10 @@ async def test_set_plugin_enabled_attaches_reload_plan_and_control_trace() -> No
     assert result.success is True
     assert result.details["channel_reload_plan"]["restart"] == 1
     assert result.details["control_plane_trace"]["action"] == "enable"
+    assert result.details["control_plane_trace"]["capability_counts"]["tool_factories"] == 1
+    assert (
+        result.details["control_plane_trace"]["capability_counts"]["registered_tool_factories"] == 1
+    )
     runtime_manager.set_plugin_enabled.assert_awaited_once_with(
         "plugin-a",
         enabled=True,
@@ -86,10 +93,13 @@ async def test_install_plugin_returns_failure_result_without_raise() -> None:
     """Install failures should be returned as structured control-plane failures."""
     runtime_manager = SimpleNamespace(
         install_plugin=AsyncMock(return_value={"success": False, "error": "invalid requirement"}),
+        is_plugin_enabled=lambda plugin_name, tenant_id=None: (
+            plugin_name == "plugin-a" and tenant_id is None
+        ),
     )
     registry = SimpleNamespace(
         list_channel_type_metadata=dict,
-        list_tool_factories=dict,
+        list_tool_factories=lambda: {"plugin-a": object()},
         list_hooks=dict,
         list_commands=dict,
         list_services=dict,
@@ -102,3 +112,45 @@ async def test_install_plugin_returns_failure_result_without_raise() -> None:
     assert result.success is False
     assert result.message == "invalid requirement"
     assert result.details["control_plane_trace"]["action"] == "install"
+    assert result.details["control_plane_trace"]["capability_counts"]["tool_factories"] == 1
+    assert (
+        result.details["control_plane_trace"]["capability_counts"]["registered_tool_factories"] == 1
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_control_plane_trace_excludes_disabled_memory_tool_factories(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_manager = SimpleNamespace(
+        set_plugin_enabled=AsyncMock(return_value=[]),
+        is_plugin_enabled=lambda plugin_name, tenant_id=None: plugin_name == "memory-runtime",
+    )
+    registry = SimpleNamespace(
+        list_channel_type_metadata=dict,
+        list_tool_factories=lambda: {"memory-runtime": object()},
+        list_hooks=dict,
+        list_commands=dict,
+        list_services=dict,
+        list_providers=dict,
+    )
+    monkeypatch.setattr(
+        "src.infrastructure.agent.plugins.control_plane.get_settings",
+        lambda: SimpleNamespace(
+            agent_memory_runtime_mode="plugin",
+            agent_memory_tool_provider_mode="disabled",
+        ),
+    )
+    service = PluginControlPlaneService(runtime_manager=runtime_manager, registry=registry)
+
+    result = await service.set_plugin_enabled(
+        "memory-runtime",
+        enabled=False,
+        tenant_id="tenant-1",
+    )
+
+    assert result.details["control_plane_trace"]["capability_counts"]["tool_factories"] == 0
+    assert (
+        result.details["control_plane_trace"]["capability_counts"]["registered_tool_factories"] == 1
+    )

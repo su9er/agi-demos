@@ -108,6 +108,26 @@ describe('PluginHub', () => {
       defaults: {},
       secret_paths: ['app_secret'],
     });
+    vi.mocked(channelService.reloadTenantPlugins).mockResolvedValue({
+      success: true,
+      message: 'Plugin runtime reloaded',
+      details: {
+        control_plane_trace: {
+          trace_id: 'trace-1',
+          action: 'reload',
+          timestamp: '2026-04-22T00:00:00Z',
+          capability_counts: {
+            channel_types: 1,
+            tool_factories: 2,
+            registered_tool_factories: 3,
+            hooks: 4,
+            commands: 5,
+            services: 6,
+            providers: 7,
+          },
+        },
+      },
+    });
   });
 
   it('loads runtime plugins and channel configs', async () => {
@@ -138,5 +158,20 @@ describe('PluginHub', () => {
       );
       expect(screen.getByText('App ID')).toBeInTheDocument();
     });
+  });
+
+  it('renders readable control-plane capability labels after reload', async () => {
+    render(<PluginHub />, { route: '/tenant/tenant-1/plugins?projectId=project-1' });
+
+    const reloadButton = await screen.findByRole('button', { name: 'Reload' });
+    fireEvent.click(reloadButton);
+
+    await waitFor(() => {
+      expect(channelService.reloadTenantPlugins).toHaveBeenCalledWith('tenant-1');
+    });
+
+    expect(await screen.findByText('active tools: 2')).toBeInTheDocument();
+    expect(screen.getByText('registered tools: 3')).toBeInTheDocument();
+    expect(screen.getByText('channels: 1')).toBeInTheDocument();
   });
 });

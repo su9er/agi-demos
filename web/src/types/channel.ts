@@ -98,6 +98,7 @@ export interface RuntimePluginList {
 export interface PluginCapabilityCounts {
   channel_types: number;
   tool_factories: number;
+  registered_tool_factories: number;
   hooks: number;
   commands: number;
   services: number;

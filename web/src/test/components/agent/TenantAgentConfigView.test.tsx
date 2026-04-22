@@ -17,6 +17,7 @@ vi.mock('react-i18next', () => ({
       if (key === 'tenant.agentConfigView.summary.memoryModes.plugin') return 'Plugin';
       if (key === 'tenant.agentConfigView.summary.agentRuntime') return 'Agent runtime';
       if (key === 'tenant.agentConfigView.summary.memoryRuntime') return 'Memory runtime';
+      if (key === 'tenant.agentConfigView.summary.memoryTools') return 'Memory tools';
       if (key === 'tenant.agentConfigView.summary.failurePersistence') {
         return 'Failure persistence';
       }
@@ -67,6 +68,7 @@ describe('TenantAgentConfigView', () => {
       agent_runtime: { mode: 'auto' },
       memory_runtime: {
         mode: 'plugin',
+        tool_provider_mode: 'plugin',
         failure_persistence_enabled: true,
       },
     });
@@ -81,9 +83,10 @@ describe('TenantAgentConfigView', () => {
 
     expect(await screen.findByText('Agent runtime')).toBeInTheDocument();
     expect(screen.getByText('Memory runtime')).toBeInTheDocument();
+    expect(screen.getByText('Memory tools')).toBeInTheDocument();
     expect(screen.getByText('Failure persistence')).toBeInTheDocument();
     expect(screen.getByText('Auto')).toBeInTheDocument();
-    expect(screen.getByText('Plugin')).toBeInTheDocument();
+    expect(screen.getAllByText('Plugin').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('Enabled').length).toBeGreaterThan(0);
   });
 });
