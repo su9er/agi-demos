@@ -14,10 +14,11 @@ import {
 
 import { useWorkspaceActions } from '@/stores/workspace';
 
+import { AddAgentModal } from '@/components/workspace/AddAgentModal';
 import { hexDistance, generateGrid } from '@/components/workspace/hex/useHexLayout';
 
-import type { TopologyNode, WorkspaceAgent } from '@/types/workspace';
-
+import { ArrangementActionDrawer } from './ArrangementActionDrawer';
+import { ArrangementHexGrid } from './ArrangementHexGrid';
 import {
   coordKey,
   DEFAULT_AGENT_COLOR,
@@ -30,13 +31,14 @@ import {
   RESERVED_CENTER_KEY,
   resolveColor,
 } from './arrangementUtils';
-import type { MoveMode, SelectionState, ViewMode, WorkstationArrangementBoardProps } from './arrangementUtils';
+import { KeyboardShortcutsPopover } from './KeyboardShortcutsPopover';
 import { useArrangementActions } from './useArrangementActions';
 import { useArrangementKeyboard } from './useArrangementKeyboard';
-import { ArrangementHexGrid } from './ArrangementHexGrid';
-import { KeyboardShortcutsPopover } from './KeyboardShortcutsPopover';
-import { ArrangementActionDrawer } from './ArrangementActionDrawer';
-import { AddAgentModal } from '@/components/workspace/AddAgentModal';
+
+import type { TopologyNode, WorkspaceAgent } from '@/types/workspace';
+
+import type { MoveMode, SelectionState, ViewMode, WorkstationArrangementBoardProps } from './arrangementUtils';
+
 
 const HexCanvas3D = lazy(() =>
   import('@/components/workspace/hex3d/HexCanvas3D').then((module) => ({

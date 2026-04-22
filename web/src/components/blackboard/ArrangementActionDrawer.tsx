@@ -10,12 +10,13 @@ import {
   User,
 } from 'lucide-react';
 
-import type { TopologyNode, WorkspaceAgent } from '@/types/workspace';
-
 import {
   COLOR_SWATCHS,
   getNodeLabel,
 } from './arrangementUtils';
+
+import type { TopologyNode, WorkspaceAgent } from '@/types/workspace';
+
 import type { SelectionState } from './arrangementUtils';
 
 interface ArrangementActionDrawerProps {

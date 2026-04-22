@@ -61,7 +61,7 @@ export const WorkspaceGroupChatPanel: React.FC<WorkspaceGroupChatPanelProps> = (
       }
     };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    return () => { document.removeEventListener('mousedown', handler); };
   }, [pickerOpen]);
 
   const handleSelect = useCallback(
@@ -114,7 +114,7 @@ export const WorkspaceGroupChatPanel: React.FC<WorkspaceGroupChatPanelProps> = (
             <>
               <button
                 type="button"
-                onClick={() => setPickerOpen((p) => !p)}
+                onClick={() => { setPickerOpen((p) => !p); }}
                 className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-slate-100 dark:hover:bg-slate-700/50"
               >
                 <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -134,7 +134,7 @@ export const WorkspaceGroupChatPanel: React.FC<WorkspaceGroupChatPanelProps> = (
                         <button
                           key={w.id}
                           type="button"
-                          onClick={() => handleSelect(w.id)}
+                          onClick={() => { handleSelect(w.id); }}
                           className={`flex w-full items-center gap-2.5 border-0 px-3 py-2 text-left transition-colors ${
                             isActive
                               ? 'bg-indigo-50 dark:bg-indigo-900/30'

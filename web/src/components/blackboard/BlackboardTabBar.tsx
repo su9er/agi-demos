@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react';
 
 export type BlackboardTab =
   | 'goals'

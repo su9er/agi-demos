@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { Link } from 'react-router-dom';
+
 import { App, Button } from 'antd';
 import {
   ChevronDown,
@@ -18,13 +20,13 @@ import {
   Zap,
 } from 'lucide-react';
 
-import { Link } from 'react-router-dom';
 
 import { workspaceAutonomyService } from '@/services/workspaceService';
 
+import { buildAgentWorkspacePath } from '@/utils/agentWorkspacePath';
+
 import { ObjectiveList } from '@/components/workspace/objectives/ObjectiveList';
 import { TaskBoard } from '@/components/workspace/TaskBoard';
-import { buildAgentWorkspacePath } from '@/utils/agentWorkspacePath';
 
 import type { CyberObjective, WorkspaceTask } from '@/types/workspace';
 

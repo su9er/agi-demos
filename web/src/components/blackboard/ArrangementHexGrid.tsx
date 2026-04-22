@@ -4,8 +4,6 @@ import { useTranslation } from 'react-i18next';
 
 import { hexToPixel, getHexCorners } from '@/components/workspace/hex/useHexLayout';
 
-import type { TopologyEdge, TopologyNode, WorkspaceAgent } from '@/types/workspace';
-
 import {
   coordKey,
   DEFAULT_AGENT_COLOR,
@@ -15,6 +13,9 @@ import {
   HEX_SIZE,
   RESERVED_CENTER_KEY,
 } from './arrangementUtils';
+
+import type { TopologyEdge, TopologyNode, WorkspaceAgent } from '@/types/workspace';
+
 import type { MoveMode, SelectionState } from './arrangementUtils';
 
 interface ArrangementHexGridProps {

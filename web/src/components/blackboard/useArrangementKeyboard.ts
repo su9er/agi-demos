@@ -3,14 +3,15 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { hexDistance } from '@/components/workspace/hex/useHexLayout';
 
-import type { TopologyNode, WorkspaceAgent } from '@/types/workspace';
-
 import {
   coordKey,
   HEX_KEY_OFFSETS,
   isEditableTarget,
   RESERVED_CENTER_KEY,
 } from './arrangementUtils';
+
+import type { TopologyNode, WorkspaceAgent } from '@/types/workspace';
+
 import type { SelectionState, ViewMode } from './arrangementUtils';
 
 interface UseArrangementKeyboardParams {

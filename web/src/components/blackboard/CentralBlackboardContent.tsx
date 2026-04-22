@@ -280,7 +280,7 @@ export function CentralBlackboardContent({
                       nodes={topologyNodes}
                       edges={topologyEdges}
                       tasks={tasks}
-                      onOpenBlackboard={() => onActiveTabChange('goals')}
+                      onOpenBlackboard={() => { onActiveTabChange('goals'); }}
                     />
                     <TopologyTab
                       topologyNodes={topologyNodes}

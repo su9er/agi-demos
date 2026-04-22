@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 
 import { blackboardFileService } from '@/services/blackboardFileService';
-
 import type { BlackboardFileItem } from '@/services/blackboardFileService';
 
 export interface SharedFileBrowserProps {
@@ -272,7 +271,7 @@ export function SharedFileBrowser({ tenantId, projectId, workspaceId }: SharedFi
             {i > 0 && <ChevronRight className="h-3 w-3" />}
             <button
               type="button"
-              onClick={() => navigateTo(crumb.path)}
+              onClick={() => { navigateTo(crumb.path); }}
               className={`rounded px-1.5 py-0.5 transition hover:bg-surface-muted dark:hover:bg-surface-elevated ${
                 i === breadcrumbs.length - 1
                   ? 'font-medium text-text-primary dark:text-text-inverse'
@@ -289,7 +288,7 @@ export function SharedFileBrowser({ tenantId, projectId, workspaceId }: SharedFi
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => setShowMkdir(true)}
+          onClick={() => { setShowMkdir(true); }}
           className="inline-flex items-center gap-1.5 rounded-lg border border-border-light px-3 py-1.5 text-sm text-text-secondary transition hover:bg-surface-muted dark:border-border-dark dark:text-text-muted dark:hover:bg-surface-elevated"
         >
           <FolderPlus className="h-4 w-4" />
@@ -317,7 +316,7 @@ export function SharedFileBrowser({ tenantId, projectId, workspaceId }: SharedFi
           <input
             type="text"
             value={newDirName}
-            onChange={(e) => setNewDirName(e.target.value)}
+            onChange={(e) => { setNewDirName(e.target.value); }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void handleMkdir();
               if (e.key === 'Escape') setShowMkdir(false);
@@ -393,9 +392,13 @@ export function SharedFileBrowser({ tenantId, projectId, workspaceId }: SharedFi
                   <td className="px-4 py-2.5">
                     <button
                       type="button"
-                      onClick={() =>
-                        item.is_directory ? navigateToDir(item) : void openPreview(item)
-                      }
+                      onClick={() => {
+                        if (item.is_directory) {
+                          navigateToDir(item);
+                        } else {
+                          void openPreview(item);
+                        }
+                      }}
                       className="flex items-center gap-2 text-text-primary dark:text-text-inverse"
                     >
                       {fileIcon(item)}

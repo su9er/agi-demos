@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Keyboard } from 'lucide-react';
+
 import { useTranslation } from 'react-i18next';
+
+import { Keyboard } from 'lucide-react';
+
 import { KEYBOARD_HINTS } from './arrangementUtils';
 
 export interface KeyboardShortcutsPopoverProps {
@@ -30,7 +33,7 @@ export const KeyboardShortcutsPopover: React.FC<KeyboardShortcutsPopoverProps> =
     <div className="relative" ref={containerRef}>
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => { setIsOpen(!isOpen); }}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-light text-text-secondary transition hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:bg-surface-dark-alt dark:text-text-muted dark:hover:bg-white/5 dark:hover:text-text-inverse"

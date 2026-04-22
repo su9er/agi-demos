@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
-import { PresenceBar } from '@/components/workspace/presence/PresenceBar';
 import { buildAgentWorkspacePath } from '@/utils/agentWorkspacePath';
+
+import { PresenceBar } from '@/components/workspace/presence/PresenceBar';
 
 import { EmptyState } from '../EmptyState';
 import { StatBadge } from '../StatBadge';

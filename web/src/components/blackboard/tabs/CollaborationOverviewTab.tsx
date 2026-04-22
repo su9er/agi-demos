@@ -111,7 +111,7 @@ export function CollaborationOverviewTab({
           <Filter className="h-4 w-4 text-text-secondary dark:text-text-muted" />
           <select
             value={filterAgent}
-            onChange={(e) => setFilterAgent(e.target.value)}
+            onChange={(e) => { setFilterAgent(e.target.value); }}
             className="rounded-md border border-border-light bg-surface-light px-2 py-1 text-sm text-text-primary outline-none focus:ring-1 focus:ring-primary dark:border-border-dark dark:bg-surface-dark dark:text-text-inverse"
           >
             <option value="all">

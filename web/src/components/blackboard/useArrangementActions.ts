@@ -5,9 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { useLazyMessage } from '@/components/ui/lazyAntd';
 import { hexToPixel } from '@/components/workspace/hex/useHexLayout';
 
-import { getErrorMessage } from '@/types/common';
-import type { TopologyNode, WorkspaceAgent } from '@/types/workspace';
-
 import {
   coordKey,
   DEFAULT_AGENT_COLOR,
@@ -15,6 +12,10 @@ import {
   HUMAN_SEAT_COLOR,
   RESERVED_CENTER_KEY,
 } from './arrangementUtils';
+
+import { getErrorMessage } from '@/types/common';
+import type { TopologyNode, WorkspaceAgent } from '@/types/workspace';
+
 import type { MoveMode, SelectionState } from './arrangementUtils';
 
 type BindAgentData = {

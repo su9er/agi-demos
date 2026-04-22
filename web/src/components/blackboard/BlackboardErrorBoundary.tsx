@@ -1,5 +1,4 @@
 import { Component } from 'react';
-
 import type { ErrorInfo, ReactNode } from 'react';
 
 interface BlackboardErrorBoundaryProps {
@@ -27,7 +26,7 @@ export class BlackboardErrorBoundary extends Component<
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
-    // eslint-disable-next-line no-console
+     
     console.error('[BlackboardErrorBoundary]', error, info.componentStack);
   }
 

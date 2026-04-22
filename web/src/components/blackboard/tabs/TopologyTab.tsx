@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
 
+import { EmptyState } from '../EmptyState';
+
 import type { TopologyEdge, TopologyNode } from '@/types/workspace';
 
-import { EmptyState } from '../EmptyState';
 
 export interface TopologyTabProps {
   topologyNodes: TopologyNode[];

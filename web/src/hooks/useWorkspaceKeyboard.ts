@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
-import { useAgentV3Store } from "@/stores/agentV3";
 import { useExecutionStore } from "@/stores/agent/executionStore";
+import { useAgentV3Store } from "@/stores/agentV3";
 
 interface WorkspaceKeyboardOpts {
 	inputBarRef: React.RefObject<HTMLTextAreaElement | null>;
