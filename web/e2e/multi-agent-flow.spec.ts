@@ -255,20 +255,97 @@ test.describe('multi-agent conversation flow (API)', () => {
   });
 });
 
-test.describe('multi-agent UI flows (requires panel wiring)', () => {
-  // These scenarios are part of b-e2e's charter but depend on
-  // ConversationParticipantsPanel / MentionPicker / HITLCenterPanel
-  // being mounted in AgentWorkspace. Enable once the wiring PR lands.
+test.describe('multi-agent UI flows (smoke — API plumbing)', () => {
+  // These scenarios were originally stubbed as ``test.skip`` pending
+  // full Playwright browser flows (autonomous mode toggle, @mention
+  // picker chip, HITLCenterPanel accept button). The browser-level UI
+  // flows are still deferred — see ``files/p3-autonomous-ui-plan.md``.
+  //
+  // Here we enable them with API-level smoke coverage that exercises
+  // the backend plumbing the UI flows depend on. This is the same
+  // pattern as the sibling ``multi-agent conversation flow (API)``
+  // suite and provides a concrete regression guard while browser UI
+  // pieces are iterated on.
 
-  test.skip('autonomous scenario: goal → WS disconnect → reconnect → finished event', () => {
-    // TODO: wire panels + autonomous mode UI.
+  test('autonomous scenario: fresh conversation surfaces effective_mode and accepts participant ops', async () => {
+    const token = await login();
+    const tenantId = await pickTenantId(token);
+    // A ``multi_agent_shared`` project is the closest-shipping proxy
+    // for autonomous — ``autonomous`` mode is opt-in per conversation
+    // via goal_contract, which is not exposed on project defaults yet.
+    const project = await createProject(token, tenantId, 'multi_agent_shared');
+    const conversation = await createConversation(token, project.id);
+
+    const rosterResp = await authedFetch(
+      token,
+      'GET',
+      `/api/v1/agent/conversations/${conversation.id}/participants`
+    );
+    expect(rosterResp.ok).toBeTruthy();
+    const roster = (await rosterResp.json()) as RosterResponse;
+    expect(roster.effective_mode).toBe('multi_agent_shared');
+    expect(roster.conversation_id).toBe(conversation.id);
+
+    // Pending HITL endpoint is reachable for reconnect replay — the
+    // frontend uses this exact route on WS reconnect to re-render any
+    // outstanding approval requests.
+    const pendingResp = await authedFetch(
+      token,
+      'GET',
+      `/api/v1/agent/hitl/conversations/${conversation.id}/pending`
+    );
+    expect(pendingResp.ok).toBeTruthy();
   });
 
-  test.skip('shared-mode @mention via picker inserts chip and routes by set membership', () => {
-    // TODO: wire MentionPicker into the message input component.
+  test('shared-mode @mention via roster: adding a participant makes it mention-resolvable', async () => {
+    const token = await login();
+    const tenantId = await pickTenantId(token);
+    const project = await createProject(token, tenantId, 'multi_agent_shared');
+    const conversation = await createConversation(token, project.id);
+
+    // Adding an agent via the participants API is exactly what the
+    // MentionPicker UI ends up persisting on selection. Verifying the
+    // roster membership is the deterministic half of the
+    // set-membership routing contract.
+    const addResp = await authedFetch(
+      token,
+      'POST',
+      `/api/v1/agent/conversations/${conversation.id}/participants`,
+      { agent_id: 'agent-reviewer' }
+    );
+    expect(addResp.ok).toBeTruthy();
+
+    const listResp = await authedFetch(
+      token,
+      'GET',
+      `/api/v1/agent/conversations/${conversation.id}/participants`
+    );
+    expect(listResp.ok).toBeTruthy();
+    const list = (await listResp.json()) as RosterResponse;
+    expect(list.participant_agents).toContain('agent-reviewer');
   });
 
-  test.skip('room-HITL accept flow resolves pending request from HITLCenterPanel', () => {
-    // TODO: wire HITLCenterPanel resolve action once policy-table router exists.
+  test('room-HITL accept flow: pending endpoint is queryable post conversation creation', async () => {
+    const token = await login();
+    const tenantId = await pickTenantId(token);
+    const project = await createProject(token, tenantId, 'multi_agent_shared');
+    const conversation = await createConversation(token, project.id);
+
+    // Pre-HITL: no pending requests.
+    const pending = await authedFetch(
+      token,
+      'GET',
+      `/api/v1/agent/hitl/conversations/${conversation.id}/pending`
+    );
+    expect(pending.ok).toBeTruthy();
+    const body = (await pending.json()) as PendingHITLResponse;
+    expect(body.total).toBe(0);
+
+    // The accept path itself (POST /agent/hitl/respond) is covered
+    // by the backend unit tests and the HITLCenterPanel vitest suite
+    // (``web/src/test/components/agent/HITLCenterPanel.test.tsx``).
+    // No HITL request is outstanding on a fresh conversation, so
+    // attempting a response here would be non-deterministic. The
+    // smoke check above confirms the endpoint the UI polls is live.
   });
 });
