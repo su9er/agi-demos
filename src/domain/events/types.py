@@ -304,6 +304,10 @@ class AgentEventType(str, Enum):
     WORKSPACE_AGENT_UNBOUND = "workspace_agent_unbound"
     WORKSPACE_MESSAGE_CREATED = "workspace_message_created"
 
+    # Multi-agent conversation participant events (P2-3 phase-2, Track B)
+    CONVERSATION_PARTICIPANT_JOINED = "conversation_participant_joined"
+    CONVERSATION_PARTICIPANT_LEFT = "conversation_participant_left"
+
     # Workspace orchestration lifecycle events
     WORKSPACE_GOAL_MATERIALIZED = "workspace_goal_materialized"
     WORKSPACE_DECOMPOSITION_COMPLETE = "workspace_decomposition_complete"
@@ -488,6 +492,9 @@ EVENT_CATEGORIES: dict[AgentEventType, EventCategory] = {
     AgentEventType.WORKSPACE_AGENT_BOUND: EventCategory.AGENT,
     AgentEventType.WORKSPACE_AGENT_UNBOUND: EventCategory.AGENT,
     AgentEventType.WORKSPACE_MESSAGE_CREATED: EventCategory.AGENT,
+    # Multi-agent conversation participant events
+    AgentEventType.CONVERSATION_PARTICIPANT_JOINED: EventCategory.AGENT,
+    AgentEventType.CONVERSATION_PARTICIPANT_LEFT: EventCategory.AGENT,
     # Workspace orchestration lifecycle events
     AgentEventType.WORKSPACE_GOAL_MATERIALIZED: EventCategory.AGENT,
     AgentEventType.WORKSPACE_DECOMPOSITION_COMPLETE: EventCategory.AGENT,

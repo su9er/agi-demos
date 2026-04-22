@@ -14,6 +14,15 @@ Guidance for AI coding assistants (Copilot, Claude, Cursor, Gemini, ...) working
 - **Code style**: no emojis in code/docs. Prefer immutability. Small files (200–400 lines typical, 800 max). Conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`).
 - Before editing a symbol: run `gitnexus_impact` (see GitNexus section) and report blast radius.
 - Before committing: run `gitnexus_detect_changes` to verify scope.
+- **Agent First (top-level architectural rule)**: every **subjective** decision point — anything that requires semantic understanding, intent inference, quality assessment, appropriateness judgment, categorization by meaning, or resolution of ambiguity — **MUST be made by an agent via a structured tool-call**. Hardcoded heuristics for subjective calls are prohibited: no regex-on-text for routing or classification, no keyword matching for intent, no `dict` lookup tables masquerading as policy engines, no hand-tuned thresholds that produce semantic verdicts on their own. The following stay deterministic because they are **structural / arithmetic / protocol** facts, not judgments:
+  - set-membership checks (roster, sender-in-participants, permission allow-lists)
+  - pure arithmetic (budget counters: turns, USD, wall-seconds)
+  - FIFO queues, mutexes, persistence, schema enforcement
+  - reading fields from a structured tool-call payload
+  - static metadata declared at tool/plugin definition time (e.g. `tool.side_effects = ["payment"]`)
+  - structured UI affordances (e.g. mention chips emitting `mentions: [agent_id]` on the wire) — NOT text parsing of "@xxx"
+  - timers and tick triggers (the tick is objective; the verdict it triggers must be agent-judged)
+  When a deterministic threshold is useful as a **cheap circuit-breaker** (e.g. doom-loop repeat count, stale-time window), it may fire the **trigger**, but the **verdict** (`healthy | stalled | looping | goal_drift`) and the **next action** (`continue | reassign | escalate`) must come from an agent tool-call. Log every judgment tool-call (agent_id, tool_name, input, output, rationale, latency) for audit. When in doubt: if the rule requires a human to write a natural-language rationale to defend it, it is subjective — delegate to an agent.
 
 ## Quick Start
 

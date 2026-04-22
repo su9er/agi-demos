@@ -3,11 +3,23 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.domain.model.agent.agent_mode import AgentMode  # stays in agent/
+from src.domain.model.agent.conversation.conversation_mode import ConversationMode
+from src.domain.model.agent.conversation.errors import (
+    CoordinatorRequiredError,
+    ParticipantAlreadyPresentError,
+    ParticipantLimitError,
+    ParticipantNotPresentError,
+    SenderNotInRosterError,
+)
+from src.domain.model.agent.conversation.goal_contract import GoalContract
 from src.domain.model.agent.merge_strategy import MergeStrategy
 from src.domain.shared_kernel import Entity
+
+if TYPE_CHECKING:
+    from src.domain.events.agent_events import AgentDomainEvent
 
 
 class ConversationStatus(str, Enum):
@@ -53,6 +65,38 @@ class Conversation(Entity):
     fork_source_id: str | None = None  # Conversation this was forked from
     fork_context_snapshot: str | None = None  # Serialized context at fork time
     merge_strategy: MergeStrategy = MergeStrategy.RESULT_ONLY  # How to merge results back
+
+    # Multi-agent collaboration (P2-3 phase-2, Track B)
+    #
+    # ``participant_agents`` is the mutable roster — the list of agent IDs
+    # allowed to read/write this conversation. It is the source of truth for
+    # sender validation and @mention narrowing.
+    #
+    # ``conversation_mode`` may override ``project.agent_conversation_mode``;
+    # ``None`` means "inherit project default" (resolved at application layer).
+    #
+    # ``coordinator_agent_id`` is MANDATORY when mode == AUTONOMOUS — that agent
+    # owns per-tick routing decisions. In SHARED/ISOLATED modes it is optional.
+    #
+    # ``focused_agent_id`` selects the active agent for MULTI_AGENT_ISOLATED
+    # mode (each human turn addresses one agent at a time).
+    #
+    # ``goal_contract`` is required for AUTONOMOUS mode and expresses the
+    # user's terminal goal + guardrails (budget, blocking side-effect categories,
+    # prose operator_guidance).  See ``goal_contract.py`` — Agent First
+    # compliant: prose guidance is consumed by the coordinator agent, NOT a
+    # dict-lookup policy engine.
+    participant_agents: list[str] = field(default_factory=list)
+    conversation_mode: ConversationMode | None = None
+    coordinator_agent_id: str | None = None
+    focused_agent_id: str | None = None
+    goal_contract: GoalContract | None = None
+
+    # Domain events pending dispatch to infrastructure (Redis stream, SSE).
+    # Not persisted; consumed once by the application/repository layer.
+    _pending_events: list["AgentDomainEvent"] = field(
+        default_factory=list, repr=False, compare=False
+    )
 
     def archive(self) -> None:
         """Archive this conversation."""
@@ -164,6 +208,162 @@ class Conversation(Entity):
             merge_strategy=merge_strategy,
         )
 
+    # =========================================================================
+    # Multi-agent roster (P2-3 phase-2, Track B)
+    # =========================================================================
+
+    def resolve_mode(self, project_default: str | ConversationMode) -> ConversationMode:
+        """Resolve the effective mode: conversation override wins, else project default.
+
+        Deterministic: just reads a value. No NLP / heuristics.
+        """
+        if self.conversation_mode is not None:
+            return self.conversation_mode
+        if isinstance(project_default, ConversationMode):
+            return project_default
+        return ConversationMode(project_default)
+
+    def has_participant(self, agent_id: str) -> bool:
+        """Set-membership check — Agent First compliant (deterministic)."""
+        return agent_id in self.participant_agents
+
+    def add_participant(
+        self,
+        agent_id: str,
+        *,
+        effective_mode: ConversationMode,
+        actor_id: str | None = None,
+        role: str | None = None,
+    ) -> None:
+        """Add an agent to the roster.
+
+        Enforces mode-specific invariants:
+        - SINGLE_AGENT: at most one participant.
+        - other modes: no hard cap at the domain level (application/DB may add).
+
+        Emits ``ConversationParticipantJoinedEvent``.
+        """
+        if agent_id in self.participant_agents:
+            raise ParticipantAlreadyPresentError(
+                f"Agent {agent_id} is already a participant of conversation {self.id}"
+            )
+        if effective_mode == ConversationMode.SINGLE_AGENT and len(self.participant_agents) >= 1:
+            raise ParticipantLimitError(
+                f"Conversation {self.id} is in single_agent mode; cannot add a second agent"
+            )
+        self.participant_agents.append(agent_id)
+        self.updated_at = datetime.now(UTC)
+
+        # Lazy import to avoid cycle at module load time.
+        from src.domain.events.agent_events import ConversationParticipantJoinedEvent
+
+        self._pending_events.append(
+            ConversationParticipantJoinedEvent(
+                conversation_id=self.id,
+                agent_id=agent_id,
+                actor_id=actor_id,
+                role=role,
+            )
+        )
+
+    def remove_participant(
+        self,
+        agent_id: str,
+        *,
+        actor_id: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        """Remove an agent from the roster.
+
+        Also clears ``coordinator_agent_id`` / ``focused_agent_id`` if they
+        pointed at the removed agent (deterministic cleanup — no judgment).
+
+        Emits ``ConversationParticipantLeftEvent``.
+        """
+        if agent_id not in self.participant_agents:
+            raise ParticipantNotPresentError(
+                f"Agent {agent_id} is not a participant of conversation {self.id}"
+            )
+        self.participant_agents.remove(agent_id)
+        if self.coordinator_agent_id == agent_id:
+            self.coordinator_agent_id = None
+        if self.focused_agent_id == agent_id:
+            self.focused_agent_id = None
+        self.updated_at = datetime.now(UTC)
+
+        from src.domain.events.agent_events import ConversationParticipantLeftEvent
+
+        self._pending_events.append(
+            ConversationParticipantLeftEvent(
+                conversation_id=self.id,
+                agent_id=agent_id,
+                actor_id=actor_id,
+                reason=reason,
+            )
+        )
+
+    def set_coordinator(self, agent_id: str | None) -> None:
+        """Assign (or clear) the coordinator. The agent MUST be in the roster."""
+        if agent_id is not None and agent_id not in self.participant_agents:
+            raise ParticipantNotPresentError(
+                f"Cannot set coordinator: agent {agent_id} is not a participant of {self.id}"
+            )
+        self.coordinator_agent_id = agent_id
+        self.updated_at = datetime.now(UTC)
+
+    def set_focused_agent(self, agent_id: str | None) -> None:
+        """Assign (or clear) the focused agent (for isolated mode)."""
+        if agent_id is not None and agent_id not in self.participant_agents:
+            raise ParticipantNotPresentError(
+                f"Cannot set focused agent: agent {agent_id} is not a participant of {self.id}"
+            )
+        self.focused_agent_id = agent_id
+        self.updated_at = datetime.now(UTC)
+
+    def assert_sender_in_roster(self, sender_agent_id: str | None) -> None:
+        """Write-path invariant: a message's sender_agent_id, if set, MUST be
+        a participant of this conversation.
+
+        User messages (sender_agent_id is None) are always allowed.
+        """
+        if sender_agent_id is None:
+            return
+        if sender_agent_id not in self.participant_agents:
+            raise SenderNotInRosterError(
+                f"Agent {sender_agent_id} is not a participant of conversation {self.id}"
+            )
+
+    def assert_autonomous_invariants(self, effective_mode: ConversationMode) -> None:
+        """When the effective mode is AUTONOMOUS, enforce structural preconditions.
+
+        - ``coordinator_agent_id`` MUST be set and in the roster.
+        - ``goal_contract`` MUST be set.
+        """
+        if effective_mode != ConversationMode.AUTONOMOUS:
+            return
+        if self.coordinator_agent_id is None:
+            raise CoordinatorRequiredError(
+                f"Autonomous conversation {self.id} requires coordinator_agent_id"
+            )
+        if self.coordinator_agent_id not in self.participant_agents:
+            raise ParticipantNotPresentError(
+                f"coordinator_agent_id {self.coordinator_agent_id} must be in roster"
+            )
+        if self.goal_contract is None:
+            raise CoordinatorRequiredError(
+                f"Autonomous conversation {self.id} requires goal_contract"
+            )
+
+    def consume_pending_events(self) -> list["AgentDomainEvent"]:
+        """Drain pending domain events for dispatch by the repository/service.
+
+        Following the tool pending_events pattern from
+        ``src/infrastructure/agent/tools/todo_tools.py``.
+        """
+        events = list(self._pending_events)
+        self._pending_events.clear()
+        return events
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for caching."""
         return {
@@ -180,6 +380,15 @@ class Conversation(Entity):
             "fork_source_id": self.fork_source_id,
             "fork_context_snapshot": self.fork_context_snapshot,
             "merge_strategy": self.merge_strategy.value,
+            "participant_agents": list(self.participant_agents),
+            "conversation_mode": (
+                self.conversation_mode.value if self.conversation_mode is not None else None
+            ),
+            "coordinator_agent_id": self.coordinator_agent_id,
+            "focused_agent_id": self.focused_agent_id,
+            "goal_contract": (
+                self.goal_contract.to_dict() if self.goal_contract is not None else None
+            ),
         }
 
     @classmethod
@@ -189,6 +398,10 @@ class Conversation(Entity):
         merge_strategy = (
             MergeStrategy(merge_strategy_raw) if merge_strategy_raw else MergeStrategy.RESULT_ONLY
         )
+        mode_raw = data.get("conversation_mode")
+        conversation_mode = ConversationMode(mode_raw) if mode_raw else None
+        goal_raw = data.get("goal_contract")
+        goal_contract = GoalContract.from_dict(goal_raw) if isinstance(goal_raw, dict) else None
         return cls(
             id=data["id"],
             project_id=data["project_id"],
@@ -205,4 +418,9 @@ class Conversation(Entity):
             fork_source_id=data.get("fork_source_id"),
             fork_context_snapshot=data.get("fork_context_snapshot"),
             merge_strategy=merge_strategy,
+            participant_agents=list(data.get("participant_agents") or []),
+            conversation_mode=conversation_mode,
+            coordinator_agent_id=data.get("coordinator_agent_id"),
+            focused_agent_id=data.get("focused_agent_id"),
+            goal_contract=goal_contract,
         )

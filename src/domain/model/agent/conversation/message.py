@@ -88,6 +88,19 @@ class Message(Entity):
     task_step_index: int | None = None  # Which step this message is for
     thought_level: ThoughtLevel | None = None  # WORK or TASK
 
+    # Multi-agent conversation support (P2-3 phase-2, Track B)
+    #
+    # ``sender_agent_id`` identifies WHICH agent produced this message when
+    # role == ASSISTANT. It is ``None`` for user/system messages and for
+    # legacy single-agent conversations. The conversation enforces
+    # ``sender_agent_id in participant_agents`` at the write path.
+    #
+    # ``mentions`` is a STRUCTURED list of target agent IDs produced by the
+    # frontend mention-picker (chips). Per the Agent First rule, mentions are
+    # NEVER parsed from ``content`` by regex — the wire format is this field.
+    sender_agent_id: str | None = None
+    mentions: list[str] = field(default_factory=list)
+
     def __post_init__(self) -> None:
         """Validate message consistency."""
         self._validate_tool_matching()

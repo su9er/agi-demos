@@ -53,6 +53,8 @@ __all__ = [
     "BlackboardReplyCreatedEvent",
     "BlackboardReplyDeletedEvent",
     "ContextCompactedEvent",
+    "ConversationParticipantJoinedEvent",
+    "ConversationParticipantLeftEvent",
     "GraphHandoffEvent",
     "GraphNodeCompletedEvent",
     "GraphNodeFailedEvent",
@@ -1520,6 +1522,33 @@ class WorkspaceMemberLeftEvent(AgentDomainEvent):
     event_type: AgentEventType = AgentEventType.WORKSPACE_MEMBER_LEFT
     workspace_id: str
     member_id: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+# =========================================================================
+# Multi-agent conversation participant events (Track B, P2-3 phase-2)
+# =========================================================================
+
+
+class ConversationParticipantJoinedEvent(AgentDomainEvent):
+    """Event: An agent joined a multi-agent conversation roster."""
+
+    event_type: AgentEventType = AgentEventType.CONVERSATION_PARTICIPANT_JOINED
+    conversation_id: str
+    agent_id: str
+    actor_id: str | None = None  # user or agent that performed the add
+    role: str | None = None  # "coordinator" | "participant" | "focused" (optional hint)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConversationParticipantLeftEvent(AgentDomainEvent):
+    """Event: An agent left a multi-agent conversation roster."""
+
+    event_type: AgentEventType = AgentEventType.CONVERSATION_PARTICIPANT_LEFT
+    conversation_id: str
+    agent_id: str
+    actor_id: str | None = None
+    reason: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
