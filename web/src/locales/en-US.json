@@ -914,7 +914,25 @@
         "toolPolicyHint": "Explicit allow / deny rules stored for this tenant",
         "hookOverrides": "Hook overrides",
         "hookOverridesDefault": "Catalog defaults",
-        "hookOverridesHint": "Runtime hooks only appear here when this tenant diverges"
+        "hookOverridesHint": "Runtime hooks only appear here when this tenant diverges",
+        "agentRuntime": "Agent runtime",
+        "agentRuntimeHint": "Global execution mode used by the agent runtime.",
+        "memoryRuntime": "Memory runtime",
+        "memoryRuntimeHint": "Rollout mode currently applied to durable memory hooks and tools.",
+        "failurePersistence": "Failure persistence",
+        "failurePersistenceHint": "Whether memory runtime failures are written into audit logs.",
+        "runtimeUnavailable": "Unavailable",
+        "runtimeModes": {
+          "auto": "Auto",
+          "ray": "Ray",
+          "local": "Local"
+        },
+        "memoryModes": {
+          "plugin": "Plugin",
+          "disabled": "Disabled",
+          "legacy": "Legacy",
+          "dual": "Dual"
+        }
       },
       "sections": {
         "modelReasoning": {
@@ -1089,6 +1107,12 @@
             "settingsObject": "Settings must be a JSON object."
           }
         }
+      },
+      "runtimeStatus": {
+        "title": "Runtime rollout status",
+        "memoryDisabled": "Memory runtime is globally disabled. Hook overrides can still be edited, but they will not execute until the rollout mode is re-enabled.",
+        "failurePersistenceDisabled": "Memory runtime is active, but failure persistence is globally disabled. Runtime failures will not be written into audit logs.",
+        "normal": "Agent runtime mode: {{agentMode}}. Memory runtime mode: {{memoryMode}}."
       }
     },
     "instances": {

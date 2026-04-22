@@ -706,7 +706,25 @@
         "toolPolicyHint": "该租户显式保存的允许 / 禁止规则",
         "hookOverrides": "Hook 覆盖",
         "hookOverridesDefault": "使用目录默认值",
-        "hookOverridesHint": "仅当租户偏离默认目录时，才会在这里展示 Hook 覆盖"
+        "hookOverridesHint": "仅当租户偏离默认目录时，才会在这里展示 Hook 覆盖",
+        "agentRuntime": "智能体运行时",
+        "agentRuntimeHint": "当前全局智能体执行模式。",
+        "memoryRuntime": "记忆运行时",
+        "memoryRuntimeHint": "当前持久记忆 hooks 和工具的 rollout 模式。",
+        "failurePersistence": "失败持久化",
+        "failurePersistenceHint": "记忆运行时失败是否会写入审计日志。",
+        "runtimeUnavailable": "不可用",
+        "runtimeModes": {
+          "auto": "自动",
+          "ray": "Ray",
+          "local": "本地"
+        },
+        "memoryModes": {
+          "plugin": "插件",
+          "disabled": "禁用",
+          "legacy": "兼容旧版",
+          "dual": "双轨"
+        }
       },
       "sections": {
         "modelReasoning": {
@@ -825,6 +843,12 @@
         "catalogDefaultPriority": "目录默认值：{{value}}",
         "noExtraSettings": "该 Hook 除启用状态和优先级外，没有额外设置项。",
         "empty": "当前没有可供租户自定义的运行时 Hook。"
+      },
+      "runtimeStatus": {
+        "title": "运行时 rollout 状态",
+        "memoryDisabled": "记忆运行时已被全局禁用。你仍然可以编辑 Hook 覆盖，但在重新启用 rollout 模式前它们不会执行。",
+        "failurePersistenceDisabled": "记忆运行时已启用，但失败持久化被全局关闭。运行时失败不会写入审计日志。",
+        "normal": "智能体运行时模式：{{agentMode}}。记忆运行时模式：{{memoryMode}}。"
       }
     },
     "agentBindings": {

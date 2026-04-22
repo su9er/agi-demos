@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Edit, RefreshCw } from 'lucide-react';
 
 import { agentConfigService, TenantAgentConfigError } from '@/services/agentConfigService';
+import { systemService, type SystemInfoResponse } from '@/services/systemService';
 
 import { formatDateTime } from '@/utils/date';
 
@@ -77,6 +78,43 @@ function StatusPill({
       {children}
     </span>
   );
+}
+
+function formatRuntimeModeLabel(
+  mode: string | undefined,
+  t: ReturnType<typeof useTranslation>['t']
+) {
+  const normalized = mode?.trim().toLowerCase();
+  switch (normalized) {
+    case 'auto':
+      return t('tenant.agentConfigView.summary.runtimeModes.auto');
+    case 'ray':
+      return t('tenant.agentConfigView.summary.runtimeModes.ray');
+    case 'local':
+      return t('tenant.agentConfigView.summary.runtimeModes.local');
+    case 'plugin':
+      return t('tenant.agentConfigView.summary.memoryModes.plugin');
+    case 'disabled':
+      return t('tenant.agentConfigView.summary.memoryModes.disabled');
+    case 'legacy':
+      return t('tenant.agentConfigView.summary.memoryModes.legacy');
+    case 'dual':
+      return t('tenant.agentConfigView.summary.memoryModes.dual');
+    default:
+      return t('tenant.agentConfigView.summary.runtimeUnavailable');
+  }
+}
+
+function formatFailurePersistenceLabel(
+  runtimeInfo: SystemInfoResponse | null,
+  t: ReturnType<typeof useTranslation>['t']
+) {
+  if (!runtimeInfo) {
+    return t('tenant.agentConfigView.summary.runtimeUnavailable');
+  }
+  return runtimeInfo.memory_runtime.failure_persistence_enabled
+    ? t('common.status.enabled')
+    : t('common.status.disabled');
 }
 
 function SummaryStat({ label, value, hint }: SummaryStatProps) {
@@ -163,6 +201,7 @@ export function TenantAgentConfigView({
 }: TenantAgentConfigViewProps) {
   const { t } = useTranslation();
   const [config, setConfig] = useState<TenantAgentConfig | null>(null);
+  const [runtimeInfo, setRuntimeInfo] = useState<SystemInfoResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -170,8 +209,12 @@ export function TenantAgentConfigView({
     setLoading(true);
     setError(null);
     try {
-      const data = await agentConfigService.getConfig(tenantId);
+      const [data, systemInfo] = await Promise.all([
+        agentConfigService.getConfig(tenantId),
+        systemService.getInfo().catch(() => null),
+      ]);
       setConfig(data);
+      setRuntimeInfo(systemInfo);
     } catch (err) {
       if (err instanceof TenantAgentConfigError) {
         setError(err.message);
@@ -198,8 +241,8 @@ export function TenantAgentConfigView({
         <div className="animate-pulse space-y-4">
           <div className="h-5 w-36 rounded-full bg-slate-200 dark:bg-slate-800" />
           <div className="h-8 w-72 rounded-full bg-slate-200 dark:bg-slate-800" />
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, index) => (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+            {Array.from({ length: 6 }).map((_, index) => (
               <div
                 key={String(index)}
                 className="h-24 rounded-2xl border border-slate-200/80 bg-slate-50 dark:border-slate-800 dark:bg-slate-900"
@@ -297,7 +340,7 @@ export function TenantAgentConfigView({
           </div>
         ) : null}
 
-        <dl className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <dl className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <SummaryStat
             label={t('tenant.agentConfigView.summary.model')}
             value={config.llm_model}
@@ -327,6 +370,21 @@ export function TenantAgentConfigView({
                 : String(config.runtime_hooks.length)
             }
             hint={t('tenant.agentConfigView.summary.hookOverridesHint')}
+          />
+          <SummaryStat
+            label={t('tenant.agentConfigView.summary.agentRuntime')}
+            value={formatRuntimeModeLabel(runtimeInfo?.agent_runtime.mode, t)}
+            hint={t('tenant.agentConfigView.summary.agentRuntimeHint')}
+          />
+          <SummaryStat
+            label={t('tenant.agentConfigView.summary.memoryRuntime')}
+            value={formatRuntimeModeLabel(runtimeInfo?.memory_runtime.mode, t)}
+            hint={t('tenant.agentConfigView.summary.memoryRuntimeHint')}
+          />
+          <SummaryStat
+            label={t('tenant.agentConfigView.summary.failurePersistence')}
+            value={formatFailurePersistenceLabel(runtimeInfo, t)}
+            hint={t('tenant.agentConfigView.summary.failurePersistenceHint')}
           />
         </dl>
       </div>

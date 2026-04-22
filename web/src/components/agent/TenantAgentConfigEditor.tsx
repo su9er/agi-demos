@@ -17,6 +17,7 @@ import {
 } from 'antd';
 
 import { agentConfigService, TenantAgentConfigError } from '@/services/agentConfigService';
+import { systemService, type SystemInfoResponse } from '@/services/systemService';
 
 import {
   buildRuntimeHooks,
@@ -173,6 +174,7 @@ export function TenantAgentConfigEditor({
   const [error, setError] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [multiAgentEnabled, setMultiAgentEnabled] = useState(false);
+  const [runtimeInfo, setRuntimeInfo] = useState<SystemInfoResponse | null>(null);
   const [hookCatalog, setHookCatalog] = useState<HookCatalogEntry[]>([]);
   const [hookCatalogError, setHookCatalogError] = useState<string | null>(null);
   const [runtimeHooks, setRuntimeHooks] = useState<RuntimeHookConfig[]>([]);
@@ -191,7 +193,10 @@ export function TenantAgentConfigEditor({
       setError(null);
 
       try {
-        const config = initialConfig ? initialConfig : await agentConfigService.getConfig(tenantId);
+        const [config, systemInfo] = await Promise.all([
+          initialConfig ? Promise.resolve(initialConfig) : agentConfigService.getConfig(tenantId),
+          systemService.getInfo().catch(() => null),
+        ]);
         let catalog: HookCatalogEntry[] = [];
         let nextHookCatalogError: string | null = null;
 
@@ -206,6 +211,7 @@ export function TenantAgentConfigEditor({
         const catalogKeys = new Set(catalog.map((entry) => hookKey(entry)));
 
         setMultiAgentEnabled(config.multi_agent_enabled);
+        setRuntimeInfo(systemInfo);
         setHookCatalog(catalog);
         setHookCatalogError(nextHookCatalogError);
         setRuntimeHooks(buildRuntimeHooks(config, catalog));
@@ -435,6 +441,30 @@ export function TenantAgentConfigEditor({
           type="error"
           title={t('tenant.agentConfigEditor.alertTitle')}
           description={error}
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
+
+      {runtimeInfo ? (
+        <Alert
+          type={
+            runtimeInfo.memory_runtime.mode === 'disabled' ||
+            !runtimeInfo.memory_runtime.failure_persistence_enabled
+              ? 'warning'
+              : 'info'
+          }
+          title={t('tenant.agentConfigEditor.runtimeStatus.title')}
+          description={
+            runtimeInfo.memory_runtime.mode === 'disabled'
+              ? t('tenant.agentConfigEditor.runtimeStatus.memoryDisabled')
+              : !runtimeInfo.memory_runtime.failure_persistence_enabled
+                ? t('tenant.agentConfigEditor.runtimeStatus.failurePersistenceDisabled')
+                : t('tenant.agentConfigEditor.runtimeStatus.normal', {
+                    agentMode: runtimeInfo.agent_runtime.mode,
+                    memoryMode: runtimeInfo.memory_runtime.mode,
+                  })
+          }
           showIcon
           style={{ marginBottom: 16 }}
         />
