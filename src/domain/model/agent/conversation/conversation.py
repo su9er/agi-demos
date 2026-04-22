@@ -89,6 +89,22 @@ class Conversation(Entity):
     coordinator_agent_id: str | None = None
     focused_agent_id: str | None = None
 
+    # Workspace linkage (Track G2 · Phase-5).
+    #
+    # ``workspace_id`` nominates the owning Workspace — the canonical
+    # goal / roster / budget source for this conversation. Autonomous mode
+    # requires it to be set (invariant enforced below) because
+    # ``GoalContract`` was removed in G1 and goal state now lives on the
+    # Workspace.
+    #
+    # ``linked_workspace_task_id`` optionally narrows the autonomous run
+    # to a specific ``WorkspaceTask`` (sub-goal). When ``None`` the
+    # conversation addresses the workspace's root goal-tree as a whole.
+    # In G3 this field will be consumed by ``TerminationService`` to
+    # decide completion, and in G4 by the participant-roster validator.
+    workspace_id: str | None = None
+    linked_workspace_task_id: str | None = None
+
     # Domain events pending dispatch to infrastructure (Redis stream, SSE).
     # Not persisted; consumed once by the application/repository layer.
     _pending_events: list["AgentDomainEvent"] = field(
@@ -334,10 +350,13 @@ class Conversation(Entity):
         """When the effective mode is AUTONOMOUS, enforce structural preconditions.
 
         - ``coordinator_agent_id`` MUST be set and in the roster.
+        - ``workspace_id`` MUST be set (goal source after G1 removed
+          ``GoalContract``). ``linked_workspace_task_id`` remains optional
+          — when ``None`` the conversation targets the workspace root.
 
-        Goal + budget constraints are now owned by the linked Workspace /
+        Goal + budget constraints are owned by the linked Workspace /
         WorkspaceTask (enforced by the application layer); the Conversation
-        entity no longer carries that state.
+        entity only holds the foreign-key references.
         """
         if effective_mode != ConversationMode.AUTONOMOUS:
             return
@@ -348,6 +367,11 @@ class Conversation(Entity):
         if self.coordinator_agent_id not in self.participant_agents:
             raise ParticipantNotPresentError(
                 f"coordinator_agent_id {self.coordinator_agent_id} must be in roster"
+            )
+        if not self.workspace_id:
+            raise CoordinatorRequiredError(
+                f"Autonomous conversation {self.id} requires workspace_id "
+                "(goal source after GoalContract removal in G1)"
             )
 
     def consume_pending_events(self) -> list["AgentDomainEvent"]:
@@ -382,6 +406,8 @@ class Conversation(Entity):
             ),
             "coordinator_agent_id": self.coordinator_agent_id,
             "focused_agent_id": self.focused_agent_id,
+            "workspace_id": self.workspace_id,
+            "linked_workspace_task_id": self.linked_workspace_task_id,
         }
 
     @classmethod
@@ -413,4 +439,6 @@ class Conversation(Entity):
             conversation_mode=conversation_mode,
             coordinator_agent_id=data.get("coordinator_agent_id"),
             focused_agent_id=data.get("focused_agent_id"),
+            workspace_id=data.get("workspace_id"),
+            linked_workspace_task_id=data.get("linked_workspace_task_id"),
         )

@@ -452,6 +452,27 @@ async def update_conversation_mode(
                         ),
                     ) from exc
 
+        # Track G2 — workspace linkage fields. Both are explicitly-optional:
+        # presence in ``model_fields_set`` means apply the value (including
+        # clearing to ``None``); absence means leave untouched.
+        if "workspace_id" in fields:
+            conversation.workspace_id = data.workspace_id
+        if "linked_workspace_task_id" in fields:
+            conversation.linked_workspace_task_id = data.linked_workspace_task_id
+
+        # Enforce autonomous-mode structural invariants (coordinator in
+        # roster + workspace_id present) before persisting. Effective mode
+        # resolution matches the service layer default (conversation
+        # override falls back to project setting); for a simple PATCH we
+        # only validate when the conversation's own mode is AUTONOMOUS.
+        if conversation.conversation_mode is not None:
+            from src.domain.model.agent.conversation.errors import ConversationDomainError
+
+            try:
+                conversation.assert_autonomous_invariants(conversation.conversation_mode)
+            except ConversationDomainError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
         conversation.updated_at = datetime.now(UTC)
         await agent_service._conversation_repo.save(conversation)  # type: ignore[attr-defined]
         await db.commit()

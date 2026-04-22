@@ -105,6 +105,8 @@ export const restApi = {
     projectId: string,
     payload: {
       conversation_mode?: string | null;
+      workspace_id?: string | null;
+      linked_workspace_task_id?: string | null;
     }
   ): Promise<Conversation> {
     return await api.patch<Conversation>(`/agent/conversations/${conversationId}/mode`, payload, {

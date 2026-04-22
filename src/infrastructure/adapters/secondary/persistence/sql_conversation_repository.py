@@ -109,6 +109,9 @@ class SqlConversationRepository(
             ),
             "coordinator_agent_id": conversation.coordinator_agent_id,
             "focused_agent_id": conversation.focused_agent_id,
+            # Workspace linkage (Track G2)
+            "workspace_id": conversation.workspace_id,
+            "linked_workspace_task_id": conversation.linked_workspace_task_id,
         }
 
         # Use PostgreSQL ON CONFLICT for upsert
@@ -140,6 +143,9 @@ class SqlConversationRepository(
                     ),
                     "coordinator_agent_id": conversation.coordinator_agent_id,
                     "focused_agent_id": conversation.focused_agent_id,
+                    # Workspace linkage (Track G2)
+                    "workspace_id": conversation.workspace_id,
+                    "linked_workspace_task_id": conversation.linked_workspace_task_id,
                 },
             )
         )
@@ -381,6 +387,9 @@ class SqlConversationRepository(
             conversation_mode=conv_mode,
             coordinator_agent_id=getattr(db_conversation, "coordinator_agent_id", None),
             focused_agent_id=getattr(db_conversation, "focused_agent_id", None),
+            # Workspace linkage (Track G2)
+            workspace_id=getattr(db_conversation, "workspace_id", None),
+            linked_workspace_task_id=getattr(db_conversation, "linked_workspace_task_id", None),
         )
 
     def _to_db(self, domain_entity: Conversation) -> DBConversation:
@@ -424,4 +433,7 @@ class SqlConversationRepository(
             ),
             coordinator_agent_id=domain_entity.coordinator_agent_id,
             focused_agent_id=domain_entity.focused_agent_id,
+            # Workspace linkage (Track G2)
+            workspace_id=domain_entity.workspace_id,
+            linked_workspace_task_id=domain_entity.linked_workspace_task_id,
         )

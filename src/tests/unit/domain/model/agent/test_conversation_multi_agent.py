@@ -162,7 +162,7 @@ class TestSenderInvariant:
 @pytest.mark.unit
 class TestAutonomousInvariants:
     def test_requires_coordinator(self) -> None:
-        conv = _conv(conversation_mode=ConversationMode.AUTONOMOUS)
+        conv = _conv(conversation_mode=ConversationMode.AUTONOMOUS, workspace_id="ws-1")
         with pytest.raises(CoordinatorRequiredError):
             conv.assert_autonomous_invariants(ConversationMode.AUTONOMOUS)
 
@@ -174,12 +174,25 @@ class TestAutonomousInvariants:
         conv = _conv(
             conversation_mode=ConversationMode.AUTONOMOUS,
             coordinator_agent_id="ghost-agent",
+            workspace_id="ws-1",
         )
         with pytest.raises(ParticipantNotPresentError):
             conv.assert_autonomous_invariants(ConversationMode.AUTONOMOUS)
 
+    def test_requires_workspace_id(self) -> None:
+        """G2: autonomous mode requires workspace_id (goal source)."""
+        conv = _conv(
+            conversation_mode=ConversationMode.AUTONOMOUS,
+            participant_agents=["agent-a"],
+            coordinator_agent_id="agent-a",
+            workspace_id=None,
+        )
+        with pytest.raises(CoordinatorRequiredError) as exc_info:
+            conv.assert_autonomous_invariants(ConversationMode.AUTONOMOUS)
+        assert "workspace_id" in str(exc_info.value)
+
     def test_non_autonomous_mode_is_a_noop(self) -> None:
-        conv = _conv()  # no coordinator
+        conv = _conv()  # no coordinator, no workspace
         conv.assert_autonomous_invariants(ConversationMode.MULTI_AGENT_SHARED)
 
 
@@ -220,12 +233,16 @@ class TestSerialization:
             conversation_mode=ConversationMode.AUTONOMOUS,
             coordinator_agent_id="agent-a",
             focused_agent_id=None,
+            workspace_id="ws-42",
+            linked_workspace_task_id="task-7",
         )
         restored = Conversation.from_dict(original.to_dict())
         assert restored.participant_agents == ["agent-a", "agent-b"]
         assert restored.conversation_mode == ConversationMode.AUTONOMOUS
         assert restored.coordinator_agent_id == "agent-a"
         assert restored.focused_agent_id is None
+        assert restored.workspace_id == "ws-42"
+        assert restored.linked_workspace_task_id == "task-7"
 
     def test_legacy_dict_without_multi_agent_fields(self) -> None:
         """from_dict must tolerate legacy payloads produced before P2-3 phase-2."""

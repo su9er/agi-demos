@@ -48,19 +48,32 @@ class UpdateConversationConfigRequest(BaseModel):
 
 
 class UpdateConversationModeRequest(BaseModel):
-    """Request to update a conversation's mode.
+    """Request to update a conversation's mode or workspace linkage.
 
-    The ``conversation_mode`` field is optional — omit to leave unchanged.
+    All fields are optional; only those explicitly present in the
+    request body are applied (``model_fields_set`` gating). Pass
+    ``null`` to clear a link; omit to leave unchanged.
 
     Goal and budget constraints for AUTONOMOUS mode are sourced from the
     linked Workspace / WorkspaceTask (Track G); this endpoint no longer
-    accepts a ``goal_contract`` payload.
+    accepts a ``goal_contract`` payload — set ``workspace_id`` (and
+    optionally ``linked_workspace_task_id``) instead.
     """
 
     conversation_mode: str | None = Field(
         default=None,
         description="One of: single_agent, multi_agent_shared, multi_agent_isolated, "
         "autonomous. Omit to leave unchanged; pass null to fall back to project default.",
+    )
+    workspace_id: str | None = Field(
+        default=None,
+        description="Owning workspace id (goal/roster source). Required for autonomous "
+        "mode. Omit to leave unchanged; pass null to unlink.",
+    )
+    linked_workspace_task_id: str | None = Field(
+        default=None,
+        description="Optional WorkspaceTask id narrowing an autonomous run to a "
+        "sub-goal. Omit to leave unchanged; pass null to unlink.",
     )
 
 
@@ -79,6 +92,8 @@ class ConversationResponse(BaseModel):
     summary: str | None = None
     agent_config: dict[str, Any] | None = None
     conversation_mode: str | None = None
+    workspace_id: str | None = None
+    linked_workspace_task_id: str | None = None
 
     @classmethod
     def from_domain(cls, conversation: Conversation) -> "ConversationResponse":
@@ -100,6 +115,8 @@ class ConversationResponse(BaseModel):
                 if conversation.conversation_mode is not None
                 else None
             ),
+            workspace_id=conversation.workspace_id,
+            linked_workspace_task_id=conversation.linked_workspace_task_id,
         )
 
 

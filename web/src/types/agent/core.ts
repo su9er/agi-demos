@@ -142,6 +142,9 @@ export interface Conversation {
   parent_conversation_id?: string | null | undefined;
   branch_point_message_id?: string | null | undefined;
   conversation_mode?: ConversationMode | null | undefined;
+  // Workspace linkage (Track G2).
+  workspace_id?: string | null | undefined;
+  linked_workspace_task_id?: string | null | undefined;
 }
 
 /**

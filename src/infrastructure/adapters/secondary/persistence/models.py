@@ -895,6 +895,16 @@ class Conversation(Base):
     coordinator_agent_id: Mapped[str | None] = mapped_column(String, nullable=True)
     focused_agent_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    # Workspace linkage (Track G2, migration ``g2d1e2f3a4b5``).
+    # Nullable FK — legacy rows have no workspace; autonomous-mode rows
+    # MUST have ``workspace_id`` set (enforced by the domain invariant).
+    workspace_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True
+    )
+    linked_workspace_task_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("workspace_tasks.id", ondelete="SET NULL"), nullable=True
+    )
+
     project: Mapped["Project"] = relationship(foreign_keys=[project_id])
     tenant: Mapped["Tenant"] = relationship(foreign_keys=[tenant_id])
     user: Mapped["User"] = relationship(foreign_keys=[user_id])
