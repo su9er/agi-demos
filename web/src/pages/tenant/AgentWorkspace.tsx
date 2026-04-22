@@ -10,12 +10,14 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { Empty as AntEmpty } from 'antd';
+import { Drawer, Empty as AntEmpty } from 'antd';
 
 import { LazyEmpty, LazySpin, LazyButton } from '@/components/ui/lazyAntd';
 
 import { AgentChatContent } from '../../components/agent/AgentChatContent';
 import { ContextDetailPanel } from '../../components/agent/context/ContextDetailPanel';
+import { ConversationParticipantsPanel } from '../../components/agent/ConversationParticipantsPanel';
+import { HITLCenterPanel } from '../../components/agent/HITLCenterPanel';
 import { useBlackboardSSE } from '../../hooks/useBlackboardSSE';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { useAgentV3Store } from '../../stores/agentV3';
@@ -31,8 +33,12 @@ import type { Project } from '../../types/memory';
 export const AgentWorkspace: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { tenantId: urlTenantId } = useParams<{ tenantId?: string | undefined }>();
+  const { tenantId: urlTenantId, conversation: conversationParam } = useParams<{
+    tenantId?: string | undefined;
+    conversation?: string | undefined;
+  }>();
   const [searchParams] = useSearchParams();
+  const [multiAgentPanelOpen, setMultiAgentPanelOpen] = useState(false);
 
   // Store subscriptions - select only what we need
   const user = useAuthStore((state) => state.user);
@@ -172,7 +178,7 @@ export const AgentWorkspace: React.FC = () => {
     selectedProjectId || (projects.length > 0 ? (projects[0]?.id ?? null) : null);
 
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full relative">
       {effectiveProjectId ? (
         <>
           <AgentChatContent
@@ -181,6 +187,37 @@ export const AgentWorkspace: React.FC = () => {
             navigationQuery={navigationQuery}
           />
           <ContextDetailPanel />
+          {conversationParam ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setMultiAgentPanelOpen(true);
+                }}
+                data-testid="multi-agent-rail-toggle"
+                aria-label={t('agent.workspace.openMultiAgentRail', 'Open multi-agent panel')}
+                className="fixed right-4 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(0,0,0,0.08)] bg-white text-[#171717] shadow-sm hover:bg-[#fafafa] dark:bg-surface-dark dark:text-white dark:border-slate-700"
+              >
+                <span className="text-lg leading-none">&#x2261;</span>
+              </button>
+              <Drawer
+                title={t('agent.workspace.multiAgentRail', 'Multi-agent')}
+                placement="right"
+                open={multiAgentPanelOpen}
+                onClose={() => {
+                  setMultiAgentPanelOpen(false);
+                }}
+                size="default"
+                destroyOnHidden
+                data-testid="multi-agent-rail-drawer"
+              >
+                <div className="flex flex-col gap-4">
+                  <ConversationParticipantsPanel conversationId={conversationParam} />
+                  <HITLCenterPanel conversationId={conversationParam} />
+                </div>
+              </Drawer>
+            </>
+          ) : null}
         </>
       ) : (
         <div className="h-full flex items-center justify-center">
