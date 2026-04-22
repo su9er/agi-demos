@@ -1,5 +1,6 @@
 """Unit tests for plugin runtime registry."""
 
+from importlib import import_module
 from types import SimpleNamespace
 
 import pytest
@@ -290,6 +291,28 @@ def test_list_well_known_hooks_returns_documented_names() -> None:
         "on_session_end",
     }
     assert expected_subset.issubset(hooks)
+
+
+@pytest.mark.unit
+def test_get_plugin_registry_skips_memory_runtime_when_globally_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry_module = import_module("src.infrastructure.agent.plugins.registry")
+    monkeypatch.setattr(
+        "src.configuration.config.get_settings",
+        lambda: SimpleNamespace(agent_memory_runtime_mode="disabled"),
+    )
+    monkeypatch.setattr(
+        registry_module,
+        "_global_plugin_registry",
+        AgentPluginRegistry(),
+    )
+
+    registry = registry_module.get_plugin_registry()
+    plugin_names = {entry.plugin_name for entry in registry.list_hook_catalog()}
+
+    assert "sisyphus-runtime" in plugin_names
+    assert "memory-runtime" not in plugin_names
 
 
 @pytest.mark.unit
