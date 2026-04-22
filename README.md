@@ -324,6 +324,35 @@ curl -X POST http://localhost:8000/api/v1/memory/search \
   }'
 ```
 
+### Command-line interface
+
+MemStack ships a standalone CLI (`memstack`) for day-to-day tasks — authenticate once via device-code, then manage prompts, conversations, and artifacts without touching the web UI.
+
+```bash
+# Install (requires uv / uvx)
+uv tool install memstack-cli
+
+# Authenticate — opens browser to approve the device code
+memstack login
+
+# Sanity checks
+memstack info                # whoami + API URL
+memstack projects list       # list your projects
+
+# Send a prompt, print the streaming reply
+memstack chat "Summarize the latest ingestion run" --project <id>
+
+# Browse + download artifacts produced by agent runs
+memstack artifacts list --conversation <conversation_id>
+memstack artifacts pull <artifact_id> --output ./out.json
+
+# CI / scripting: skip device-code and pass the key directly
+export MEMSTACK_API_KEY=ms_sk_...
+memstack --json projects list
+```
+
+All commands honour `flag > env > ~/.memstack/credentials` precedence and support `--json` for scripting. See [docs/CLI.md](docs/CLI.md) for the full command reference.
+
 ## Development
 
 ### Common Commands
