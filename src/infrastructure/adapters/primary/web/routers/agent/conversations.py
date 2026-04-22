@@ -6,7 +6,7 @@ CRUD operations for Agent conversations.
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
@@ -39,8 +39,50 @@ from .schemas import (
 )
 from .utils import get_container_with_db
 
+if TYPE_CHECKING:
+    from src.configuration.di_container import DIContainer
+    from src.domain.model.agent.conversation.conversation import Conversation
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+async def _enforce_conversation_invariants(
+    conversation: "Conversation",
+    *,
+    container: "DIContainer",
+) -> None:
+    """Run the post-mutation invariant checks for a Conversation.
+
+    Raises :class:`HTTPException(422)` wrapping the underlying
+    :class:`ConversationDomainError` / :class:`ParticipantNotPresentError`.
+
+    Extracted from ``update_conversation_mode`` to keep the handler
+    below the linter's complexity thresholds; ``POST /conversations``
+    will share the same helper in G4-follow-up.
+    """
+    from src.application.services.agent.workspace_roster_validator import (
+        WorkspaceRosterValidator,
+    )
+    from src.domain.model.agent.conversation.errors import (
+        ConversationDomainError,
+        ParticipantNotPresentError,
+    )
+
+    if conversation.conversation_mode is not None:
+        try:
+            conversation.assert_autonomous_invariants(conversation.conversation_mode)
+        except ConversationDomainError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if conversation.workspace_id and conversation.participant_agents:
+        validator = WorkspaceRosterValidator(
+            workspace_agent_repository=container.workspace_agent_repository()
+        )
+        try:
+            await validator.assert_valid(conversation)
+        except ParticipantNotPresentError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/conversations", response_model=ConversationResponse, status_code=201)
@@ -460,18 +502,8 @@ async def update_conversation_mode(
         if "linked_workspace_task_id" in fields:
             conversation.linked_workspace_task_id = data.linked_workspace_task_id
 
-        # Enforce autonomous-mode structural invariants (coordinator in
-        # roster + workspace_id present) before persisting. Effective mode
-        # resolution matches the service layer default (conversation
-        # override falls back to project setting); for a simple PATCH we
-        # only validate when the conversation's own mode is AUTONOMOUS.
-        if conversation.conversation_mode is not None:
-            from src.domain.model.agent.conversation.errors import ConversationDomainError
-
-            try:
-                conversation.assert_autonomous_invariants(conversation.conversation_mode)
-            except ConversationDomainError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Enforce post-mutation invariants (autonomous + workspace roster).
+        await _enforce_conversation_invariants(conversation, container=container)
 
         conversation.updated_at = datetime.now(UTC)
         await agent_service._conversation_repo.save(conversation)  # type: ignore[attr-defined]
