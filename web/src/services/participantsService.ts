@@ -26,8 +26,11 @@ export interface RosterResponse {
 
 export interface AddParticipantRequest {
   agent_id: string;
-  set_as_focused?: boolean;
-  set_as_coordinator?: boolean;
+  role?: string;
+}
+
+export interface RemoveParticipantOptions {
+  reason?: string;
 }
 
 const base = (conversationId: string) =>
@@ -47,10 +50,12 @@ export const participantsService = {
 
   async removeParticipant(
     conversationId: string,
-    agentId: string
+    agentId: string,
+    options?: RemoveParticipantOptions
   ): Promise<RosterResponse> {
     return httpClient.delete<RosterResponse>(
-      `${base(conversationId)}/${encodeURIComponent(agentId)}`
+      `${base(conversationId)}/${encodeURIComponent(agentId)}`,
+      options?.reason ? { data: { reason: options.reason } } : undefined
     );
   },
 };

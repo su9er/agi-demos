@@ -48,12 +48,12 @@ describe('participantsService', () => {
 
     await participantsService.addParticipant('c1', {
       agent_id: 'agent-2',
-      set_as_focused: true,
+      role: 'reviewer',
     });
 
     expect(httpClient.post).toHaveBeenCalledWith('/agent/conversations/c1/participants', {
       agent_id: 'agent-2',
-      set_as_focused: true,
+      role: 'reviewer',
     });
   });
 
@@ -70,7 +70,27 @@ describe('participantsService', () => {
     await participantsService.removeParticipant('c1', 'agent/with/slash');
 
     expect(httpClient.delete).toHaveBeenCalledWith(
-      '/agent/conversations/c1/participants/agent%2Fwith%2Fslash'
+      '/agent/conversations/c1/participants/agent%2Fwith%2Fslash',
+      undefined
     );
+  });
+
+  it('removeParticipant forwards a reason as the request body when provided', async () => {
+    (httpClient.delete as ReturnType<typeof vi.fn>).mockResolvedValue({
+      conversation_id: 'c1',
+      conversation_mode: 'multi_agent_shared',
+      effective_mode: 'multi_agent_shared',
+      participant_agents: [],
+      coordinator_agent_id: null,
+      focused_agent_id: null,
+    });
+
+    await participantsService.removeParticipant('c1', 'agent-2', {
+      reason: 'Task reassigned',
+    });
+
+    expect(httpClient.delete).toHaveBeenCalledWith('/agent/conversations/c1/participants/agent-2', {
+      data: { reason: 'Task reassigned' },
+    });
   });
 });
