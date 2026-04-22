@@ -25,18 +25,18 @@ import {
 } from './agent/persistence';
 import { createSettingsActions } from './agent/settingsActions';
 import { useStreamingStore } from './agent/streamingStore';
+import { initTabSync } from './agent/tabSync';
+import { useTimelineStore } from './agent/timelineStore';
 import {
   updateHITLEventInTimeline,
   timelineToMessages,
 } from './agent/timelineUtils';
-import { useTimelineStore } from './agent/timelineStore';
 import { useCanvasStore } from './canvasStore';
 import { useLayoutModeStore } from './layoutMode';
 
 // Extracted factory modules
 
 // Extracted modules
-import { initTabSync } from './agent/tabSync';
 
 // Re-export types for external consumers
 export type { AdditionalAgentHandlers, AgentV3State } from './agent/types';
