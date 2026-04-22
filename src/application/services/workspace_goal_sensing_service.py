@@ -1,8 +1,26 @@
-"""Bounded goal candidate sensing and scoring for workspace-agent autonomy."""
+"""Bounded goal candidate sensing and scoring for workspace-agent autonomy.
+
+Agent-First iron rule (AGENTS.md): semantic verdicts (e.g. "this is a new
+goal to formalize" vs "this is chatter to reject") must come from an agent
+tool-call, not from keyword regex or hand-tuned score thresholds.
+
+This service is purely **evidence-gathering**:
+
+* Existing goal roots / objectives (resolved by DB ID) are emitted with
+  ``decision="adopt_existing_goal"`` — this is a structural lookup, not a
+  semantic verdict.
+* Inferred signals from blackboard posts and messages are always emitted
+  with ``decision="defer"``. The downstream Leader agent is responsible
+  for rendering the final verdict via an explicit planning tool-call
+  (``WorkspaceTaskCommandService.create_task`` or equivalent). The
+  materialisation service will skip any ``defer`` candidate automatically.
+
+Freshness, urgency, and priority scores remain (they are deterministic
+arithmetic over timestamps / enum metadata and do not render a verdict).
+"""
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,14 +38,10 @@ from src.infrastructure.agent.workspace.workspace_metadata_keys import (
     TASK_ROLE,
 )
 
-_ACTION_PATTERN = re.compile(
-    r"\b(need|must|please|todo|action|implement|fix|create|prepare|ship|deploy|write|add)\b",
-    re.IGNORECASE,
-)
-_CASUAL_PATTERN = re.compile(
-    r"\b(maybe|someday|later|think about|could|might)\b",
-    re.IGNORECASE,
-)
+# Neutral evidence weights for inferred candidates (no verdict semantics).
+# The numbers influence ranking only; they never drive a decision.
+_INFERRED_POST_EVIDENCE = 0.5
+_INFERRED_MESSAGE_EVIDENCE = 0.4
 
 CandidateDecision = Literal[
     "adopt_existing_goal",
@@ -58,7 +72,12 @@ class _DraftCandidate:
 
 
 class WorkspaceGoalSensingService:
-    """Produce ranked goal candidates from existing goals and workspace signals."""
+    """Produce ranked goal candidates from existing goals and workspace signals.
+
+    Inferred candidates are always deferred to an agent tool-call decision
+    (see module docstring). The ranking order still surfaces the strongest
+    evidence first so the agent can triage efficiently.
+    """
 
     def sense_candidates(
         self,
@@ -70,15 +89,12 @@ class WorkspaceGoalSensingService:
         now: datetime | None = None,
     ) -> list[GoalCandidateRecordModel]:
         current_time = now or datetime.now(UTC)
-        existing_root_titles = {
-            self._normalize_text(task.title) for task in tasks if self._is_open_root_task(task)
-        }
 
         drafts: list[_DraftCandidate] = []
         drafts.extend(self._task_candidates(tasks, current_time))
         drafts.extend(self._objective_candidates(objectives, current_time))
-        drafts.extend(self._post_candidates(posts, current_time, existing_root_titles))
-        drafts.extend(self._message_candidates(messages, current_time, existing_root_titles))
+        drafts.extend(self._post_candidates(posts, current_time))
+        drafts.extend(self._message_candidates(messages, current_time))
 
         return self._collapse_candidates(drafts)
 
@@ -129,23 +145,19 @@ class WorkspaceGoalSensingService:
         self,
         posts: list[BlackboardPost],
         now: datetime,
-        existing_root_titles: set[str],
     ) -> list[_DraftCandidate]:
         candidates: list[_DraftCandidate] = []
         for post in posts:
             text = self._post_candidate_text(post)
-            normalized = self._normalize_text(text)
-            score = 0.8 if self._has_explicit_action(text) else 0.4
-            decision = self._inferred_decision(score, normalized, existing_root_titles)
             candidates.append(
                 _DraftCandidate(
                     text=text,
                     source_type="blackboard_signal",
                     source_ref=f"blackboard:{post.id}",
-                    score=score,
+                    score=_INFERRED_POST_EVIDENCE,
                     freshness=self._freshness_score(post.updated_at or post.created_at, now),
                     urgency=0.8 if post.is_pinned else 0.6,
-                    decision=decision,
+                    decision="defer",
                     candidate_kind="inferred",
                 )
             )
@@ -155,22 +167,18 @@ class WorkspaceGoalSensingService:
         self,
         messages: list[WorkspaceMessage],
         now: datetime,
-        existing_root_titles: set[str],
     ) -> list[_DraftCandidate]:
         candidates: list[_DraftCandidate] = []
         for message in messages:
-            normalized = self._normalize_text(message.content)
-            score = 0.7 if self._has_explicit_action(message.content) else 0.35
-            decision = self._inferred_decision(score, normalized, existing_root_titles)
             candidates.append(
                 _DraftCandidate(
                     text=message.content,
                     source_type="message_signal",
                     source_ref=f"message:{message.id}",
-                    score=score,
+                    score=_INFERRED_MESSAGE_EVIDENCE,
                     freshness=self._freshness_score(message.created_at, now),
                     urgency=0.6,
-                    decision=decision,
+                    decision="defer",
                     candidate_kind="inferred",
                 )
             )
@@ -184,27 +192,24 @@ class WorkspaceGoalSensingService:
         candidates: list[GoalCandidateRecordModel] = []
         for index, group in enumerate(grouped.values(), start=1):
             primary = max(group, key=lambda item: item.score)
-            distinct_sources = {item.source_type for item in group if item.score >= 0.7}
+            # Converged_signal is a structural cue ("same normalized text appeared in >=2
+            # distinct sources"): pure set-membership / count, no verdict semantics.
+            distinct_sources = {item.source_type for item in group}
             evidence_strength = primary.score
             source_type: SignalSource = cast(SignalSource, primary.source_type)
-            if (
+            converged = (
                 primary.candidate_kind == "inferred"
                 and len(group) >= 2
                 and len(distinct_sources) >= 2
-            ):
+            )
+            if converged:
                 evidence_strength = min(1.0, primary.score + 0.15)
                 source_type = "converged_signal"
 
+            # Agent-First: sensing never promotes inferred candidates to
+            # formalize/reject here. The Leader agent decides via an explicit
+            # tool-call. Inferred candidates always remain "defer".
             decision: CandidateDecision = primary.decision
-            if primary.candidate_kind == "inferred":
-                if decision == "defer":
-                    pass
-                elif evidence_strength >= 0.75 and (
-                    primary.score >= 0.8 or len(distinct_sources) >= 2
-                ):
-                    decision = "formalize_new_goal"
-                else:
-                    decision = "reject_as_non_goal"
 
             candidates.append(
                 GoalCandidateRecordModel(
@@ -223,14 +228,7 @@ class WorkspaceGoalSensingService:
                             ),
                             score=item.score,
                             ref=item.source_ref,
-                            bonus_applied=(
-                                0.15
-                                if primary.candidate_kind == "inferred"
-                                and len(group) >= 2
-                                and len(distinct_sources) >= 2
-                                and item is primary
-                                else None
-                            ),
+                            bonus_applied=(0.15 if converged and item is primary else None),
                         )
                         for item in group
                     ],
@@ -246,7 +244,6 @@ class WorkspaceGoalSensingService:
             candidates,
             key=lambda candidate: (
                 candidate.decision != "adopt_existing_goal",
-                candidate.decision != "formalize_new_goal",
                 -candidate.evidence_strength,
                 -candidate.urgency,
                 -candidate.freshness,
@@ -293,22 +290,3 @@ class WorkspaceGoalSensingService:
         if age_hours <= 72:
             return 0.6
         return 0.4
-
-    @staticmethod
-    def _has_explicit_action(text: str) -> bool:
-        return bool(_ACTION_PATTERN.search(text)) and not _CASUAL_PATTERN.search(text)
-
-    def _inferred_decision(
-        self,
-        score: float,
-        normalized_text: str,
-        existing_root_titles: set[str],
-    ) -> CandidateDecision:
-        if any(
-            normalized_text == title or normalized_text in title or title in normalized_text
-            for title in existing_root_titles
-        ):
-            return "defer"
-        if score >= 0.75:
-            return "formalize_new_goal"
-        return "reject_as_non_goal"

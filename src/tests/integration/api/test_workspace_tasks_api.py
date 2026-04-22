@@ -1407,7 +1407,9 @@ async def test_list_workspace_goal_candidates(authenticated_async_client, test_d
     decisions = {item["candidate_text"]: item["decision"] for item in payload}
     assert decisions["Existing goal"] == "adopt_existing_goal"
     assert decisions["Improve resilience"] == "adopt_existing_goal"
-    assert decisions["Please prepare rollback checklist"] == "formalize_new_goal"
+    # Agent-First: sensing never auto-formalizes inferred candidates; the
+    # Leader agent renders the verdict via an explicit tool-call downstream.
+    assert decisions["Please prepare rollback checklist"] == "defer"
 
 
 @pytest.mark.asyncio

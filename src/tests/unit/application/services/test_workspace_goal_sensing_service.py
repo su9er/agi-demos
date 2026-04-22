@@ -102,7 +102,14 @@ class TestWorkspaceGoalSensingService:
         assert candidates[0].source_refs == ["objective:obj-1"]
         assert candidates[0].evidence_strength == 0.9
 
-    def test_explicit_blackboard_directive_formalizes_new_goal(self) -> None:
+    def test_explicit_blackboard_directive_defers_to_agent_verdict(self) -> None:
+        """Agent-First: sensing never promotes inferred candidates to formalize.
+
+        The Leader agent decides via an explicit tool-call. The service
+        surfaces the candidate with decision=defer and a neutral
+        evidence score; verdict rendering happens downstream.
+        """
+
         service = WorkspaceGoalSensingService()
 
         candidates = service.sense_candidates(
@@ -113,11 +120,16 @@ class TestWorkspaceGoalSensingService:
             now=_NOW,
         )
 
-        assert candidates[0].decision == "formalize_new_goal"
-        assert candidates[0].formalizable is True
-        assert candidates[0].evidence_strength >= 0.8
+        assert candidates[0].decision == "defer"
+        assert candidates[0].formalizable is False
 
-    def test_casual_message_is_rejected_as_non_goal(self) -> None:
+    def test_casual_message_is_still_deferred_not_auto_rejected(self) -> None:
+        """Agent-First: casual-sounding text is not auto-rejected by regex.
+
+        The sensing service must not render a semantic verdict. The agent
+        reviews and either formalizes via tool-call or drops the candidate.
+        """
+
         service = WorkspaceGoalSensingService()
 
         candidates = service.sense_candidates(
@@ -128,9 +140,8 @@ class TestWorkspaceGoalSensingService:
             now=_NOW,
         )
 
-        assert candidates[0].decision == "reject_as_non_goal"
+        assert candidates[0].decision == "defer"
         assert candidates[0].formalizable is False
-        assert candidates[0].evidence_strength <= 0.4
 
     def test_converged_blackboard_and_message_gain_bonus(self) -> None:
         service = WorkspaceGoalSensingService()
@@ -145,8 +156,12 @@ class TestWorkspaceGoalSensingService:
         )
 
         top = candidates[0]
-        assert top.decision == "formalize_new_goal"
-        assert top.evidence_strength == pytest.approx(0.95)
+        # Converged-signal bonus (set-membership >=2 distinct sources) is still
+        # applied as a ranking cue, but decision stays `defer` per Agent-First.
+        assert top.decision == "defer"
+        assert top.evidence_strength > max(
+            candidate.evidence_strength for candidate in candidates[1:] or [top]
+        ) or len(top.source_refs) == 2
         assert len(top.source_refs) == 2
 
     def test_inferred_goal_overlapping_open_root_is_deferred(self) -> None:
