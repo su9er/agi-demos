@@ -339,6 +339,29 @@ class SqlConversationRepository(
         )
         return result.scalar() or 0
 
+    async def list_by_workspace(
+        self,
+        workspace_id: str,
+        *,
+        mode: ConversationMode | None = None,
+        status: ConversationStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Conversation]:
+        """List conversations linked to a workspace (Phase-5 G6)."""
+        query = select(DBConversation).where(DBConversation.workspace_id == workspace_id)
+        if mode is not None:
+            query = query.where(DBConversation.conversation_mode == mode.value)
+        if status is not None:
+            query = query.where(DBConversation.status == status.value)
+        query = query.order_by(desc(DBConversation.created_at)).offset(offset).limit(limit)
+
+        result = await self._session.execute(
+            refresh_select_statement(self._refresh_statement(query))
+        )
+        db_conversations = result.scalars().all()
+        return [d for c in db_conversations if (d := self._to_domain(c)) is not None]
+
     # === Conversion methods ===
 
     def _to_domain(self, db_conversation: DBConversation | None) -> Conversation | None:

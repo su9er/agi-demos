@@ -17,6 +17,7 @@ from src.domain.model.agent import (
     Message,
     ToolExecutionRecord,
 )
+from src.domain.model.agent.conversation.conversation_mode import ConversationMode
 
 
 class ConversationRepository(ABC):
@@ -111,6 +112,26 @@ class ConversationRepository(ABC):
 
         Returns:
             Number of conversations
+        """
+
+    @abstractmethod
+    async def list_by_workspace(
+        self,
+        workspace_id: str,
+        *,
+        mode: "ConversationMode | None" = None,
+        status: "ConversationStatus | None" = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Conversation]:
+        """List conversations linked to a workspace (Phase-5 G6).
+
+        Args:
+            workspace_id: The workspace ID.
+            mode: Optional ``conversation_mode`` filter (e.g. AUTONOMOUS).
+            status: Optional status filter (defaults to ACTIVE when None).
+            limit: Maximum number of results.
+            offset: Number of results to skip.
         """
 
 
