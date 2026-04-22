@@ -429,7 +429,12 @@ class ProjectReActAgent:
         llm_client: Any,
     ) -> tuple[Any, Any]:
         """Initialize the default memory runtime and return it with session_factory."""
+        from src.configuration.config import get_settings
+
         session_factory = self._get_session_factory()
+        if get_settings().agent_memory_runtime_mode == "disabled":
+            logger.info(f"ProjectReActAgent[{self.project_key}]: Memory runtime disabled")
+            return None, session_factory
         try:
             from src.infrastructure.agent.memory.runtime import DefaultMemoryRuntime
 

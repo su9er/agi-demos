@@ -281,3 +281,40 @@ async def test_memory_plugin_respects_tenant_disable_for_hooks_and_tools(
     runtime.recall_for_prompt.assert_not_awaited()
     assert plugin_tools == {}
     assert any(item.code == "plugin_disabled" for item in diagnostics)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_memory_plugin_skips_audit_when_failure_persistence_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = AgentPluginRegistry()
+    register_builtin_memory_plugin(registry)
+    runtime = SimpleNamespace(
+        recall_for_prompt=AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    audit_service = MagicMock()
+    audit_service.log_event = AsyncMock()
+
+    monkeypatch.setattr(
+        "src.configuration.config.get_settings",
+        lambda: SimpleNamespace(agent_memory_failure_persistence_enabled=False),
+    )
+    monkeypatch.setattr(
+        "src.infrastructure.agent.plugins.memory_plugin.get_audit_service",
+        lambda: audit_service,
+    )
+
+    result = await registry.apply_hook(
+        "before_prompt_build",
+        payload={
+            "tenant_id": "tenant-1",
+            "project_id": "proj-1",
+            "conversation_id": "conv-1",
+            "memory_runtime": runtime,
+            "user_message": "hello",
+        },
+    )
+
+    assert any(diag.code == "hook_handler_failed" for diag in result.diagnostics)
+    audit_service.log_event.assert_not_awaited()

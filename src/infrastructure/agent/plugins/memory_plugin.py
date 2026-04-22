@@ -37,6 +37,10 @@ async def _log_memory_audit(
     payload: Mapping[str, Any],
     details: dict[str, Any],
 ) -> None:
+    from src.configuration.config import get_settings
+
+    if not get_settings().agent_memory_failure_persistence_enabled:
+        return
     try:
         await get_audit_service().log_event(
             action=action,

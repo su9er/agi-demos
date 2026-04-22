@@ -469,13 +469,14 @@ def _resolve_entrypoint_manifest_payload(plugin: Any) -> Any | None:
 
 def _builtin_plugins() -> list[Any]:
     """Return built-in plugins shipped inside the core runtime."""
+    from src.configuration.config import get_settings
     from src.infrastructure.agent.plugins.memory_plugin import BuiltinMemoryRuntimePlugin
     from src.infrastructure.agent.sisyphus.runtime_plugin import BuiltinSisyphusRuntimePlugin
 
-    return [
-        BuiltinSisyphusRuntimePlugin(),
-        BuiltinMemoryRuntimePlugin(),
-    ]
+    builtin_plugins: list[Any] = [BuiltinSisyphusRuntimePlugin()]
+    if get_settings().agent_memory_runtime_mode != "disabled":
+        builtin_plugins.append(BuiltinMemoryRuntimePlugin())
+    return builtin_plugins
 
 
 def _iter_local_plugin_dirs(*, state_store: PluginStateStore | None) -> list[Path]:

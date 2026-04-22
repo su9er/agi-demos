@@ -1365,6 +1365,7 @@ _global_plugin_registry = AgentPluginRegistry()
 
 def _register_builtin_hooks() -> None:
     """Ensure built-in runtime plugins are registered exactly once."""
+    from src.configuration.config import get_settings
     from src.infrastructure.agent.plugins.memory_plugin import (
         register_builtin_memory_plugin,
     )
@@ -1375,7 +1376,10 @@ def _register_builtin_hooks() -> None:
     hook_catalog = _global_plugin_registry.list_hook_catalog()
     if not any(entry.plugin_name == "sisyphus-runtime" for entry in hook_catalog):
         register_builtin_sisyphus_plugin(_global_plugin_registry)
-    if not any(entry.plugin_name == "memory-runtime" for entry in hook_catalog):
+    if (
+        get_settings().agent_memory_runtime_mode != "disabled"
+        and not any(entry.plugin_name == "memory-runtime" for entry in hook_catalog)
+    ):
         register_builtin_memory_plugin(_global_plugin_registry)
 
 

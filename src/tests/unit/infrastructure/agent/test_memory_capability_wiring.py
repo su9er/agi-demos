@@ -35,6 +35,31 @@ class TestProjectMemoryCapabilityInit:
         assert session_factory == "session-factory"
         runtime_cls.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_skips_memory_runtime_when_globally_disabled(self) -> None:
+        from src.infrastructure.agent.core.project_react_agent import ProjectReActAgent
+
+        agent = ProjectReActAgent.__new__(ProjectReActAgent)
+        agent.config = SimpleNamespace(
+            tenant_id="tenant-1",
+            project_id="proj-1",
+            agent_mode="default",
+        )
+        agent._get_session_factory = MagicMock(return_value="session-factory")
+
+        with patch(
+            "src.configuration.config.get_settings",
+            return_value=SimpleNamespace(agent_memory_runtime_mode="disabled"),
+        ):
+            memory_runtime, session_factory = agent._init_memory_runtime(
+                SimpleNamespace(embedder=object()),
+                None,
+                object(),
+            )
+
+        assert memory_runtime is None
+        assert session_factory == "session-factory"
+
 
 @pytest.mark.unit
 class TestMemoryToolWiring:

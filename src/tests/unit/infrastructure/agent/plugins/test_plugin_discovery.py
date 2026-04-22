@@ -25,6 +25,22 @@ def test_discover_plugins_includes_builtin_runtime_plugins() -> None:
 
 
 @pytest.mark.unit
+def test_discover_plugins_skips_memory_runtime_when_globally_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "src.configuration.config.get_settings",
+        lambda: SimpleNamespace(agent_memory_runtime_mode="disabled"),
+    )
+
+    discovered, _ = discover_plugins(include_entrypoints=False)
+
+    names = {plugin.name for plugin in discovered}
+    assert "sisyphus-runtime" in names
+    assert "memory-runtime" not in names
+
+
+@pytest.mark.unit
 def test_discover_plugins_respects_disabled_state(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

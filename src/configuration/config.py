@@ -263,6 +263,14 @@ class Settings(BaseSettings):
         default="auto",
         alias="AGENT_RUNTIME_MODE",
     )  # Runtime mode: auto (prefer ray), ray (ray only), local (local only)
+    agent_memory_runtime_mode: Literal["legacy", "dual", "plugin", "disabled"] = Field(
+        default="plugin",
+        alias="AGENT_MEMORY_RUNTIME_MODE",
+    )  # Memory runtime rollout mode. legacy/dual currently alias to plugin behavior.
+    agent_memory_failure_persistence_enabled: bool = Field(
+        default=True,
+        alias="AGENT_MEMORY_FAILURE_PERSISTENCE_ENABLED",
+    )  # Persist memory runtime failures into audit logs
     agent_max_steps: int = Field(
         default=5000, alias="AGENT_MAX_STEPS"
     )  # Maximum steps for ReActAgent execution
@@ -532,6 +540,19 @@ class Settings(BaseSettings):
         if normalized in {"auto", "ray", "local"}:
             return normalized
         raise ValueError("AGENT_RUNTIME_MODE must be one of: auto, ray, local")
+
+    @field_validator("agent_memory_runtime_mode", mode="before")
+    @classmethod
+    def normalize_agent_memory_runtime_mode(cls, value: str | None) -> str:
+        """Normalize memory runtime rollout mode from environment."""
+        if value is None:
+            return "plugin"
+        normalized = str(value).strip().lower()
+        if normalized in {"legacy", "dual", "plugin", "disabled"}:
+            return normalized
+        raise ValueError(
+            "AGENT_MEMORY_RUNTIME_MODE must be one of: legacy, dual, plugin, disabled"
+        )
 
     @field_validator("sandbox_pip_cache_path", mode="before")
     @classmethod
