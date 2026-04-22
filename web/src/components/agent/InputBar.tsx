@@ -26,6 +26,9 @@ import { useVoiceTranscribe } from '@/hooks/useVoiceTranscribe';
 
 import { LazyTooltip } from '@/components/ui/lazyAntd';
 
+import { useConversationParticipants } from '@/hooks/useConversationParticipants';
+
+import { MentionPicker } from './MentionPicker';
 import { MentionPopover } from './chat/MentionPopover';
 import { PromptTemplateLibrary } from './chat/PromptTemplateLibrary';
 import { VoiceCallPanel } from './chat/VoiceCallPanel';
@@ -218,6 +221,14 @@ export const InputBar = memo<InputBarProps>(
         supportsAttachment: capabilities.supportsAttachment,
         addFiles,
       });
+
+    // Shared-mode conversations render MentionPicker (roster-backed)
+    // instead of MentionPopover (project-wide subagent search). See
+    // files/p3-autonomous-ui-plan.md / f-mention-picker.
+    const { roster: mentionRoster } = useConversationParticipants(conversationId ?? null);
+    const isSharedMode =
+      mentionRoster?.effective_mode === 'multi_agent_shared' ||
+      mentionRoster?.effective_mode === 'autonomous';
 
     // --- Textarea resize ---
     const resizeTextarea = useCallback((target: HTMLTextAreaElement) => {
@@ -515,7 +526,7 @@ export const InputBar = memo<InputBarProps>(
                 query={mentionQuery}
                 projectId={projectId}
                 conversationId={conversationId ?? null}
-                visible={mentionVisible}
+                visible={mentionVisible && !isSharedMode}
                 onSelect={handleMentionSelect}
                 onClose={() => {
                   setMentionVisible(false);
@@ -523,6 +534,24 @@ export const InputBar = memo<InputBarProps>(
                 }}
                 selectedIndex={mentionSelectedIndex}
                 onSelectedIndexChange={setMentionSelectedIndex}
+              />
+            )}
+            {isSharedMode && conversationId && (
+              <MentionPicker
+                conversationId={conversationId}
+                query={mentionQuery}
+                open={mentionVisible}
+                onMentionSelected={(agentId) => {
+                  handleMentionSelect({
+                    id: agentId,
+                    name: agentId,
+                    type: 'participant',
+                  });
+                }}
+                onDismiss={() => {
+                  setMentionVisible(false);
+                  setMentionQuery('');
+                }}
               />
             )}
             <textarea
