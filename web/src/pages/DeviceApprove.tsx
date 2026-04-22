@@ -47,7 +47,8 @@ export const DeviceApprove: React.FC = () => {
   }, []);
 
   if (!isAuthenticated) {
-    const ret = `/device${code ? `?code=${code}` : ''}`;
+    const ret = `/device${code ? `?user_code=${code}` : ''}`;
+    const loginHref = `/login?redirect=${encodeURIComponent(ret)}`;
     return (
       <div style={{ maxWidth: 560, margin: '64px auto', padding: 24 }}>
         <Card
@@ -63,12 +64,12 @@ export const DeviceApprove: React.FC = () => {
               <Paragraph type="secondary" style={{ margin: 0 }}>
                 {t(
                   'device.signInSubtitle',
-                  'You must be signed in to approve a CLI login. After signing in, reopen this link from your terminal.'
+                  'You must be signed in to approve a CLI login. After signing in, you will be returned here automatically.'
                 )}
               </Paragraph>
             </Space>
             <Space>
-              <Button type="primary" onClick={() => navigate('/login')}>
+              <Button type="primary" onClick={() => navigate(loginHref)}>
                 {t('common.signIn', 'Sign in')}
               </Button>
               <Text copyable={{ text: window.location.origin + ret }} type="secondary">

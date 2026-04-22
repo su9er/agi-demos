@@ -106,7 +106,9 @@
       "content": "Content",
       "source": "Source",
       "tags": "Tags"
-    }
+    },
+    "signIn": "Sign in",
+    "goHome": "Go home"
   },
   "login": {
     "title": "Welcome Back",
@@ -4205,5 +4207,18 @@
     "date": "Date",
     "filterByType": "Filter by type",
     "noEvents": "No events found"
+  },
+  "device": {
+    "title": "Connect a device",
+    "subtitle": "Enter the 8-character code shown in your terminal to grant access.",
+    "codeLabel": "Device code",
+    "approve": "Approve",
+    "invalidCode": "Enter the 8-character code shown in your terminal.",
+    "approvedTitle": "Device approved",
+    "approvedSubtitle": "Your terminal should be signed in. You can close this tab.",
+    "signInTitle": "Sign in to continue",
+    "signInSubtitle": "You must be signed in to approve a CLI login. After signing in, you will be returned here automatically.",
+    "copyBackLink": "Copy return link",
+    "footer": "Only approve codes you just generated yourself. A 30-day API key will be issued to the waiting CLI."
   }
 }

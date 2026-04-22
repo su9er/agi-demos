@@ -63,7 +63,20 @@ memstack conversations --project <id>
 memstack chat <project_id> "hello" [--conversation <id>] [--stream]
 memstack artifacts list --project <id> [--category image]
 memstack artifacts pull <artifact_id> [--output ./file.zip]
+memstack logs <conversation_id> [--limit N] [--from-sequence N] [--type event_type]
 ```
+
+### Logs (operator triage)
+
+```bash
+memstack logs <conversation_id>                    # last 200 events, human-readable
+memstack logs <conversation_id> --limit 1000       # wider window
+memstack logs <conversation_id> --type tool_call   # filter by event_type
+memstack --json logs <conversation_id>             # machine-readable for jq
+```
+
+Dumps persisted execution events from `/agent/conversations/{id}/events`
+— useful for triaging a stuck or failed run without opening the web UI.
 
 ### Streaming chat
 

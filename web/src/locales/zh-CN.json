@@ -106,7 +106,9 @@
       "content": "内容",
       "source": "来源",
       "tags": "标签"
-    }
+    },
+    "signIn": "登录",
+    "goHome": "返回首页"
   },
   "login": {
     "title": "欢迎回来",
@@ -4345,5 +4347,18 @@
     "date": "时间",
     "filterByType": "按类型过滤",
     "noEvents": "暂无事件"
+  },
+  "device": {
+    "title": "连接设备",
+    "subtitle": "输入终端中显示的 8 位字符代码以授权访问。",
+    "codeLabel": "设备代码",
+    "approve": "批准",
+    "invalidCode": "请输入终端中显示的 8 位字符代码。",
+    "approvedTitle": "设备已批准",
+    "approvedSubtitle": "您的终端应已登录，可以关闭此页。",
+    "signInTitle": "请先登录",
+    "signInSubtitle": "您必须登录后才能批准 CLI 登录。登录后将自动返回此页。",
+    "copyBackLink": "复制返回链接",
+    "footer": "仅批准您自己刚刚生成的代码。系统将向等待中的 CLI 颁发 30 天 API 密钥。"
   }
 }

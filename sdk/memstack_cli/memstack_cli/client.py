@@ -6,7 +6,7 @@ import json as _json
 import os
 import sys
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 
@@ -80,8 +80,6 @@ def stream_sse(
                 raise ApiError(resp.status_code, resp.read().decode("utf-8", "replace"))
             event_name = "message"
             for raw_line in resp.iter_lines():
-                if raw_line is None:
-                    continue
                 line = raw_line.rstrip("\r")
                 if not line:
                     event_name = "message"
@@ -105,6 +103,6 @@ def emit(data: Any, *, as_json: bool, human: str | None = None) -> None:
         print(_json.dumps(data, indent=2, ensure_ascii=False))
 
 
-def die(message: str, code: int = 1) -> None:
+def die(message: str, code: int = 1) -> NoReturn:
     print(f"error: {message}", file=sys.stderr)
     sys.exit(code)

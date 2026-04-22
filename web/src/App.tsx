@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 
-import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { OrgSetupGuard } from './components/common/OrgSetupGuard';
@@ -469,6 +469,16 @@ export const LegacyTenantConversationRedirect: React.FC = () => {
   );
 };
 
+// Redirect after successful login: honour ?redirect= param when it is a
+// same-origin path. Falls back to '/'. Exists so that deep links such as
+// /device?user_code=X can be preserved through the login round-trip.
+const LoginRedirect = () => {
+  const [params] = useSearchParams();
+  const raw = params.get('redirect');
+  const safe = raw && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
+  return <Navigate to={safe} replace />;
+};
+
 function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
@@ -481,7 +491,7 @@ function App() {
           <Routes>
             <Route
               path="/login"
-              element={!isAuthenticated ? <Login /> : <Navigate to="/" replace />}
+              element={!isAuthenticated ? <Login /> : <LoginRedirect />}
             />
             <Route
               path="/login/callback/:provider"
