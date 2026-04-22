@@ -275,3 +275,83 @@ async def remove_participant(
     await conv_repo.save(conversation)
     await db.commit()
     return _roster_response(conversation, effective_mode)
+
+
+# === Mention candidates (Phase-5 G7) ===
+
+
+class MentionCandidateResponse(BaseModel):
+    """One candidate agent returned by GET /mention-candidates."""
+
+    agent_id: str
+    display_name: str | None = None
+    label: str | None = None
+    status: str = "idle"
+    is_active: bool = True
+    source: str  # "workspace" | "conversation"
+
+
+class MentionCandidatesResponse(BaseModel):
+    """List of mention candidates + the source of truth used to build it."""
+
+    conversation_id: str
+    workspace_id: str | None = None
+    source: str  # "workspace" | "conversation"
+    candidates: list[MentionCandidateResponse]
+
+
+@router.get(
+    "/conversations/{conversation_id}/mention-candidates",
+    response_model=MentionCandidatesResponse,
+)
+async def list_mention_candidates(
+    conversation_id: str,
+    request: Request,
+    include_inactive: bool = False,
+    current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_current_user_tenant),
+    db: AsyncSession = Depends(get_db),
+) -> MentionCandidatesResponse:
+    """Return mention candidates for the ``MentionPicker``.
+
+    When the conversation is linked to a workspace (``workspace_id``
+    set), candidates come from the workspace agent roster; otherwise
+    they fall back to ``conversation.participant_agents``.  Agent-First:
+    the result is a bounded set — the frontend filters by substring
+    *over this set* and never parses free-form text to guess an agent.
+    """
+    from src.application.services.agent.workspace_mention_candidates import (
+        WorkspaceMentionCandidatesResolver,
+    )
+
+    _conv_repo, conversation, project = await _load_conversation_and_project(
+        request, db, conversation_id
+    )
+    if (
+        conversation.user_id != current_user.id
+        and getattr(project, "owner_id", None) != current_user.id
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    container = get_container_with_db(request, db)
+    resolver = WorkspaceMentionCandidatesResolver(container.workspace_agent_repository())
+    candidates = await resolver.resolve(conversation, include_inactive=include_inactive)
+
+    workspace_id = getattr(conversation, "workspace_id", None)
+    source = "workspace" if workspace_id else "conversation"
+    return MentionCandidatesResponse(
+        conversation_id=conversation.id,
+        workspace_id=workspace_id,
+        source=source,
+        candidates=[
+            MentionCandidateResponse(
+                agent_id=c.agent_id,
+                display_name=c.display_name,
+                label=c.label,
+                status=c.status,
+                is_active=c.is_active,
+                source=c.source,
+            )
+            for c in candidates
+        ],
+    )
