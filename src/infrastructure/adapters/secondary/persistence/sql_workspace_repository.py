@@ -54,6 +54,9 @@ class SqlWorkspaceRepository(BaseRepository[Workspace, WorkspaceModel], Workspac
             metadata=db_workspace.metadata_json or {},
             office_status=db_workspace.office_status,
             hex_layout_config=db_workspace.hex_layout_config_json or {},
+            default_blocking_categories=list(
+                db_workspace.default_blocking_categories_json or ()
+            ),
             created_at=db_workspace.created_at,
             updated_at=db_workspace.updated_at,
         )
@@ -70,6 +73,7 @@ class SqlWorkspaceRepository(BaseRepository[Workspace, WorkspaceModel], Workspac
             metadata_json=domain_entity.metadata,
             office_status=domain_entity.office_status,
             hex_layout_config_json=domain_entity.hex_layout_config,
+            default_blocking_categories_json=list(domain_entity.default_blocking_categories),
             created_at=domain_entity.created_at,
             updated_at=domain_entity.updated_at,
         )
@@ -81,4 +85,5 @@ class SqlWorkspaceRepository(BaseRepository[Workspace, WorkspaceModel], Workspac
         db_model.metadata_json = domain_entity.metadata
         db_model.office_status = domain_entity.office_status
         db_model.hex_layout_config_json = domain_entity.hex_layout_config
+        db_model.default_blocking_categories_json = list(domain_entity.default_blocking_categories)
         db_model.updated_at = domain_entity.updated_at

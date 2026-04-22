@@ -18,6 +18,7 @@ class Workspace(Entity):
     metadata: dict[str, Any] = field(default_factory=dict)
     office_status: str = "inactive"
     hex_layout_config: dict[str, Any] = field(default_factory=dict)
+    default_blocking_categories: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime | None = None
 

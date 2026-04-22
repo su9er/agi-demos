@@ -287,6 +287,9 @@ class WorkspaceModel(Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     office_status: Mapped[str] = mapped_column(String(20), default="inactive", nullable=False)
     hex_layout_config_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    default_blocking_categories_json: Mapped[list[str]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), onupdate=func.now(), nullable=True
