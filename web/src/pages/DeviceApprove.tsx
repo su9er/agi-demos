@@ -153,7 +153,7 @@ export const DeviceApprove: React.FC = () => {
               placeholder="ABCD1234"
               value={code}
               maxLength={CODE_LEN}
-              onChange={(e) => setCode(normalize(e.target.value))}
+              onChange={(e) => { setCode(normalize(e.target.value)); }}
               onPressEnter={() => void handleSubmit()}
               style={{
                 fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',

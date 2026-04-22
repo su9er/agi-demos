@@ -26,8 +26,9 @@ import { Search, History, GitBranch, Home, ChevronRight } from 'lucide-react';
 import { useProjectStore } from '@/stores/project';
 import { useTenantStore } from '@/stores/tenant';
 
-import { getAgentConfig } from '@/config/navigation';
 import { useProjectBasePath } from '@/hooks/useProjectBasePath';
+
+import { getAgentConfig } from '@/config/navigation';
 
 import { RouteErrorBoundary } from '@/components/common/RouteErrorBoundary';
 import { AgentSidebar } from '@/components/layout/AppSidebar';

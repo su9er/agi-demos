@@ -9,7 +9,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Input } from 'antd';
-import { BarChart, CheckCircle, GraduationCap, Pencil, Plus, RefreshCw, Trash2, TrendingUp } from 'lucide-react';
+import { BarChart, CheckCircle, Copy, GraduationCap, Pencil, Plus, RefreshCw, Trash2, TrendingUp } from 'lucide-react';
 
 import {
   useLazyMessage,
@@ -137,6 +137,30 @@ export const SkillList: React.FC = () => {
       }
     },
     [deleteSkill, message, t]
+  );
+
+  const handleDuplicate = useCallback(
+    async (skill: SkillResponse) => {
+      const { createSkill } = useSkillStore.getState();
+      try {
+        // Build a SkillCreate payload from the source skill. We deliberately
+        // ignore success_rate / usage_count / status so the copy starts fresh.
+        await createSkill({
+          name: `${skill.name} (copy)`,
+          description: skill.description,
+          trigger_type: skill.trigger_type,
+          trigger_patterns: skill.trigger_patterns ?? [],
+          tools: skill.tools ?? [],
+          ...(skill.prompt_template ? { prompt_template: skill.prompt_template } : {}),
+          ...(skill.full_content ? { full_content: skill.full_content } : {}),
+          metadata: { ...(skill.metadata ?? {}), duplicated_from: skill.id },
+        });
+        message?.success(t('common.success') ?? 'Duplicated');
+      } catch {
+        // Error handled by store
+      }
+    },
+    [message, t]
   );
 
   const handleModalClose = useCallback(() => {
@@ -419,8 +443,19 @@ export const SkillList: React.FC = () => {
                       handleEdit(skill);
                     }}
                     className="p-2 text-slate-600 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"
+                    title="Edit"
                   >
                     <Pencil size={16} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      void handleDuplicate(skill);
+                    }}
+                    className="p-2 text-slate-600 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"
+                    title="Duplicate"
+                    aria-label="Duplicate skill"
+                  >
+                    <Copy size={16} />
                   </button>
                   <LazyPopconfirm
                     title={t('tenant.skills.deleteConfirm')}

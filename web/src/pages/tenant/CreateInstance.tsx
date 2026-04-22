@@ -16,9 +16,9 @@ import { LazyButton, LazySelect, useLazyMessage } from '@/components/ui/lazyAntd
 
 import { useClusters, useClusterActions } from '../../stores/cluster';
 import { useInstanceActions } from '../../stores/instance';
-import { useWorkspaces, useWorkspaceStore } from '../../stores/workspace';
-import { useTenantStore } from '../../stores/tenant';
 import { useProjectStore } from '../../stores/project';
+import { useTenantStore } from '../../stores/tenant';
+import { useWorkspaces, useWorkspaceStore } from '../../stores/workspace';
 
 import type { InstanceCreate } from '../../services/instanceService';
 

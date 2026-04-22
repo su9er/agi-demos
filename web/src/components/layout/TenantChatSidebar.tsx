@@ -15,7 +15,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, mem
 
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate, NavLink } from 'react-router-dom';
-import { useShallow } from 'zustand/react/shallow';
+
 
 import { Modal } from 'antd';
 import {
@@ -28,21 +28,22 @@ import {
   FolderOpen,
   ChevronDown,
 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 
-import { useAgentV3Store } from '@/stores/agentV3';
 import { useConversationsStore } from '@/stores/agent/conversationsStore';
 import { useIsLoadingHistory } from '@/stores/agent/timelineStore';
+import { useAgentV3Store } from '@/stores/agentV3';
 import { useProjectStore } from '@/stores/project';
 import { useCurrentWorkspace, useWorkspaces } from '@/stores/workspace';
 
 import { buildAgentWorkspacePath } from '@/utils/agentWorkspacePath';
 import { formatDistanceToNow } from '@/utils/date';
+
 import { Resizer } from '@/components/agent/Resizer';
 import {
   getContextualTopNavItems,
   isContextualTopNavItemActive,
 } from '@/components/layout/TenantHeader';
-
 import {
   LazyButton,
   LazyBadge,

@@ -6,16 +6,19 @@ import { Link, useParams } from 'react-router-dom';
 import { Button, Input, message, Progress, Spin, Tag } from 'antd';
 import { FolderKanban, LayoutGrid, Plus, Search, Target } from 'lucide-react';
 
-import { formatDistanceToNow } from '@/utils/date';
 
 import { useCurrentProject, useProjectStore } from '@/stores/project';
 import { useCurrentTenant } from '@/stores/tenant';
 import { useWorkspaceActions, useWorkspaceLoading, useWorkspaces } from '@/stores/workspace';
 
 import { workspaceObjectiveService, workspaceTaskService } from '@/services/workspaceService';
-import type { CyberObjective, WorkspaceTask } from '@/types/workspace';
+
+import { formatDistanceToNow } from '@/utils/date';
 
 import { EmptyStateSimple } from '@/components/shared/ui/EmptyStateVariant';
+
+import type { CyberObjective, WorkspaceTask } from '@/types/workspace';
+
 
 type SummarySource = 'objectives' | 'tasks' | 'empty';
 
@@ -149,7 +152,7 @@ export function WorkspaceList() {
             const useObjectives =
               fromObjectives !== null && fromObjectives.avgProgress > 0;
             const summary = useObjectives
-              ? (fromObjectives as ObjectiveSummary)
+              ? (fromObjectives)
               : fromObjectives && tasks.length === 0
                 ? fromObjectives
                 : summarizeTasks(tasks);

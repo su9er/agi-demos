@@ -1,6 +1,5 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 
-import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
 
@@ -24,9 +23,8 @@ import { agentConfigService } from '../../services/agentConfigService';
 import { traceAPI } from '../../services/traceService';
 import { useTenantStore } from '../../stores/tenant';
 
-import type { SubAgentRunDTO } from '../../types/multiAgent';
-import type { TraceChainDTO } from '../../types/multiAgent';
-import type { UntracedRunDetailsDTO } from '../../types/multiAgent';
+import type { SubAgentRunDTO , TraceChainDTO , UntracedRunDetailsDTO } from '../../types/multiAgent';
+import type { TFunction } from 'i18next';
 import type { LucideIcon } from 'lucide-react';
 
 type AgentDashboardProps = Record<string, never>;

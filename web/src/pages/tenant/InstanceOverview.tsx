@@ -111,7 +111,7 @@ export const InstanceOverview: React.FC = () => {
     fetchInstance(instanceId)
       .then(() => messageApi?.success(t('common.refreshed', 'Refreshed')))
       .catch(() => messageApi?.error(t('common.error', 'Error')))
-      .finally(() => setActionLoading(null));
+      .finally(() => { setActionLoading(null); });
   }, [fetchInstance, instanceId, messageApi, t]);
 
   const handleScale = useCallback(() => {
@@ -123,7 +123,7 @@ export const InstanceOverview: React.FC = () => {
         setScaleTarget(null);
       })
       .catch(() => messageApi?.error(t('tenant.instances.actions.scaleFailed', 'Scale failed')))
-      .finally(() => setActionLoading(null));
+      .finally(() => { setActionLoading(null); });
   }, [instanceId, messageApi, scaleInstance, scaleTarget, t]);
 
   const handleRestart = useCallback(() => {
@@ -136,7 +136,7 @@ export const InstanceOverview: React.FC = () => {
       .catch(() =>
         messageApi?.error(t('tenant.instances.actions.restartFailed', 'Restart failed')),
       )
-      .finally(() => setActionLoading(null));
+      .finally(() => { setActionLoading(null); });
   }, [instanceId, messageApi, restartInstance, t]);
 
   const handleCopyToken = () => {
@@ -221,7 +221,7 @@ export const InstanceOverview: React.FC = () => {
                   min={0}
                   max={10}
                   value={scaleTarget ?? instance.replicas}
-                  onChange={(v) => setScaleTarget(v)}
+                  onChange={(v) => { setScaleTarget(v); }}
                   size="small"
                 />
               </div>

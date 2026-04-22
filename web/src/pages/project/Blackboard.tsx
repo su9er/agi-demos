@@ -10,6 +10,7 @@ import { useWorkspaceStore } from '@/stores/workspace';
 import { useBlackboardPageActions } from '@/hooks/useBlackboardActions';
 import { useBlackboardLifecycle } from '@/hooks/useBlackboardLifecycle';
 import { useBlackboardSSE } from '@/hooks/useBlackboardSSE';
+
 import {
   resolveBlackboardTab,
   syncBlackboardTabSearchParam,
@@ -17,9 +18,9 @@ import {
 import { buildAgentWorkspacePath } from '@/utils/agentWorkspacePath';
 
 import { BlackboardErrorBoundary } from '@/components/blackboard/BlackboardErrorBoundary';
+import type { BlackboardTab } from '@/components/blackboard/BlackboardTabBar';
 import { CentralBlackboardContent } from '@/components/blackboard/CentralBlackboardContent';
 
-import type { BlackboardTab } from '@/components/blackboard/BlackboardTabBar';
 
 function LoadingShell() {
   const { t } = useTranslation();
@@ -258,9 +259,9 @@ export function Blackboard() {
             <LoadingShell />
           ) : (
             <CentralBlackboardContent
-              tenantId={tenantId!}
-              projectId={projectId!}
-              workspaceId={selectedWorkspaceId!}
+              tenantId={tenantId}
+              projectId={projectId}
+              workspaceId={selectedWorkspaceId}
               workspace={selectedWorkspace}
               posts={posts}
               repliesByPostId={repliesByPostId}
