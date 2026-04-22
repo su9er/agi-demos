@@ -54,9 +54,9 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { useAgentV3Store } from '@/stores/agentV3';
 import { useAgentState, usePendingToolsStack } from '@/stores/agent/executionStore';
 import { useIsStreaming } from '@/stores/agent/streamingStore';
+import { useAgentV3Store } from '@/stores/agentV3';
 
 import { LazyTooltip, LazyPopconfirm, message } from '@/components/ui/lazyAntd';
 

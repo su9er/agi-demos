@@ -15,15 +15,14 @@
 import React, { useState, useMemo } from 'react';
 
 import { AlertCircle, Loader2 } from 'lucide-react';
-
 import { useShallow } from 'zustand/react/shallow';
 
 import { Select, Modal, Spin, Alert } from '@/components/ui/lazyAntd';
 
-import { useAgentV3Store } from '../../stores/agentV3';
 import { useConversationsStore } from '../../stores/agent/conversationsStore';
 import { useAgentError } from '../../stores/agent/streamingStore';
 import { useIsLoadingHistory } from '../../stores/agent/timelineStore';
+import { useAgentV3Store } from '../../stores/agentV3';
 import { useProjectStore } from '../../stores/project';
 import { useTenantStore } from '../../stores/tenant';
 

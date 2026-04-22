@@ -23,7 +23,6 @@ import { message } from 'antd';
 import { GripHorizontal, Download, ChevronDown, GitCompareArrows, Bot } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { useAgentV3Store } from '@/stores/agentV3';
 import { useConversationsStore } from '@/stores/agent/conversationsStore';
 import { useIsPlanMode, useExecutionStore } from '@/stores/agent/executionStore';
 import { useDoomLoopDetected, useSuggestions } from '@/stores/agent/hitlStore';
@@ -34,6 +33,7 @@ import {
   useIsLoadingEarlier,
   useHasEarlier,
 } from '@/stores/agent/timelineStore';
+import { useAgentV3Store } from '@/stores/agentV3';
 import { useLayoutModeStore } from '@/stores/layoutMode';
 import { useProjectStore } from '@/stores/project';
 import { useSandboxStore } from '@/stores/sandbox';
@@ -52,25 +52,25 @@ import {
   downloadConversationMarkdown,
   downloadConversationPdf,
 } from '../../utils/exportConversation';
+import { WorkspaceGroupChatPanel } from '../workspace/chat/WorkspaceGroupChatPanel';
 
 import { CanvasPanel } from './canvas/CanvasPanel';
 import { ChatSearch } from './chat/ChatSearch';
 import { OnboardingTour } from './chat/OnboardingTour';
 import { ShortcutOverlay } from './chat/ShortcutOverlay';
-import { ConversationAgentBadge } from './ConversationAgentBadge';
 import { ConversationCompareView } from './comparison/ConversationCompareView';
 import { ConversationPickerModal } from './comparison/ConversationPickerModal';
+import { ConversationAgentBadge } from './ConversationAgentBadge';
 import { EmptyState } from './EmptyState';
 import { LayoutModeSelector } from './layout/LayoutModeSelector';
 import { groupTimelineEvents, getSubAgentSummaries } from './message/groupTimelineEvents';
 import { Resizer } from './Resizer';
 import { RightPanel } from './RightPanel';
-import { SplitPaneLayout } from './SplitPaneLayout';
 import { SandboxSection } from './SandboxSection';
+import { SplitPaneLayout } from './SplitPaneLayout';
 import { LAYOUT_BG_CLASSES } from './styles';
 import { SubAgentMiniMap } from './timeline/SubAgentMiniMap';
 
-import { WorkspaceGroupChatPanel } from '../workspace/chat/WorkspaceGroupChatPanel';
 
 import { MessageArea, InputBar, ProjectAgentStatusBar } from './index';
 

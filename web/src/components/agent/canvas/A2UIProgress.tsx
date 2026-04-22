@@ -1,8 +1,6 @@
 import { memo, useMemo } from 'react';
-
 import type { CSSProperties } from 'react';
 
-import { useA2UIActions, useA2UIState } from './a2uiInternals';
 import {
   normalizeStyle,
   resolveBoundNumberValue,
@@ -10,6 +8,7 @@ import {
   type NumberValue,
   type StringValue,
 } from './a2uiCustomUtils';
+import { useA2UIActions, useA2UIState } from './a2uiInternals';
 
 interface ProgressProperties {
   label?: StringValue | string;
@@ -43,7 +42,7 @@ export const A2UIProgress = memo(function A2UIProgress({
   const actions = useA2UIActions();
   const { version } = useA2UIState();
 
-  const props = (node.properties ?? {}) as ProgressProperties;
+  const props = (node.properties ?? {});
   const label = useMemo(
     () => resolveBoundStringValue(props.label, node, surfaceId, actions),
     [actions, node, props.label, surfaceId, version]

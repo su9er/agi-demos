@@ -1,8 +1,12 @@
 import * as React from "react";
 import { useState } from "react";
-import { Download, ChevronDown, GitCompareArrows } from "lucide-react";
-import { LayoutModeSelector } from "./layout/LayoutModeSelector";
+
 import { useTranslation } from "react-i18next";
+
+import { Download, ChevronDown, GitCompareArrows } from "lucide-react";
+
+import { LayoutModeSelector } from "./layout/LayoutModeSelector";
+
 import type { TimelineEvent } from "@/types/agent";
 
 export interface WorkspaceStatusBarProps {

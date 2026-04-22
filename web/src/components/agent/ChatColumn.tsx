@@ -1,12 +1,18 @@
 import * as React from "react";
+
 import { Bot, GripHorizontal } from "lucide-react";
+
+import type { FileMetadata } from "@/services/sandboxUploadService";
+
+import { ChatSearch } from "./chat/ChatSearch";
 import { Resizer } from "./Resizer";
 import { SubAgentMiniMap } from "./timeline/SubAgentMiniMap";
-import { ChatSearch } from "./chat/ChatSearch";
+
 import { InputBar } from "./index";
-import type { SubAgentSummary } from "./message/groupTimelineEvents";
+
 import type { TimelineEvent } from "@/types/agent";
-import type { FileMetadata } from "@/services/sandboxUploadService";
+
+import type { SubAgentSummary } from "./message/groupTimelineEvents";
 
 export const INPUT_MIN_HEIGHT = 140;
 export const INPUT_MAX_HEIGHT = 560;

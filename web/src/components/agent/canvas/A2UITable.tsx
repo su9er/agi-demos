@@ -1,8 +1,6 @@
 import { memo, useMemo } from 'react';
-
 import type { CSSProperties } from 'react';
 
-import { useA2UIActions, useA2UIState } from './a2uiInternals';
 import {
   normalizeNumberValue,
   normalizeStringValue,
@@ -11,6 +9,7 @@ import {
   resolveBoundStringValue,
   type StringValue,
 } from './a2uiCustomUtils';
+import { useA2UIActions, useA2UIState } from './a2uiInternals';
 
 interface TableColumn {
   header?: StringValue | string;
@@ -169,7 +168,7 @@ export const A2UITable = memo(function A2UITable({
   const actions = useA2UIActions();
   const { version } = useA2UIState();
 
-  const props = (node.properties ?? {}) as TableProperties;
+  const props = (node.properties ?? {});
   const caption = useMemo(
     () => resolveBoundStringValue(props.caption, node, surfaceId, actions),
     [actions, node, props.caption, surfaceId, version]

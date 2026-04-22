@@ -1,14 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-
 import type { CSSProperties, ChangeEvent } from 'react';
 
-import { useA2UIActions, useA2UIState } from './a2uiInternals';
 import {
   normalizeStyle,
   resolveBindingPath,
   resolveBoundStringValue,
   type StringValue,
 } from './a2uiCustomUtils';
+import { useA2UIActions, useA2UIState } from './a2uiInternals';
 
 interface RadioOption {
   label?: StringValue | string;
@@ -101,7 +100,7 @@ export const A2UIRadio = memo(function A2UIRadio({
   const actions = useA2UIActions();
   const { version } = useA2UIState();
 
-  const props = (node.properties ?? {}) as RadioProperties;
+  const props = (node.properties ?? {});
   const bindingInput =
     props.value ??
     props.selection ??

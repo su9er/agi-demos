@@ -1,7 +1,7 @@
-import { type A2UIViewerProps } from '@copilotkit/a2ui-renderer';
 import { memo, useEffect, useId, useMemo, useRef } from 'react';
 
-import { createMemStackA2UIRegistry } from './A2UIMemStackRegistry';
+import { type A2UIViewerProps } from '@copilotkit/a2ui-renderer';
+
 import {
   A2UIProvider,
   A2UIRenderer,
@@ -10,6 +10,7 @@ import {
   injectA2UIStyles,
   useA2UIActions,
 } from './a2uiInternals';
+import { createMemStackA2UIRegistry } from './A2UIMemStackRegistry';
 
 let stylesInjected = false;
 

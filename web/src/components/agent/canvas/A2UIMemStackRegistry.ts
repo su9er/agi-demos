@@ -1,5 +1,8 @@
-import { A2UIProgress } from './A2UIProgress';
-import { A2UIRadio } from './A2UIRadio';
+import {
+  ComponentRegistry,
+  initializeDefaultCatalog,
+  type A2UIComponentRegistry,
+} from './a2uiInternals';
 import {
   A2UIButton,
   A2UICard,
@@ -9,12 +12,9 @@ import {
   A2UIRow,
   A2UITabs,
 } from './A2UIIsolatedComponents';
+import { A2UIProgress } from './A2UIProgress';
+import { A2UIRadio } from './A2UIRadio';
 import { A2UITable } from './A2UITable';
-import {
-  ComponentRegistry,
-  initializeDefaultCatalog,
-  type A2UIComponentRegistry,
-} from './a2uiInternals';
 
 function registerMemStackA2UIComponents(registry: A2UIComponentRegistry): void {
   registry.register('Row', { component: A2UIRow });
