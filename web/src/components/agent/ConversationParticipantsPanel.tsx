@@ -9,6 +9,7 @@
  */
 
 import { memo, useMemo, useState } from 'react';
+
 import { useTranslation } from 'react-i18next';
 
 import { useConversationParticipants } from '../../hooks/useConversationParticipants';
@@ -68,7 +69,17 @@ export const ConversationParticipantsPanel = memo<ConversationParticipantsPanelP
       return null;
     }
 
-    const { participant_agents, coordinator_agent_id, focused_agent_id, effective_mode } = roster;
+    const {
+      participant_agents,
+      participant_bindings,
+      coordinator_agent_id,
+      focused_agent_id,
+      effective_mode,
+    } = roster;
+
+    const participantBindingMap = new Map(
+      participant_bindings.map((binding) => [binding.agent_id, binding] as const)
+    );
 
     return (
       <aside
@@ -94,6 +105,9 @@ export const ConversationParticipantsPanel = memo<ConversationParticipantsPanelP
             {participant_agents.map((agentId) => {
               const isCoordinator = agentId === coordinator_agent_id;
               const isFocused = agentId === focused_agent_id;
+              const binding = participantBindingMap.get(agentId);
+              const participantLabel =
+                binding?.display_name || binding?.label || agentId;
               return (
                 <li
                   key={agentId}
@@ -104,7 +118,7 @@ export const ConversationParticipantsPanel = memo<ConversationParticipantsPanelP
                     onClick={() => onSelectAgent?.(agentId)}
                     className="flex-1 text-left text-sm font-medium text-[#171717] hover:text-[#0070f3]"
                   >
-                    {agentId}
+                    {participantLabel}
                   </button>
                   <div className="flex items-center gap-1">
                     {isCoordinator && (
@@ -122,13 +136,15 @@ export const ConversationParticipantsPanel = memo<ConversationParticipantsPanelP
                     {!isCoordinator && (
                       <button
                         type="button"
-                        onClick={() => void setCoordinator(agentId)}
+                        onClick={() => {
+                          void setCoordinator(agentId);
+                        }}
                         className="rounded px-2 py-0.5 text-xs text-[#666] hover:bg-[#fafafa] hover:text-[#0070f3]"
                         title={t('agent.participants.setCoordinator', {
                           defaultValue: 'Set as coordinator',
                         })}
                         aria-label={t('agent.participants.setCoordinatorFor', {
-                          defaultValue: `Set ${agentId} as coordinator`,
+                          defaultValue: `Set ${participantLabel} as coordinator`,
                         })}
                       >
                         ★
@@ -136,13 +152,15 @@ export const ConversationParticipantsPanel = memo<ConversationParticipantsPanelP
                     )}
                     <button
                       type="button"
-                      onClick={async () => {
-                        await removeParticipant(agentId);
-                        onRemoveAgent?.(agentId);
+                      onClick={() => {
+                        void (async () => {
+                          await removeParticipant(agentId);
+                          onRemoveAgent?.(agentId);
+                        })();
                       }}
                       className="rounded px-2 py-0.5 text-xs text-[#999] hover:bg-[#fafafa] hover:text-[#ee0000]"
                       aria-label={t('agent.participants.remove', {
-                        defaultValue: `Remove ${agentId}`,
+                        defaultValue: `Remove ${participantLabel}`,
                       })}
                     >
                       ×
@@ -179,19 +197,21 @@ export const ConversationParticipantsPanel = memo<ConversationParticipantsPanelP
                 data-testid="add-participant-select"
                 disabled={adding}
                 defaultValue=""
-                onChange={async (e) => {
+                onChange={(e) => {
                   const agentId = e.target.value;
                   e.target.value = '';
                   if (!agentId) return;
-                  setAdding(true);
-                  setAddError(null);
-                  try {
-                    await addParticipant({ agent_id: agentId });
-                  } catch (err) {
-                    setAddError(err instanceof Error ? err.message : String(err));
-                  } finally {
-                    setAdding(false);
-                  }
+                  void (async () => {
+                    setAdding(true);
+                    setAddError(null);
+                    try {
+                      await addParticipant({ agent_id: agentId });
+                    } catch (err) {
+                      setAddError(err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setAdding(false);
+                    }
+                  })();
                 }}
                 className="flex-1 rounded border border-[rgba(0,0,0,0.08)] bg-white px-2 py-1 text-xs text-[#171717] focus:outline-none focus:ring-1 focus:ring-[#0070f3]"
               >

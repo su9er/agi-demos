@@ -21,6 +21,7 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
+
 import { useTranslation } from 'react-i18next';
 
 import { useMentionCandidates } from '../../hooks/useMentionCandidates';
@@ -39,11 +40,11 @@ export const MentionPicker = memo<MentionPickerProps>(
     const { t } = useTranslation();
     const { candidates: roster } = useMentionCandidates(conversationId, { enabled: open });
     const [activeState, setActiveState] = useState<{ trigger: string; index: number }>({
-      trigger: `${open}|${query}`,
+      trigger: `${String(open)}|${query}`,
       index: 0,
     });
     const listRef = useRef<HTMLUListElement>(null);
-    const trigger = `${open}|${query}`;
+    const trigger = `${String(open)}|${query}`;
     const activeIndex = activeState.trigger === trigger ? activeState.index : 0;
     const setActiveIndex = useCallback(
       (next: number | ((prev: number) => number)) => {
@@ -117,8 +118,12 @@ export const MentionPicker = memo<MentionPickerProps>(
               key={candidate.agent_id}
               role="option"
               aria-selected={idx === activeIndex}
-              onMouseEnter={() => setActiveIndex(idx)}
-              onClick={() => onMentionSelected(candidate.agent_id)}
+              onMouseEnter={() => {
+                setActiveIndex(idx);
+              }}
+              onClick={() => {
+                onMentionSelected(candidate.agent_id);
+              }}
               className={`flex cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-sm ${
                 idx === activeIndex ? 'bg-[#fafafa] text-[#0070f3]' : 'text-[#171717]'
               }`}
@@ -143,27 +148,3 @@ export const MentionPicker = memo<MentionPickerProps>(
 );
 
 MentionPicker.displayName = 'MentionPicker';
-
-/**
- * extractMentionQuery — helper for host input components.
- *
- * Given the raw text up to the caret, returns the mention trigger query
- * (characters after the last ``@`` that is either at start or preceded
- * by whitespace) or ``null`` if no active mention.
- *
- * Pure structural tokenizer — no NL interpretation. The *selection* of
- * which agent the user means is driven by their explicit click/enter
- * from the picker; this helper merely detects that a mention is being
- * typed.
- */
-export function extractMentionQuery(textBeforeCaret: string): string | null {
-  if (!textBeforeCaret) return null;
-  const atIdx = textBeforeCaret.lastIndexOf('@');
-  if (atIdx < 0) return null;
-  const isAtBoundary = atIdx === 0 || /\s/.test(textBeforeCaret[atIdx - 1] ?? '');
-  if (!isAtBoundary) return null;
-  const query = textBeforeCaret.slice(atIdx + 1);
-  // A whitespace in the query means the mention already ended.
-  if (/\s/.test(query)) return null;
-  return query;
-}

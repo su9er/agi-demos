@@ -28,6 +28,7 @@ def serialize_workspace_task(task: WorkspaceTask) -> dict[str, Any]:
         "created_by": task.created_by,
         "assignee_user_id": task.assignee_user_id,
         "assignee_agent_id": task.assignee_agent_id,
+        "workspace_agent_id": task.get_workspace_agent_binding_id(),
         "status": task.status.value,
         "metadata": dict(task.metadata),
         "created_at": _serialize_datetime(task.created_at),

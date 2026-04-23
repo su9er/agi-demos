@@ -173,6 +173,7 @@ export function CentralBlackboardContent({
                   <GoalsTab
                     objectives={objectives}
                     tasks={tasks}
+                    agents={agents}
                     completionRatio={stats.completionRatio}
                     workspaceId={workspaceId}
                     tenantId={tenantId}

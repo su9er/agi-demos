@@ -651,6 +651,7 @@ describe('workspace store', () => {
       expect.objectContaining({
         id: 'task-1',
         priority: 'P1',
+        workspace_agent_id: 'binding-1',
         metadata: {
           goal_evidence: {
             goal_task_id: 'task-1',

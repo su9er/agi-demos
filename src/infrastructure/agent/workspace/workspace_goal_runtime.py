@@ -79,6 +79,7 @@ from src.infrastructure.agent.subagent.task_decomposer import DecompositionResul
 from src.infrastructure.agent.workspace.workspace_metadata_keys import (
     AUTONOMY_SCHEMA_VERSION_KEY,
     CURRENT_ATTEMPT_ID,
+    CURRENT_ATTEMPT_WORKER_BINDING_ID,
     DERIVED_FROM_INTERNAL_PLAN_STEP,
     EXECUTION_STATE,
     LAST_LEADER_ADJUDICATION_STATUS,
@@ -923,6 +924,27 @@ async def _launch_workspace_retry_attempt(
         leader_agent_id,
         conversation_scope=conversation_scope,
     )
+    worker_binding_id: str | None = None
+    try:
+        async with async_session_factory() as db:
+            task = await SqlWorkspaceTaskRepository(db).find_by_id(workspace_task_id)
+            if task is not None:
+                worker_binding_id = task.get_workspace_agent_binding_id()
+                if worker_binding_id is None and task.assignee_agent_id:
+                    binding = await SqlWorkspaceAgentRepository(db).find_by_workspace_and_agent_id(
+                        workspace_id=workspace_id,
+                        agent_id=task.assignee_agent_id,
+                    )
+                    worker_binding_id = binding.id if binding is not None else None
+    except Exception:
+        logger.warning(
+            "Workspace retry launch could not resolve worker binding id",
+            exc_info=True,
+            extra={"workspace_id": workspace_id, "workspace_task_id": workspace_task_id},
+        )
+    worker_binding_line = (
+        f"workspace_agent_binding_id={worker_binding_id}\n" if worker_binding_id else ""
+    )
     user_message = (
         "Please continue autonomous workspace task execution for the existing workspace task. "
         "Review the previous attempt feedback, relaunch execution for the same task, and keep "
@@ -933,6 +955,7 @@ async def _launch_workspace_retry_attempt(
         f"attempt_id={attempt_id}\n"
         f"root_goal_task_id={root_goal_task_id}\n"
         f"workspace_id={workspace_id}\n"
+        f"{worker_binding_line}"
         "[/workspace-task-binding]\n\n"
         f"Leader retry feedback: {retry_feedback.strip() or 'rework required'}"
     )
@@ -964,6 +987,7 @@ async def _launch_workspace_retry_attempt(
                     metadata={
                         "workspace_id": workspace_id,
                         "agent_id": leader_agent_id,
+                        "workspace_agent_binding_id": worker_binding_id,
                         "workspace_task_id": workspace_task_id,
                         ROOT_GOAL_TASK_ID: root_goal_task_id,
                         "attempt_id": attempt_id,
@@ -1424,6 +1448,15 @@ async def adjudicate_workspace_worker_report(  # noqa: C901, PLR0912, PLR0915
                     metadata["last_attempt_id"] = rejected_attempt.id
                     metadata[CURRENT_ATTEMPT_ID] = new_attempt.id
                     metadata["current_attempt_number"] = new_attempt.attempt_number
+                    worker_binding_id = task.get_workspace_agent_binding_id()
+                    if worker_binding_id is None and task.assignee_agent_id:
+                        binding = await SqlWorkspaceAgentRepository(db).find_by_workspace_and_agent_id(
+                            workspace_id=workspace_id,
+                            agent_id=task.assignee_agent_id,
+                        )
+                        worker_binding_id = binding.id if binding is not None else None
+                    if worker_binding_id:
+                        metadata[CURRENT_ATTEMPT_WORKER_BINDING_ID] = worker_binding_id
                     if leader_agent_id and task.assignee_agent_id:
                         retry_launch_request = {
                             "workspace_id": workspace_id,
@@ -1611,6 +1644,11 @@ async def prepare_workspace_subagent_delegation(
             metadata["last_attempt_id"] = attempt.id
             metadata["current_attempt_number"] = attempt.attempt_number
             metadata["last_attempt_status"] = attempt.status.value
+            if attempt.worker_agent_id:
+                metadata["current_attempt_worker_agent_id"] = attempt.worker_agent_id
+            worker_binding_id = task.get_workspace_agent_binding_id()
+            if worker_binding_id:
+                metadata[CURRENT_ATTEMPT_WORKER_BINDING_ID] = worker_binding_id
 
             updated = await command_service.update_task(
                 workspace_id=workspace_id,
@@ -1653,6 +1691,7 @@ async def prepare_workspace_subagent_delegation(
                 "workspace_task_id": updated.id,
                 "attempt_id": attempt.id,
                 "worker_agent_id": attempt.worker_agent_id or "",
+                "workspace_agent_binding_id": updated.get_workspace_agent_binding_id() or "",
                 "workspace_id": workspace_id,
                 ROOT_GOAL_TASK_ID: root_goal_task_id,
                 "actor_user_id": actor_user_id,

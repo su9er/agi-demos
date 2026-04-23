@@ -15,6 +15,7 @@ from src.application.services.workspace_agent_autonomy import (
     merge_validated_metadata,
     reconcile_root_goal_progress,
     record_task_actor,
+    validate_autonomy_metadata,
 )
 from src.domain.model.workspace.workspace import Workspace
 from src.domain.model.workspace.workspace_member import WorkspaceMember
@@ -40,6 +41,7 @@ from src.infrastructure.agent.workspace.workspace_metadata_keys import (
     LAST_WORKER_REPORT_SUMMARY,
     PENDING_LEADER_ADJUDICATION,
     ROOT_GOAL_TASK_ID,
+    WORKSPACE_AGENT_BINDING_ID,
 )
 
 
@@ -349,6 +351,7 @@ class WorkspaceTaskService:
 
         task.assignee_agent_id = relation.agent_id
         task.assignee_user_id = None
+        self._set_workspace_agent_binding_id(task, workspace_agent_id)
         task.updated_at = datetime.now(UTC)
         record_task_actor(
             task,
@@ -388,6 +391,7 @@ class WorkspaceTaskService:
             action="unassign_agent",
         )
         task.assignee_agent_id = None
+        self._clear_workspace_agent_binding_id(task)
         task.updated_at = datetime.now(UTC)
         record_task_actor(
             task,
@@ -428,6 +432,7 @@ class WorkspaceTaskService:
 
         task.assignee_user_id = actor_user_id
         task.assignee_agent_id = None
+        self._clear_workspace_agent_binding_id(task)
         task.updated_at = datetime.now(UTC)
         record_task_actor(
             task,
@@ -752,6 +757,18 @@ class WorkspaceTaskService:
     ) -> None:
         if not authority.actor_agent_id or task.assignee_agent_id != authority.actor_agent_id:
             raise PermissionError("Only the assigned worker may mutate this execution task")
+
+    @staticmethod
+    def _set_workspace_agent_binding_id(task: WorkspaceTask, workspace_agent_binding_id: str) -> None:
+        metadata = dict(task.metadata)
+        metadata[WORKSPACE_AGENT_BINDING_ID] = workspace_agent_binding_id
+        task.metadata = validate_autonomy_metadata(metadata)
+
+    @staticmethod
+    def _clear_workspace_agent_binding_id(task: WorkspaceTask) -> None:
+        metadata = dict(task.metadata)
+        metadata.pop(WORKSPACE_AGENT_BINDING_ID, None)
+        task.metadata = validate_autonomy_metadata(metadata)
 
     @staticmethod
     def _root_goal_task_id(task: WorkspaceTask) -> str | None:

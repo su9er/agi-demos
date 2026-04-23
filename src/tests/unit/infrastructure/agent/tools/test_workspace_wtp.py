@@ -39,6 +39,7 @@ def ctx() -> MagicMock:
             "selected_agent_name": "worker-bot",
             "workspace_id": "ws-1",
             "root_goal_task_id": "root-task-1",
+            "workspace_agent_binding_id": "binding-1",
             "workspace_session_role": "worker",
         },
     )
@@ -148,6 +149,7 @@ class TestProgress:
         assert metadata["task_id"] == "task-1"
         assert metadata["attempt_id"] == "attempt-1"
         assert metadata["root_goal_task_id"] == "root-task-1"
+        assert metadata["workspace_agent_binding_id"] == "binding-1"
         content_payload = json.loads(call.kwargs["message"])
         assert content_payload["summary"] == "Halfway done"
         assert content_payload["phase"] == "drafting"
@@ -233,6 +235,7 @@ class TestComplete:
         assert content["artifacts"] == ["/tmp/report.md"]
         assert send_call.kwargs["message_type"] == AgentMessageType.ANNOUNCE
         assert send_call.kwargs["metadata"]["wtp_verb"] == "task.completed"
+        assert send_call.kwargs["metadata"]["workspace_agent_binding_id"] == "binding-1"
 
         # apply_terminal_report received the normalized artifact list + correct report_type.
         apply_kwargs = mock_apply.await_args.kwargs
@@ -268,6 +271,7 @@ class TestBlocked:
         assert content["reason"] == "API returned 403"
         assert content["evidence"] == "Stack trace: ..."
         assert send_call.kwargs["message_type"] == AgentMessageType.ANNOUNCE
+        assert send_call.kwargs["metadata"]["workspace_agent_binding_id"] == "binding-1"
 
         apply_kwargs = mock_apply.await_args.kwargs
         assert apply_kwargs["report_type"] == "blocked"

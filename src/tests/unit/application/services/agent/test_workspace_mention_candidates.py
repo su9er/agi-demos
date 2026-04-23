@@ -15,6 +15,7 @@ from src.domain.model.agent.conversation.conversation_mode import ConversationMo
 @dataclass
 class _StubAgent:
     agent_id: str
+    id: str = "wa-1"
     workspace_id: str = "ws-1"
     display_name: str | None = None
     label: str | None = None
@@ -95,6 +96,7 @@ async def test_workspace_linked_returns_workspace_agents() -> None:
 
     assert [c.agent_id for c in candidates] == ["alice", "bob"]
     assert all(c.source == "workspace" for c in candidates)
+    assert candidates[0].workspace_agent_id == "wa-1"
     assert candidates[0].display_name == "Alice"
     assert candidates[0].label == "leader"
     assert candidates[1].status == "thinking"
@@ -125,6 +127,7 @@ async def test_no_workspace_falls_back_to_participants() -> None:
 
     assert [c.agent_id for c in candidates] == ["charlie", "dana"]
     assert all(c.source == "conversation" for c in candidates)
+    assert all(c.workspace_agent_id is None for c in candidates)
     assert all(c.display_name is None for c in candidates)
 
 

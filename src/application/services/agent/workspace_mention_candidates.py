@@ -33,6 +33,7 @@ class MentionCandidate:
     """One candidate agent returned to the frontend MentionPicker."""
 
     agent_id: str
+    workspace_agent_id: str | None
     display_name: str | None
     label: str | None
     status: str
@@ -66,6 +67,7 @@ class WorkspaceMentionCandidatesResolver:
             return [
                 MentionCandidate(
                     agent_id=agent.agent_id,
+                    workspace_agent_id=agent.id,
                     display_name=agent.display_name,
                     label=agent.label,
                     status=agent.status,
@@ -78,6 +80,7 @@ class WorkspaceMentionCandidatesResolver:
         return [
             MentionCandidate(
                 agent_id=agent_id,
+                workspace_agent_id=None,
                 display_name=None,
                 label=None,
                 status="idle",

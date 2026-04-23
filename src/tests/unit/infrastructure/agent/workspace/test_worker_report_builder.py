@@ -69,6 +69,24 @@ class TestProgressReport:
         assert patch["current_attempt_number"] == 1
         assert "last_worker_report_id" not in patch
 
+    def test_preserves_workspace_binding_projection_when_present(self) -> None:
+        result = build_worker_report_patch(
+            **_base_kwargs(
+                task_metadata={"workspace_agent_binding_id": "binding-1"},
+                report_type="progress",
+            )
+        )
+        assert result.patch["current_attempt_worker_binding_id"] == "binding-1"
+
+    def test_keeps_existing_current_attempt_worker_binding_projection(self) -> None:
+        result = build_worker_report_patch(
+            **_base_kwargs(
+                task_metadata={"current_attempt_worker_binding_id": "binding-legacy"},
+                report_type="progress",
+            )
+        )
+        assert result.patch["current_attempt_worker_binding_id"] == "binding-legacy"
+
 
 class TestTerminalReport:
     def test_completed_marks_awaiting_leader(self) -> None:

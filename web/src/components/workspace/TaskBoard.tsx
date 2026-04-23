@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -18,7 +18,7 @@ import { workspaceAutonomyService, workspaceTaskService } from '@/services/works
 
 import { useLazyMessage } from '@/components/ui/lazyAntd';
 
-import type { WorkspaceTaskPriority, WorkspaceTaskStatus } from '@/types/workspace';
+import type { WorkspaceTask, WorkspaceTaskPriority, WorkspaceTaskStatus } from '@/types/workspace';
 
 interface TaskBoardProps {
   workspaceId: string;
@@ -259,6 +259,23 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ workspaceId }) => {
     }));
     return [{ label: t('workspaceDetail.taskBoard.unassigned'), value: '' }, ...options];
   }, [agents, t]);
+
+  const resolveAssignedAgentValue = useCallback(
+    (task: WorkspaceTask) => {
+      if (task.workspace_agent_id) {
+        return task.workspace_agent_id;
+      }
+      if (!task.assignee_agent_id) {
+        return '';
+      }
+      const binding = agents.find(
+        (agent) => (agent.id || agent.agent_id) === task.assignee_agent_id
+          || agent.agent_id === task.assignee_agent_id
+      );
+      return binding?.id || binding?.agent_id || '';
+    },
+    [agents]
+  );
 
   const handleAgentAssign = async (taskId: string, agentId: string) => {
     try {
@@ -586,7 +603,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ workspaceId }) => {
                           <Select
                             aria-label={t('workspaceDetail.taskBoard.assignee', 'Assignee')}
                             size="small"
-                            value={task.assignee_agent_id || ''}
+                            value={resolveAssignedAgentValue(task)}
                             options={agentOptions}
                             onChange={(value) => {
                               void handleAgentAssign(task.id, value);

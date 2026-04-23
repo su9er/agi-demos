@@ -1096,7 +1096,7 @@ class TestWorkspaceGoalRuntime:
         assert "attempt_id=attempt-9" in str(captured["user_message"])
         assert "Leader retry feedback: Please tighten verification" in str(captured["user_message"])
 
-    async def test_prepare_workspace_subagent_delegation_marks_matching_task_in_progress(
+    async def test_prepare_workspace_subagent_delegation_marks_matching_task_in_progress(  # noqa: PLR0915
         self,
     ) -> None:
         task = MagicMock()
@@ -1104,11 +1104,13 @@ class TestWorkspaceGoalRuntime:
         task.workspace_id = "ws-1"
         task.title = "Draft checklist"
         task.status = WorkspaceTaskStatus.TODO
+        task.get_workspace_agent_binding_id.return_value = "binding-worker-a"
         task.metadata = {
             "autonomy_schema_version": 1,
             "task_role": "execution_task",
             "root_goal_task_id": "root-1",
             "lineage_source": "agent",
+            "workspace_agent_binding_id": "binding-worker-a",
         }
 
         session = AsyncMock()
@@ -1163,10 +1165,12 @@ class TestWorkspaceGoalRuntime:
             updated_task = MagicMock()
             updated_task.id = "child-1"
             updated_task.status = WorkspaceTaskStatus.TODO
+            updated_task.get_workspace_agent_binding_id.return_value = "binding-worker-a"
 
             started_task = MagicMock()
             started_task.id = "child-1"
             started_task.status = WorkspaceTaskStatus.IN_PROGRESS
+            started_task.get_workspace_agent_binding_id.return_value = "binding-worker-a"
 
             root_task = MagicMock()
             root_task.id = "root-1"
@@ -1208,6 +1212,7 @@ class TestWorkspaceGoalRuntime:
                 "workspace_task_id": "child-1",
                 "attempt_id": "attempt-1",
                 "worker_agent_id": "worker-a",
+                "workspace_agent_binding_id": "binding-worker-a",
                 "workspace_id": "ws-1",
                 "root_goal_task_id": "root-1",
                 "actor_user_id": "u-1",
@@ -1217,6 +1222,9 @@ class TestWorkspaceGoalRuntime:
             assert metadata["delegated_subagent_name"] == "worker-subagent"
             assert metadata["delegated_subagent_id"] == "sa-1"
             assert metadata["current_attempt_id"] == "attempt-1"
+            assert metadata["current_attempt_worker_agent_id"] == "worker-a"
+            assert metadata["current_attempt_worker_binding_id"] == "binding-worker-a"
+            assert metadata["workspace_agent_binding_id"] == "binding-worker-a"
             root_start_call, child_start_call = start_mock.await_args_list
             assert root_start_call.kwargs["task_id"] == "root-1"
             assert root_start_call.kwargs["reason"] == (
@@ -1300,6 +1308,86 @@ class TestWorkspaceGoalRuntime:
             )
 
         assert resolved is task
+
+    async def test_resolve_workspace_execution_task_uses_singleton_open_child_fallback(
+        self,
+    ) -> None:
+        only_child = MagicMock()
+        only_child.id = "child-single"
+        only_child.workspace_id = "ws-1"
+        only_child.status = WorkspaceTaskStatus.TODO
+        only_child.metadata = {"root_goal_task_id": "root-1"}
+
+        session = AsyncMock()
+
+        @asynccontextmanager
+        async def fake_session_factory():
+            yield session
+
+        with (
+            patch(
+                "src.infrastructure.agent.workspace.workspace_goal_runtime.async_session_factory",
+                fake_session_factory,
+            ),
+            patch(
+                "src.infrastructure.agent.workspace.workspace_goal_runtime.SqlWorkspaceTaskRepository"
+            ) as task_repo_cls,
+        ):
+            repo = task_repo_cls.return_value
+            repo.find_by_id = AsyncMock(return_value=None)
+            repo.find_by_root_goal_task_id = AsyncMock(return_value=[only_child])
+
+            resolved = await resolve_workspace_execution_task_for_delegate(
+                workspace_id="ws-1",
+                root_goal_task_id="root-1",
+                delegated_task_text="Do the work without a structured binding block",
+                subagent_name="worker-subagent",
+            )
+
+        assert resolved is only_child
+
+    async def test_resolve_workspace_execution_task_returns_none_when_multiple_open_children_exist(
+        self,
+    ) -> None:
+        child_a = MagicMock()
+        child_a.id = "child-a"
+        child_a.workspace_id = "ws-1"
+        child_a.status = WorkspaceTaskStatus.TODO
+        child_a.metadata = {"root_goal_task_id": "root-1"}
+
+        child_b = MagicMock()
+        child_b.id = "child-b"
+        child_b.workspace_id = "ws-1"
+        child_b.status = WorkspaceTaskStatus.IN_PROGRESS
+        child_b.metadata = {"root_goal_task_id": "root-1"}
+
+        session = AsyncMock()
+
+        @asynccontextmanager
+        async def fake_session_factory():
+            yield session
+
+        with (
+            patch(
+                "src.infrastructure.agent.workspace.workspace_goal_runtime.async_session_factory",
+                fake_session_factory,
+            ),
+            patch(
+                "src.infrastructure.agent.workspace.workspace_goal_runtime.SqlWorkspaceTaskRepository"
+            ) as task_repo_cls,
+        ):
+            repo = task_repo_cls.return_value
+            repo.find_by_id = AsyncMock(return_value=None)
+            repo.find_by_root_goal_task_id = AsyncMock(return_value=[child_a, child_b])
+
+            resolved = await resolve_workspace_execution_task_for_delegate(
+                workspace_id="ws-1",
+                root_goal_task_id="root-1",
+                delegated_task_text="Do the work without a structured binding block",
+                subagent_name="worker-subagent",
+            )
+
+        assert resolved is None
 
     async def test_replan_required_replaces_existing_children(self) -> None:
         workspace = MagicMock()

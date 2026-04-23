@@ -95,6 +95,7 @@ class WorkspaceTaskResponse(BaseModel):
     created_by: str
     assignee_user_id: str | None
     assignee_agent_id: str | None
+    workspace_agent_id: str | None = None
     status: WorkspaceTaskStatus
     metadata: dict[str, Any]
     created_at: datetime
@@ -115,6 +116,7 @@ def _to_response(task: WorkspaceTask) -> WorkspaceTaskResponse:
         created_by=task.created_by,
         assignee_user_id=task.assignee_user_id,
         assignee_agent_id=task.assignee_agent_id,
+        workspace_agent_id=task.get_workspace_agent_binding_id(),
         status=task.status,
         metadata=task.metadata,
         created_at=task.created_at,

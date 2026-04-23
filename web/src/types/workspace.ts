@@ -89,6 +89,7 @@ export interface WorkspaceTask {
   created_by?: string | undefined;
   assignee_user_id?: string | undefined;
   assignee_agent_id?: string | undefined;
+  workspace_agent_id?: string | undefined;
   status: WorkspaceTaskStatus;
   priority?: WorkspaceTaskPriority | undefined;
   estimated_effort?: string | undefined;

@@ -38,6 +38,7 @@ def _make_ctx(role: str = "worker") -> Any:
             "selected_agent_name": f"{role}-bot",
             "workspace_id": "ws-1",
             "root_goal_task_id": "root-1",
+            "workspace_agent_binding_id": "binding-1",
             "workspace_session_role": role,
         },
     )
@@ -148,6 +149,8 @@ class TestRequestClarification:
         data = json.loads(result.output)
         assert data["answer"] == "use PROD_KEY"
         assert data["correlation_id"] == correlation_id
+        send_call = mock_orchestrator.send_message.await_args
+        assert send_call.kwargs["metadata"]["workspace_agent_binding_id"] == "binding-1"
 
     async def test_timeout_returns_error(self, mock_orchestrator):
         mock_orchestrator.send_message.return_value = _ok_send()
@@ -200,6 +203,8 @@ class TestRespondClarification:
         data = json.loads(result.output)
         assert data["wtp_verb"] == "task.clarify_response"
         assert data["correlation_id"] == "corr-1"
+        call = mock_orchestrator.send_message.await_args
+        assert call.kwargs["metadata"]["workspace_agent_binding_id"] == "binding-1"
 
 
 class TestDeliveryHook:

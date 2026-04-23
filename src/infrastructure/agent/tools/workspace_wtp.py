@@ -109,6 +109,13 @@ async def _send_envelope(
 
     sender_agent_ref = _runtime_string(ctx, "selected_agent_id") or ctx.agent_name
     sender_agent_name = _runtime_string(ctx, "selected_agent_name") or ctx.agent_name
+    metadata = envelope.to_metadata()
+    worker_binding_id = _runtime_string(ctx, "workspace_agent_binding_id")
+    if worker_binding_id:
+        metadata = {
+            **metadata,
+            "workspace_agent_binding_id": worker_binding_id,
+        }
 
     try:
         result = await _orchestrator.send_message(
@@ -119,7 +126,7 @@ async def _send_envelope(
             project_id=ctx.project_id or None,
             tenant_id=ctx.tenant_id,
             message_type=envelope.default_message_type(),
-            metadata=envelope.to_metadata(),
+            metadata=metadata,
         )
     except Exception:
         logger.exception(
@@ -155,6 +162,8 @@ async def _send_envelope(
         enriched_metadata.setdefault(
             "worker_conversation_id", ctx.session_id or ""
         )
+        if worker_binding_id:
+            enriched_metadata.setdefault("workspace_agent_binding_id", worker_binding_id)
         actor_user_id = _runtime_string(ctx, "user_id") or ctx.user_id or ""
         if actor_user_id:
             enriched_metadata.setdefault("actor_user_id", actor_user_id)
@@ -247,6 +256,21 @@ async def _apply_terminal_report(
         "applied": True,
         "task_status": getattr(task, "status", None) if task is not None else None,
     }
+
+
+def _build_terminal_tool_result(send_result: ToolResult, apply_result: dict[str, Any]) -> ToolResult:
+    """Merge terminal report apply status into the send result payload."""
+    try:
+        parsed_output = json.loads(send_result.output)
+    except (TypeError, ValueError):
+        enriched: dict[str, Any] = {"output": send_result.output}
+    else:
+        enriched = parsed_output if isinstance(parsed_output, dict) else {"output": parsed_output}
+    enriched["applied_report"] = apply_result
+    return ToolResult(
+        output=json.dumps(enriched, indent=2),
+        is_error=send_result.is_error,
+    )
 
 
 # --- Progress -----------------------------------------------------------------
@@ -415,15 +439,7 @@ async def workspace_report_complete_tool(
             summary=summary,
             artifacts=normalized_artifacts or None,
         )
-    try:
-        enriched = json.loads(send_result.output)
-    except (TypeError, ValueError):
-        enriched = {"output": send_result.output}
-    enriched["applied_report"] = apply_result
-    return ToolResult(
-        output=json.dumps(enriched, indent=2),
-        is_error=send_result.is_error,
-    )
+    return _build_terminal_tool_result(send_result, apply_result)
 
 
 # --- Blocked ------------------------------------------------------------------
@@ -509,15 +525,7 @@ async def workspace_report_blocked_tool(
             summary=summary,
             artifacts=None,
         )
-    try:
-        enriched = json.loads(send_result.output)
-    except (TypeError, ValueError):
-        enriched = {"output": send_result.output}
-    enriched["applied_report"] = apply_result
-    return ToolResult(
-        output=json.dumps(enriched, indent=2),
-        is_error=send_result.is_error,
-    )
+    return _build_terminal_tool_result(send_result, apply_result)
 
 
 __all__ = [

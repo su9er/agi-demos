@@ -83,3 +83,15 @@ class WorkspaceTask(Entity):
             self.priority = WorkspaceTaskPriority.from_rank(self.priority)
         elif isinstance(self.priority, str):
             self.priority = WorkspaceTaskPriority(self.priority)
+
+    def get_workspace_agent_binding_id(self) -> str | None:
+        value = self.metadata.get("workspace_agent_binding_id")
+        if isinstance(value, str) and value:
+            return value
+
+        last_mutation_actor = self.metadata.get("last_mutation_actor")
+        if isinstance(last_mutation_actor, dict):
+            candidate = last_mutation_actor.get("workspace_agent_binding_id")
+            if isinstance(candidate, str) and candidate:
+                return candidate
+        return None

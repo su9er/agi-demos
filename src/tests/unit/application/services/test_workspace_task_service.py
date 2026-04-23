@@ -213,6 +213,38 @@ class TestWorkspaceTaskService:
             )
 
     @pytest.mark.asyncio
+    async def test_assign_agent_preserves_workspace_binding_id_in_metadata(
+        self,
+        workspace_task_service,
+        mock_workspace_repo: MagicMock,
+        mock_member_repo: MagicMock,
+        mock_agent_repo: MagicMock,
+        mock_task_repo: MagicMock,
+    ) -> None:
+        task = _make_task()
+        mock_workspace_repo.find_by_id.return_value = _make_workspace("ws-1")
+        mock_member_repo.find_by_workspace_and_user.return_value = _make_member(
+            "editor-1", WorkspaceRole.EDITOR, "ws-1"
+        )
+        mock_task_repo.find_by_id.return_value = task
+        mock_task_repo.save.side_effect = lambda saved_task: saved_task
+        mock_agent_repo.find_by_id.return_value = _make_agent_binding(
+            binding_id="wa-1",
+            workspace_id="ws-1",
+            agent_id="agent-1",
+        )
+
+        saved = await workspace_task_service.assign_task_to_agent(
+            workspace_id="ws-1",
+            task_id="wt-1",
+            actor_user_id="editor-1",
+            workspace_agent_id="wa-1",
+        )
+
+        assert saved.assignee_agent_id == "agent-1"
+        assert saved.get_workspace_agent_binding_id() == "wa-1"
+
+    @pytest.mark.asyncio
     async def test_start_task_rejects_invalid_transition_from_done(
         self,
         workspace_task_service,

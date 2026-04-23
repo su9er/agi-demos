@@ -280,8 +280,11 @@ def _format_tasks(tasks: list[WorkspaceTask]) -> str | None:
         last_worker_report_fingerprint = metadata.get("last_worker_report_fingerprint")
         current_attempt_id = metadata.get(CURRENT_ATTEMPT_ID)
         current_attempt_number = metadata.get("current_attempt_number")
+        current_attempt_worker_agent_id = metadata.get("current_attempt_worker_agent_id")
+        current_attempt_worker_binding_id = metadata.get("current_attempt_worker_binding_id")
         last_attempt_id = metadata.get("last_attempt_id")
         last_attempt_status = metadata.get("last_attempt_status")
+        workspace_agent_binding_id = task.get_workspace_agent_binding_id()
         goal_evidence = metadata.get("goal_evidence")
         description_attr = (
             f' description="{truncate(task.description, 160)}"' if task.description else ""
@@ -342,6 +345,21 @@ def _format_tasks(tasks: list[WorkspaceTask]) -> str | None:
             if isinstance(current_attempt_number, int)
             else ""
         )
+        current_attempt_worker_binding_attr = (
+            f' current_attempt_worker_binding_id="{current_attempt_worker_binding_id}"'
+            if isinstance(current_attempt_worker_binding_id, str)
+            else ""
+        )
+        current_attempt_worker_agent_attr = (
+            f' current_attempt_worker_agent_id="{current_attempt_worker_agent_id}"'
+            if isinstance(current_attempt_worker_agent_id, str)
+            else ""
+        )
+        workspace_agent_binding_attr = (
+            f' workspace_agent_binding_id="{workspace_agent_binding_id}"'
+            if isinstance(workspace_agent_binding_id, str)
+            else ""
+        )
         last_attempt_id_attr = (
             f' last_attempt_id="{last_attempt_id}"' if isinstance(last_attempt_id, str) else ""
         )
@@ -359,11 +377,12 @@ def _format_tasks(tasks: list[WorkspaceTask]) -> str | None:
         lines.append(
             f'    <task id="{task.id}" status="{task.status.value}" role="{role}" '
             + f'priority="{task.priority.value}"{description_attr}{goal_health_attr}'
+            + f"{workspace_agent_binding_attr}"
             + f"{remediation_attr}{progress_summary_attr}{pending_adjudication_attr}"
             + f"{worker_report_attr}{worker_summary_attr}{worker_artifacts_attr}"
             + f"{worker_verifications_attr}{worker_report_id_attr}{worker_report_fingerprint_attr}"
             + f"{current_attempt_id_attr}{current_attempt_number_attr}{last_attempt_id_attr}"
-            + f"{last_attempt_status_attr}"
+            + f"{current_attempt_worker_agent_attr}{current_attempt_worker_binding_attr}{last_attempt_status_attr}"
             + f"{evidence_grade_attr}>"
             + f"{truncate(task.title, 120)}</task>"
         )

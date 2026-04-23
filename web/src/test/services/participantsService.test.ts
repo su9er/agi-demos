@@ -26,6 +26,16 @@ describe('participantsService', () => {
       conversation_mode: 'multi_agent_shared',
       effective_mode: 'multi_agent_shared',
       participant_agents: ['agent-1'],
+      participant_bindings: [
+        {
+          agent_id: 'agent-1',
+          workspace_agent_id: 'binding-1',
+          display_name: 'Agent One',
+          label: null,
+          is_active: true,
+          source: 'workspace',
+        },
+      ],
       coordinator_agent_id: 'agent-1',
       focused_agent_id: null,
     });
@@ -34,6 +44,7 @@ describe('participantsService', () => {
 
     expect(httpClient.get).toHaveBeenCalledWith('/agent/conversations/c1/participants');
     expect(roster.participant_agents).toEqual(['agent-1']);
+    expect(roster.participant_bindings[0]?.workspace_agent_id).toBe('binding-1');
   });
 
   it('addParticipant POSTs the add-participant payload', async () => {
@@ -42,6 +53,7 @@ describe('participantsService', () => {
       conversation_mode: 'multi_agent_shared',
       effective_mode: 'multi_agent_shared',
       participant_agents: ['agent-1', 'agent-2'],
+      participant_bindings: [],
       coordinator_agent_id: 'agent-1',
       focused_agent_id: null,
     });
@@ -63,6 +75,7 @@ describe('participantsService', () => {
       conversation_mode: 'multi_agent_shared',
       effective_mode: 'multi_agent_shared',
       participant_agents: [],
+      participant_bindings: [],
       coordinator_agent_id: null,
       focused_agent_id: null,
     });
@@ -81,6 +94,7 @@ describe('participantsService', () => {
       conversation_mode: 'multi_agent_shared',
       effective_mode: 'multi_agent_shared',
       participant_agents: [],
+      participant_bindings: [],
       coordinator_agent_id: null,
       focused_agent_id: null,
     });
@@ -92,5 +106,31 @@ describe('participantsService', () => {
     expect(httpClient.delete).toHaveBeenCalledWith('/agent/conversations/c1/participants/agent-2', {
       data: { reason: 'Task reassigned' },
     });
+  });
+
+  it('listMentionCandidates returns binding-aware workspace candidates', async () => {
+    (httpClient.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      conversation_id: 'c1',
+      workspace_id: 'ws-1',
+      source: 'workspace',
+      candidates: [
+        {
+          agent_id: 'agent-1',
+          workspace_agent_id: 'binding-1',
+          display_name: 'Worker A',
+          label: 'alpha',
+          status: 'idle',
+          is_active: true,
+          source: 'workspace',
+        },
+      ],
+    });
+
+    const result = await participantsService.listMentionCandidates('c1');
+
+    expect(httpClient.get).toHaveBeenCalledWith('/agent/conversations/c1/mention-candidates', {
+      params: { include_inactive: false },
+    });
+    expect(result.candidates[0]?.workspace_agent_id).toBe('binding-1');
   });
 });

@@ -469,6 +469,7 @@ async def test_assign_agent_emits_full_task_payload_with_workspace_binding(
     assert assigned_event["workspace_agent_id"] == binding.id
     assert assigned_event["assignee_agent_id"] == agent.id
     assert assigned_event["status"] == "todo"
+    assert response.json()["workspace_agent_id"] == binding.id
     assert assigned_event["task"] == {
         "id": task.id,
         "workspace_id": workspace.id,
@@ -477,8 +478,10 @@ async def test_assign_agent_emits_full_task_payload_with_workspace_binding(
         "created_by": user.id,
         "assignee_user_id": None,
         "assignee_agent_id": agent.id,
+        "workspace_agent_id": binding.id,
         "status": "todo",
         "metadata": {
+            "workspace_agent_binding_id": binding.id,
             "goal_evidence": {
                 "goal_task_id": "root-5",
                 "summary": "proof on ledger",
@@ -2360,6 +2363,15 @@ async def test_leader_reject_creates_retry_attempt_and_followup_conversation(tes
             "last_worker_report_summary": "Need stronger verification",
         },
     )
+    worker_binding = WorkspaceAgentModel(
+        id="wa-retry-scenario-worker",
+        workspace_id=workspace.id,
+        agent_id="worker-agent",
+        display_name="Worker Agent",
+        description=None,
+        config_json={},
+        is_active=True,
+    )
     attempt = WorkspaceTaskSessionAttemptModel(
         id="attempt-retry-scenario-1",
         workspace_task_id=child_task.id,
@@ -2387,7 +2399,7 @@ async def test_leader_reject_creates_retry_attempt_and_followup_conversation(tes
         role="owner",
     )
     test_db.add_all([
-        user, tenant, project, workspace, membership, root_task, child_task, attempt, user_tenant, user_project
+        user, tenant, project, workspace, membership, root_task, child_task, worker_binding, attempt, user_tenant, user_project
     ])
     await test_db.commit()
 
@@ -2462,14 +2474,17 @@ async def test_leader_reject_creates_retry_attempt_and_followup_conversation(tes
     assert conversation is not None
     assert conversation.meta["workspace_task_id"] == child_task.id
     assert conversation.meta["attempt_id"] == attempts[1].id
+    assert conversation.meta["workspace_agent_binding_id"] == worker_binding.id
     assert conversation.meta["retry_launch"] is True
     await test_db.refresh(child_task)
     assert child_task.metadata_json["current_attempt_id"] == attempts[1].id
     assert child_task.metadata_json["current_attempt_number"] == 2
+    assert child_task.metadata_json["current_attempt_worker_binding_id"] == worker_binding.id
     assert child_task.metadata_json["last_attempt_status"] == "rejected"
     assert captured["conversation_id"] == expected_conversation_id
     assert captured["agent_id"] == "leader-agent"
     assert "attempt_id=" + attempts[1].id in str(captured["user_message"])
+    assert f"workspace_agent_binding_id={worker_binding.id}" in str(captured["user_message"])
 
 
 @pytest.mark.asyncio
@@ -2549,6 +2564,15 @@ async def test_retry_followup_launch_can_ingest_new_candidate_and_return_to_adju
             "last_worker_report_summary": "Need stronger verification",
         },
     )
+    worker_binding = WorkspaceAgentModel(
+        id="wa-retry-followup-worker",
+        workspace_id=workspace.id,
+        agent_id="worker-agent",
+        display_name="Worker Agent",
+        description=None,
+        config_json={},
+        is_active=True,
+    )
     attempt = WorkspaceTaskSessionAttemptModel(
         id="attempt-retry-followup-1",
         workspace_task_id=child_task.id,
@@ -2576,7 +2600,7 @@ async def test_retry_followup_launch_can_ingest_new_candidate_and_return_to_adju
         role="owner",
     )
     test_db.add_all(
-        [user, tenant, project, workspace, membership, root_task, child_task, attempt, user_tenant, user_project]
+        [user, tenant, project, workspace, membership, root_task, child_task, worker_binding, attempt, user_tenant, user_project]
     )
     await test_db.commit()
 
@@ -2658,7 +2682,13 @@ async def test_retry_followup_launch_can_ingest_new_candidate_and_return_to_adju
         await test_db.refresh(child_task)
         assert child_task.metadata_json["current_attempt_id"] == attempts[1].id
         assert child_task.metadata_json["pending_leader_adjudication"] is True
+        assert child_task.metadata_json["current_attempt_worker_binding_id"] == worker_binding.id
         assert child_task.metadata_json["last_worker_report_summary"] == "Retry candidate completed"
+        conversation = await test_db.scalar(
+            select(ConversationModel).where(ConversationModel.id == captured["conversation_id"])
+        )
+        assert conversation is not None
+        assert conversation.meta["workspace_task_id"] == child_task.id
 
         accepted = await adjudicate_workspace_worker_report(
             workspace_id=workspace.id,

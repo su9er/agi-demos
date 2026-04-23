@@ -918,10 +918,17 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         } else if (type === 'workspace_task_assigned') {
           const task = data.task as WorkspaceTask | undefined;
           if (task) {
+            const workspaceAgentId =
+              typeof data.workspace_agent_id === 'string' && data.workspace_agent_id.length > 0
+                ? data.workspace_agent_id
+                : task.workspace_agent_id;
+            const normalizedTask: WorkspaceTask = workspaceAgentId
+              ? { ...task, workspace_agent_id: workspaceAgentId }
+              : task;
             set((state) => ({
-              tasks: state.tasks.some((t) => t.id === task.id)
-                ? state.tasks.map((t) => (t.id === task.id ? task : t))
-                : [...state.tasks, task],
+              tasks: state.tasks.some((t) => t.id === normalizedTask.id)
+                ? state.tasks.map((t) => (t.id === normalizedTask.id ? normalizedTask : t))
+                : [...state.tasks, normalizedTask],
             }));
           }
         }

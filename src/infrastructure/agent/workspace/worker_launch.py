@@ -38,6 +38,7 @@ from typing import Any
 from src.domain.model.workspace.workspace_task import WorkspaceTask
 from src.infrastructure.agent.workspace.workspace_metadata_keys import (
     CURRENT_ATTEMPT_ID,
+    CURRENT_ATTEMPT_WORKER_BINDING_ID,
     ROOT_GOAL_TASK_ID,
 )
 
@@ -104,12 +105,15 @@ def _build_worker_brief(
             root_goal_task_id = candidate
 
     description = (task.description or "").strip()
+    workspace_agent_binding_id = task.get_workspace_agent_binding_id()
 
     binding_lines = [
         "[workspace-task-binding]",
         f"workspace_id={workspace_id}",
         f"workspace_task_id={task.id}",
     ]
+    if workspace_agent_binding_id:
+        binding_lines.append(f"workspace_agent_binding_id={workspace_agent_binding_id}")
     if root_goal_task_id:
         binding_lines.append(f"root_goal_task_id={root_goal_task_id}")
     if attempt_id:
@@ -148,8 +152,6 @@ async def _is_on_cooldown(conversation_id: str) -> bool:
     try:
         redis = await get_redis_client()
     except Exception:
-        return False
-    if redis is None:
         return False
     key = f"workspace:worker_launch:cooldown:{conversation_id}"
     try:
@@ -384,6 +386,7 @@ async def launch_worker_session(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     metadata={
                         "workspace_id": workspace_id,
                         "agent_id": worker_agent_id,
+                        "workspace_agent_binding_id": worker_binding.id,
                         "workspace_task_id": task.id,
                         ROOT_GOAL_TASK_ID: root_goal_task_id,
                         "attempt_id": attempt.id,
@@ -436,6 +439,7 @@ async def launch_worker_session(  # noqa: C901, PLR0911, PLR0912, PLR0915
                         "current_attempt_number": attempt.attempt_number,
                         "current_attempt_conversation_id": resolved_conversation_id,
                         "current_attempt_worker_agent_id": worker_agent_id,
+                        CURRENT_ATTEMPT_WORKER_BINDING_ID: worker_binding.id,
                     },
                     actor_type="agent" if leader_agent_id else "human",
                     actor_agent_id=leader_agent_id,

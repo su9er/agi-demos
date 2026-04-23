@@ -159,6 +159,9 @@ class ExecutionTaskMetadataModel(ContractModel):
     current_attempt_id: str | None = None
     last_attempt_id: str | None = None
     current_attempt_number: int | None = Field(default=None, ge=1)
+    current_attempt_conversation_id: str | None = None
+    current_attempt_worker_agent_id: str | None = None
+    current_attempt_worker_binding_id: str | None = None
     last_attempt_status: str | None = None
     execution_state: ExecutionStateModel | None = None
     evidence_refs: list[str] = Field(default_factory=list)

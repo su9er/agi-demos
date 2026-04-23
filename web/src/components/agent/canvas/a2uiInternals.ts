@@ -1,7 +1,6 @@
 import { createContext, useContext } from 'react';
 import type { ComponentType, CSSProperties, NamedExoticComponent, ReactNode } from 'react';
 
-// @ts-expect-error CopilotKit does not publish declarations for this internal registry module.
 // @ts-expect-error CopilotKit does not publish declarations for this internal provider module.
 // prettier-ignore
 import { A2UIProvider as RawA2UIProvider, useA2UIActions as rawUseA2UIActions, useA2UIState as rawUseA2UIState } from '../../../../node_modules/@copilotkit/a2ui-renderer/dist/react-renderer/core/A2UIProvider.mjs';
@@ -13,14 +12,15 @@ import RawComponentNode from '../../../../node_modules/@copilotkit/a2ui-renderer
 import { useA2UIComponent as rawUseA2UIComponent } from '../../../../node_modules/@copilotkit/a2ui-renderer/dist/react-renderer/hooks/useA2UIComponent.mjs';
 // @ts-expect-error CopilotKit does not publish declarations for this internal catalog module.
 import { mergeClassMaps as rawMergeClassMaps } from '../../../../node_modules/@copilotkit/a2ui-renderer/dist/react-renderer/lib/utils.mjs';
+// @ts-expect-error CopilotKit does not publish declarations for this internal registry module.
 import { ComponentRegistry as RawComponentRegistry } from '../../../../node_modules/@copilotkit/a2ui-renderer/dist/react-renderer/registry/ComponentRegistry.mjs';
+// @ts-expect-error CopilotKit does not publish declarations for this internal default catalog module.
 import { initializeDefaultCatalog as rawInitializeDefaultCatalog } from '../../../../node_modules/@copilotkit/a2ui-renderer/dist/react-renderer/registry/defaultCatalog.mjs';
 // @ts-expect-error CopilotKit does not publish declarations for this internal styles module.
 import { injectStyles as rawInjectStyles } from '../../../../node_modules/@copilotkit/a2ui-renderer/dist/react-renderer/styles/index.mjs';
+// @ts-expect-error CopilotKit does not publish declarations for this internal theme utils module.
 import { classMapToString as rawClassMapToString, stylesToObject as rawStylesToObject } from '../../../../node_modules/@copilotkit/a2ui-renderer/dist/react-renderer/theme/utils.mjs';
 import { theme as rawA2UITheme } from '../../../../node_modules/@copilotkit/a2ui-renderer/dist/theme/viewer-theme.mjs';
-// @ts-expect-error CopilotKit does not publish declarations for this internal theme utils module.
-// @ts-expect-error CopilotKit does not publish declarations for this internal utils module.
 
 export interface A2UINodeLike {
   id?: string;

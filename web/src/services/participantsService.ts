@@ -20,8 +20,18 @@ export interface RosterResponse {
   conversation_mode: ConversationMode;
   effective_mode: ConversationMode;
   participant_agents: string[];
+  participant_bindings: ParticipantBinding[];
   coordinator_agent_id: string | null;
   focused_agent_id: string | null;
+}
+
+export interface ParticipantBinding {
+  agent_id: string;
+  workspace_agent_id: string | null;
+  display_name: string | null;
+  label: string | null;
+  is_active: boolean;
+  source: 'workspace' | 'conversation';
 }
 
 export interface AddParticipantRequest {
@@ -38,6 +48,7 @@ const base = (conversationId: string) =>
 
 export interface MentionCandidate {
   agent_id: string;
+  workspace_agent_id: string | null;
   display_name: string | null;
   label: string | null;
   status: string;

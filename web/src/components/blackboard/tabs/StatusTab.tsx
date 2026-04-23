@@ -26,6 +26,36 @@ export interface StatusTabProps {
   statusBadgeTone: (status: string | undefined) => string;
 }
 
+function resolveAttemptWorkerLabel(
+  task: WorkspaceTask,
+  agents: WorkspaceAgent[]
+): string | null {
+  const workerBindingId =
+    typeof task.metadata.current_attempt_worker_binding_id === 'string'
+      ? task.metadata.current_attempt_worker_binding_id
+      : '';
+  if (workerBindingId) {
+    const binding = agents.find((agent) => agent.id === workerBindingId);
+    if (binding) {
+      return binding.display_name ?? binding.label ?? binding.agent_id;
+    }
+  }
+
+  const workerAgentId =
+    typeof task.metadata.current_attempt_worker_agent_id === 'string'
+      ? task.metadata.current_attempt_worker_agent_id
+      : '';
+  if (workerAgentId) {
+    const binding = agents.find((agent) => agent.agent_id === workerAgentId);
+    if (binding) {
+      return binding.display_name ?? binding.label ?? binding.agent_id;
+    }
+    return workerAgentId;
+  }
+
+  return null;
+}
+
 export function StatusTab({
   stats,
   topologyEdges,
@@ -131,6 +161,7 @@ export function StatusTab({
                 typeof task.metadata.current_attempt_number === 'number'
                   ? task.metadata.current_attempt_number
                   : undefined;
+              const currentAttemptWorkerLabel = resolveAttemptWorkerLabel(task, agents);
               const conversationHref = currentConversationId
                 ? buildAgentWorkspacePath({
                     tenantId,
@@ -173,6 +204,12 @@ export function StatusTab({
                         {reportVerifications.join(', ')}
                       </p>
                     )}
+                    {currentAttemptWorkerLabel && (
+                      <p>
+                        {t('blackboard.pendingAdjudicationWorker', 'Worker')}:{' '}
+                        {currentAttemptWorkerLabel}
+                      </p>
+                    )}
                     {conversationHref && (
                       <p>
                         <Link
@@ -184,7 +221,7 @@ export function StatusTab({
                             'View attempt conversation'
                           )}
                           {currentAttemptNumber
-                            ? ` (#${currentAttemptNumber})`
+                            ? ` (#${String(currentAttemptNumber)})`
                             : ''}
                         </Link>
                       </p>

@@ -27,6 +27,7 @@ describe('GoalsTab', () => {
           },
         ]}
         tasks={[]}
+        agents={[]}
         completionRatio={0}
         workspaceId="ws-1"
         onDeleteObjective={vi.fn()}
@@ -84,6 +85,7 @@ describe('GoalsTab', () => {
             title: 'Create fixture',
             status: 'done',
             assignee_agent_id: 'worker-a',
+            workspace_agent_id: 'binding-a',
             created_at: '2026-04-17T05:00:20Z',
             updated_at: '2026-04-17T05:01:20Z',
             completed_at: '2026-04-17T05:01:20Z',
@@ -98,6 +100,7 @@ describe('GoalsTab', () => {
             title: 'Run collaboration test',
             status: 'in_progress',
             assignee_agent_id: 'worker-b',
+            workspace_agent_id: 'binding-b',
             created_at: '2026-04-17T05:00:30Z',
             updated_at: '2026-04-17T05:02:30Z',
             metadata: {
@@ -105,6 +108,10 @@ describe('GoalsTab', () => {
               root_goal_task_id: 'root-1',
             },
           },
+        ] as never}
+        agents={[
+          { id: 'binding-a', agent_id: 'worker-a', display_name: 'Worker A' },
+          { id: 'binding-b', agent_id: 'worker-b', display_name: 'Worker B' },
         ] as never}
         completionRatio={0.5}
         workspaceId="ws-1"
@@ -129,31 +136,41 @@ describe('GoalsTab', () => {
     expect(screen.getByText('已分配 2 个 child task')).toBeInTheDocument();
     expect(screen.getByText('1 个 child task 进入执行中')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /展开详细日志/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /展开详细日志/i }));
+    });
 
     expect(screen.getByText('Create fixture')).toBeInTheDocument();
     expect(screen.getByText('Run collaboration test')).toBeInTheDocument();
     expect(screen.getAllByText('最新：进入执行中').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: /create fixture/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /create fixture/i }));
+    });
     expect(screen.getByText('最新：执行完成')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '查看全部事件' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '查看全部事件' }));
+    });
     expect(screen.getAllByText(/最新：/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('child task 已创建').length).toBeGreaterThan(0);
-    expect(screen.getByText('已分配给 worker-a')).toBeInTheDocument();
-    expect(screen.getByText('已分配给 worker-b')).toBeInTheDocument();
+    expect(screen.getByText('已分配给 Worker A')).toBeInTheDocument();
+    expect(screen.getByText('已分配给 Worker B')).toBeInTheDocument();
     expect(screen.getAllByText('最新：进入执行中').length).toBeGreaterThan(0);
     await act(async () => {
       fireEvent.click(screen.getAllByRole('button', { name: /复制快照/i })[0]);
     });
     expect(clipboardWriteText).toHaveBeenCalled();
     expect(clipboardWriteText.mock.calls[0]?.[0]).toContain('task_id: child-1');
-    expect(clipboardWriteText.mock.calls[0]?.[0]).toContain('assignee: worker-a');
+    expect(clipboardWriteText.mock.calls[0]?.[0]).toContain('assignee: Worker A');
     expect(clipboardWriteText.mock.calls[0]?.[0]).toContain('status: done');
     expect(screen.getByText('已复制')).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: /跳转到任务板/i })[1]);
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: /跳转到任务板/i })[1]);
+    });
     expect(scrollIntoView).toHaveBeenCalled();
     expect(taskBoardTarget.className).toContain('ring-2');
-    vi.runAllTimers();
+    await act(async () => {
+      vi.runAllTimers();
+    });
     expect(taskBoardTarget.className).not.toContain('ring-2');
 
     taskBoardTarget.remove();

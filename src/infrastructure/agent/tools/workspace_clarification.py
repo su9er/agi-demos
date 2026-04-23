@@ -81,6 +81,13 @@ async def _send_envelope_generic(
     sender_agent_name = _runtime_string(ctx, "selected_agent_name") or ctx.agent_name
 
     try:
+        metadata = envelope.to_metadata()
+        worker_binding_id = _runtime_string(ctx, "workspace_agent_binding_id")
+        if worker_binding_id:
+            metadata = {
+                **metadata,
+                "workspace_agent_binding_id": worker_binding_id,
+            }
         result = await _orchestrator.send_message(
             from_agent_id=sender_agent_ref,
             to_agent_id=to_agent_id,
@@ -89,7 +96,7 @@ async def _send_envelope_generic(
             project_id=ctx.project_id or None,
             tenant_id=ctx.tenant_id,
             message_type=envelope.default_message_type(),
-            metadata=envelope.to_metadata(),
+            metadata=metadata,
         )
     except Exception:
         logger.exception(
@@ -125,11 +132,7 @@ async def _send_envelope_generic(
             to_agent_id=result.to_agent_id,
             from_agent_name=sender_agent_name,
             to_agent_name=result.to_agent_id,
-            message=envelope.to_content(),
-            message_id=result.message_id,
-            conversation_id=ctx.session_id,
-            project_id=ctx.project_id,
-            tenant_id=ctx.tenant_id,
+            message_preview=envelope.to_content(),
         )
     )
 
@@ -282,7 +285,7 @@ async def workspace_request_clarification_tool(
     )
     try:
         answer = await asyncio.wait_for(future, timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _pending_clarifications.pop(correlation_id, None)
         return ToolResult(
             output=json.dumps(

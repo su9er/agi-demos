@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { extractMentionQuery } from '@/components/agent/MentionPicker';
+import { extractMentionQuery } from '@/components/agent/mentionUtils';
 
 describe('extractMentionQuery', () => {
   it('returns null when there is no @', () => {

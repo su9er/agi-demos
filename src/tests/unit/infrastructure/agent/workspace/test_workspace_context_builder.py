@@ -110,8 +110,11 @@ def _make_pending_execution_task(title: str = "Draft checklist") -> WorkspaceTas
             "task_role": "execution_task",
             "root_goal_task_id": "task-1",
             "lineage_source": "agent",
+            "workspace_agent_binding_id": "binding-1",
             "current_attempt_id": "attempt-1",
             "current_attempt_number": 2,
+            "current_attempt_worker_agent_id": "worker-a",
+            "current_attempt_worker_binding_id": "binding-1",
             "last_attempt_id": "attempt-1",
             "last_attempt_status": "awaiting_leader_adjudication",
             "pending_leader_adjudication": True,
@@ -277,6 +280,9 @@ class TestFormatWorkspaceContext:
         assert 'last_worker_report_fingerprint="abc123fingerprint"' in result
         assert 'current_attempt_id="attempt-1"' in result
         assert 'current_attempt_number="2"' in result
+        assert 'current_attempt_worker_agent_id="worker-a"' in result
+        assert 'current_attempt_worker_binding_id="binding-1"' in result
+        assert 'workspace_agent_binding_id="binding-1"' in result
         assert 'last_attempt_id="attempt-1"' in result
         assert 'last_attempt_status="awaiting_leader_adjudication"' in result
 

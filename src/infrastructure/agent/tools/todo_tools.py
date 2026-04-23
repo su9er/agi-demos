@@ -83,6 +83,7 @@ def _todo_priority_to_workspace(priority: str | None) -> WorkspaceTaskPriority:
 
 def _workspace_task_to_todo(task: WorkspaceTask) -> dict[str, Any]:
     step_id = task.metadata.get("derived_from_internal_plan_step")
+    workspace_agent_binding_id = task.get_workspace_agent_binding_id()
     todo: dict[str, Any] = {
         "id": step_id if isinstance(step_id, str) and step_id else task.id,
         "workspace_task_id": task.id,
@@ -90,9 +91,17 @@ def _workspace_task_to_todo(task: WorkspaceTask) -> dict[str, Any]:
         "status": _workspace_status_to_todo(task.status),
         "priority": _workspace_priority_from_task(task.priority),
     }
+    if workspace_agent_binding_id:
+        todo["workspace_agent_id"] = workspace_agent_binding_id
     if task.metadata.get("pending_leader_adjudication") is True:
         todo["pending_leader_adjudication"] = True
-    for key in ("current_attempt_id", "last_attempt_id", "last_attempt_status"):
+    for key in (
+        "current_attempt_id",
+        "current_attempt_worker_agent_id",
+        "last_attempt_id",
+        "last_attempt_status",
+        "current_attempt_worker_binding_id",
+    ):
         value = task.metadata.get(key)
         if isinstance(value, str) and value:
             todo[key] = value

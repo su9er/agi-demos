@@ -120,6 +120,32 @@ describe('TaskBoard', () => {
     ).toBeInTheDocument();
   });
 
+  it('uses workspace binding ids for assigned agent selection state', async () => {
+    const { useWorkspaceTasks, useWorkspaceAgents } = await import('@/stores/workspace');
+
+    vi.mocked(useWorkspaceTasks).mockReturnValue([
+      {
+        id: 'task-assign-1',
+        title: 'Execute root goal',
+        status: 'todo',
+        workspace_id: 'ws-1',
+        assignee_agent_id: 'agent-1',
+        workspace_agent_id: 'binding-1',
+      },
+    ] as any);
+    vi.mocked(useWorkspaceAgents).mockReturnValue([
+      {
+        id: 'binding-1',
+        agent_id: 'agent-1',
+        display_name: 'Worker A',
+      },
+    ] as any);
+
+    render(<TaskBoard workspaceId="ws-1" />);
+
+    expect(screen.getByText('Worker A')).toBeInTheDocument();
+  });
+
   it('triggers forced autonomy tick from the task board header', async () => {
     const { useWorkspaceTasks, useWorkspaceAgents } = await import('@/stores/workspace');
 

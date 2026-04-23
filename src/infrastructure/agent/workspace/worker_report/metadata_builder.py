@@ -21,6 +21,7 @@ from src.domain.model.workspace.workspace_task_session_attempt import (
 )
 from src.infrastructure.agent.workspace.workspace_metadata_keys import (
     CURRENT_ATTEMPT_ID,
+    CURRENT_ATTEMPT_WORKER_BINDING_ID,
     EXECUTION_STATE,
     LAST_WORKER_REPORT_SUMMARY,
     PENDING_LEADER_ADJUDICATION,
@@ -117,6 +118,11 @@ def build_worker_report_patch(
     is_terminal = report_type in _WORKER_TERMINAL_REPORT_TYPES
     merged_verifications = list(dict.fromkeys([*prior_verifications, *report_verifications]))
     reported_at = (now or datetime.now(UTC)).isoformat().replace("+00:00", "Z")
+    worker_binding_id = task_metadata.get("workspace_agent_binding_id")
+    if not isinstance(worker_binding_id, str) or not worker_binding_id:
+        worker_binding_id = task_metadata.get(CURRENT_ATTEMPT_WORKER_BINDING_ID)
+        if not isinstance(worker_binding_id, str) or not worker_binding_id:
+            worker_binding_id = None
 
     patch: dict[str, Any] = {
         "evidence_refs": merged_artifacts,
@@ -143,6 +149,8 @@ def build_worker_report_patch(
             actor_id=effective_worker_agent_id,
         ),
     }
+    if worker_binding_id:
+        patch[CURRENT_ATTEMPT_WORKER_BINDING_ID] = worker_binding_id
     if report_id:
         patch["last_worker_report_id"] = report_id
 

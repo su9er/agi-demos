@@ -102,8 +102,20 @@ class RosterResponse(BaseModel):
     conversation_mode: str
     effective_mode: str
     participant_agents: list[str]
+    participant_bindings: list[RosterParticipantResponse] = Field(default_factory=list)
     coordinator_agent_id: str | None
     focused_agent_id: str | None
+
+
+class RosterParticipantResponse(BaseModel):
+    """Binding-aware participant projection for a roster entry."""
+
+    agent_id: str
+    workspace_agent_id: str | None = None
+    display_name: str | None = None
+    label: str | None = None
+    is_active: bool = True
+    source: str  # "workspace" | "conversation"
 
 
 # === Helpers ===
@@ -172,9 +184,38 @@ def _assert_write_permission(
     raise HTTPException(status_code=403, detail="Forbidden")
 
 
-def _roster_response(
-    conversation: Conversation, effective_mode: ConversationMode
+async def _roster_response(
+    conversation: Conversation,
+    effective_mode: ConversationMode,
+    request: Request | None = None,
+    db: AsyncSession | None = None,
 ) -> RosterResponse:
+    participant_bindings: list[RosterParticipantResponse] = []
+    workspace_id = getattr(conversation, "workspace_id", None)
+    workspace_agent_repo = None
+    if request is not None and db is not None:
+        workspace_agent_repo = get_container_with_db(
+            request, db
+        ).workspace_agent_repository()
+
+    for agent_id in conversation.participant_agents:
+        binding = None
+        if workspace_id and workspace_agent_repo is not None:
+            binding = await workspace_agent_repo.find_by_workspace_and_agent_id(
+                workspace_id=workspace_id,
+                agent_id=agent_id,
+            )
+        participant_bindings.append(
+            RosterParticipantResponse(
+                agent_id=agent_id,
+                workspace_agent_id=binding.id if binding is not None else None,
+                display_name=binding.display_name if binding is not None else None,
+                label=binding.label if binding is not None else None,
+                is_active=binding.is_active if binding is not None else True,
+                source="workspace" if binding is not None else "conversation",
+            )
+        )
+
     return RosterResponse(
         conversation_id=conversation.id,
         conversation_mode=(
@@ -184,6 +225,7 @@ def _roster_response(
         ),
         effective_mode=effective_mode.value,
         participant_agents=list(conversation.participant_agents),
+        participant_bindings=participant_bindings,
         coordinator_agent_id=conversation.coordinator_agent_id,
         focused_agent_id=conversation.focused_agent_id,
     )
@@ -214,7 +256,12 @@ async def list_participants(
         and getattr(project, "owner_id", None) != current_user.id
     ):
         raise HTTPException(status_code=403, detail="Forbidden")
-    return _roster_response(conversation, _resolve_effective_mode(conversation, project))
+    return await _roster_response(
+        conversation,
+        _resolve_effective_mode(conversation, project),
+        request=request,
+        db=db,
+    )
 
 
 @router.post(
@@ -257,7 +304,7 @@ async def add_participant(
 
     await conv_repo.save(conversation)
     await db.commit()
-    return _roster_response(conversation, effective_mode)
+    return await _roster_response(conversation, effective_mode, request=request, db=db)
 
 
 @router.delete(
@@ -290,7 +337,7 @@ async def remove_participant(
 
     await conv_repo.save(conversation)
     await db.commit()
-    return _roster_response(conversation, effective_mode)
+    return await _roster_response(conversation, effective_mode, request=request, db=db)
 
 
 @router.patch(
@@ -324,7 +371,7 @@ async def set_coordinator(
 
     await conv_repo.save(conversation)
     await db.commit()
-    return _roster_response(conversation, effective_mode)
+    return await _roster_response(conversation, effective_mode, request=request, db=db)
 
 
 # === Mention candidates (Phase-5 G7) ===
@@ -334,6 +381,7 @@ class MentionCandidateResponse(BaseModel):
     """One candidate agent returned by GET /mention-candidates."""
 
     agent_id: str
+    workspace_agent_id: str | None = None
     display_name: str | None = None
     label: str | None = None
     status: str = "idle"
@@ -396,6 +444,7 @@ async def list_mention_candidates(
         candidates=[
             MentionCandidateResponse(
                 agent_id=c.agent_id,
+                workspace_agent_id=c.workspace_agent_id,
                 display_name=c.display_name,
                 label=c.label,
                 status=c.status,

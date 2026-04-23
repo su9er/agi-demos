@@ -71,7 +71,7 @@ class TestConversationId:
 
 class TestBuildBrief:
     def test_includes_binding_block_and_title(self) -> None:
-        task = _make_task()
+        task = _make_task(metadata={"task_role": "execution", "root_goal_task_id": "root-1", "workspace_agent_binding_id": "binding-1"})
         brief = wl._build_worker_brief(
             workspace_id="ws-1",
             task=task,
@@ -81,6 +81,7 @@ class TestBuildBrief:
         assert "[workspace-task-binding]" in brief
         assert "workspace_id=ws-1" in brief
         assert "workspace_task_id=task-1" in brief
+        assert "workspace_agent_binding_id=binding-1" in brief
         assert "root_goal_task_id=root-1" in brief
         assert "leader_agent_id=leader-1" in brief
         assert "## Task title" in brief

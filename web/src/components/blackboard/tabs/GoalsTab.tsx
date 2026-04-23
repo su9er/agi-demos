@@ -28,11 +28,12 @@ import { buildAgentWorkspacePath } from '@/utils/agentWorkspacePath';
 import { ObjectiveList } from '@/components/workspace/objectives/ObjectiveList';
 import { TaskBoard } from '@/components/workspace/TaskBoard';
 
-import type { CyberObjective, WorkspaceTask } from '@/types/workspace';
+import type { CyberObjective, WorkspaceAgent, WorkspaceTask } from '@/types/workspace';
 
 export interface GoalsTabProps {
   objectives: CyberObjective[];
   tasks: WorkspaceTask[];
+  agents?: WorkspaceAgent[] | undefined;
   completionRatio: number;
   workspaceId: string;
   tenantId?: string | undefined;
@@ -90,6 +91,30 @@ interface ChildTaskLogCardProps {
   onToggle: () => void;
   onJump: () => void;
   conversationHref?: string | undefined;
+}
+
+function resolveAssigneeLabel(
+  task: Pick<WorkspaceTask, 'workspace_agent_id' | 'assignee_agent_id' | 'assignee_user_id'>,
+  agents: WorkspaceAgent[]
+): string {
+  const bindingId = task.workspace_agent_id;
+  if (bindingId) {
+    const binding = agents.find((agent) => agent.id === bindingId);
+    if (binding) {
+      return binding.display_name || binding.label || binding.agent_id || binding.id;
+    }
+  }
+
+  const assignedAgentId = task.assignee_agent_id;
+  if (assignedAgentId) {
+    const binding = agents.find((agent) => agent.agent_id === assignedAgentId);
+    if (binding) {
+      return binding.display_name || binding.label || binding.agent_id || binding.id;
+    }
+    return assignedAgentId;
+  }
+
+  return task.assignee_user_id ?? '未分配';
 }
 
 function getObjectiveExecutionFeedback(
@@ -392,7 +417,11 @@ function buildExecutionEventLog(item: ObjectiveExecutionFeedback, tasks: Workspa
   return entries.slice(-5).reverse();
 }
 
-function buildChildTaskLogs(item: ObjectiveExecutionFeedback, tasks: WorkspaceTask[]): ChildTaskLogEntry[] {
+function buildChildTaskLogs(
+  item: ObjectiveExecutionFeedback,
+  tasks: WorkspaceTask[],
+  agents: WorkspaceAgent[]
+): ChildTaskLogEntry[] {
   if (!item.rootTask) {
     return [];
   }
@@ -413,7 +442,7 @@ function buildChildTaskLogs(item: ObjectiveExecutionFeedback, tasks: WorkspaceTa
       if (task.assignee_agent_id || task.assignee_user_id) {
         events.push({
           id: `${task.id}-assigned`,
-          label: `已分配给 ${task.assignee_agent_id ?? task.assignee_user_id ?? 'unknown'}`,
+          label: `已分配给 ${resolveAssigneeLabel(task, agents)}`,
           timestamp: formatEventTimestamp(assignmentTimestamp),
         });
       }
@@ -445,8 +474,8 @@ function buildChildTaskLogs(item: ObjectiveExecutionFeedback, tasks: WorkspaceTa
         });
       }
 
-      const conversationIdRaw = task.metadata?.current_attempt_conversation_id;
-      const attemptNumberRaw = task.metadata?.current_attempt_number;
+      const conversationIdRaw = task.metadata.current_attempt_conversation_id;
+      const attemptNumberRaw = task.metadata.current_attempt_number;
       const conversationId =
         typeof conversationIdRaw === 'string' && conversationIdRaw.length > 0
           ? conversationIdRaw
@@ -459,7 +488,7 @@ function buildChildTaskLogs(item: ObjectiveExecutionFeedback, tasks: WorkspaceTa
       return {
         childTaskId: task.id,
         title: task.title,
-        assigneeLabel: task.assignee_agent_id ?? task.assignee_user_id ?? '未分配',
+        assigneeLabel: resolveAssigneeLabel(task, agents),
         status: task.status,
         events: events.reverse(),
         conversationId,
@@ -546,10 +575,10 @@ function ChildTaskLogCard({
             <Link
               to={conversationHref}
               className="rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary transition hover:bg-primary/20 dark:border-primary-300/40 dark:bg-primary-300/10 dark:text-primary-100 dark:hover:bg-primary-300/20"
-              title={child.attemptNumber ? `Attempt #${child.attemptNumber}` : undefined}
+              title={child.attemptNumber ? `Attempt #${String(child.attemptNumber)}` : undefined}
             >
               跳转到会话
-              {child.attemptNumber ? ` #${child.attemptNumber}` : ''}
+              {child.attemptNumber ? ` #${String(child.attemptNumber)}` : ''}
             </Link>
           )}
         </div>
@@ -632,6 +661,7 @@ function getTimelineTone(step: FeedbackTimelineStep): string {
 export function GoalsTab({
   objectives,
   tasks,
+  agents = [],
   workspaceId,
   tenantId,
   projectId,
@@ -911,12 +941,12 @@ export function GoalsTab({
 
                   {expandedObjectiveIds[item.objectiveId] && (
                     <div className="mt-4 space-y-3 border-t border-current/10 pt-4">
-                      {buildChildTaskLogs(item, tasks).length === 0 ? (
+                      {buildChildTaskLogs(item, tasks, agents).length === 0 ? (
                         <div className="rounded-lg bg-white/40 px-3 py-2 text-[11px] opacity-80 dark:bg-black/10">
                           还没有 child task 详细事件。
                         </div>
                       ) : (
-                        buildChildTaskLogs(item, tasks).map((child) => {
+                        buildChildTaskLogs(item, tasks, agents).map((child) => {
                           const conversationHref =
                             child.conversationId && tenantId
                               ? buildAgentWorkspacePath({

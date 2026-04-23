@@ -29,6 +29,9 @@ from typing import Final
 ROOT_GOAL_TASK_ID: Final[str] = "root_goal_task_id"
 """ID of the root goal task this subtask is scoped under."""
 
+WORKSPACE_AGENT_BINDING_ID: Final[str] = "workspace_agent_binding_id"
+"""Workspace-scoped agent binding id preserved alongside assignment projections."""
+
 TASK_ROLE: Final[str] = "task_role"
 """Semantic role tag on a task (``"goal"``, ``"execution"``, ``"root"``, ...)."""
 
@@ -63,6 +66,9 @@ LAST_REPLAN_AT: Final[str] = "last_replan_at"
 CURRENT_ATTEMPT_ID: Final[str] = "current_attempt_id"
 """The active ``WorkspaceTaskSessionAttempt.id`` for a worker task."""
 
+CURRENT_ATTEMPT_WORKER_BINDING_ID: Final[str] = "current_attempt_worker_binding_id"
+"""Workspace-scoped binding id for the worker on the active attempt."""
+
 PENDING_LEADER_ADJUDICATION: Final[str] = "pending_leader_adjudication"
 """True while a worker report is waiting for leader verdict."""
 
@@ -76,6 +82,7 @@ LAST_LEADER_ADJUDICATION_STATUS: Final[str] = "last_leader_adjudication_status"
 __all__ = [
     "AUTONOMY_SCHEMA_VERSION_KEY",
     "CURRENT_ATTEMPT_ID",
+    "CURRENT_ATTEMPT_WORKER_BINDING_ID",
     "DERIVED_FROM_INTERNAL_PLAN_STEP",
     "EXECUTION_STATE",
     "LAST_LEADER_ADJUDICATION_STATUS",
@@ -88,4 +95,5 @@ __all__ = [
     "REPLAN_ATTEMPT_COUNT",
     "ROOT_GOAL_TASK_ID",
     "TASK_ROLE",
+    "WORKSPACE_AGENT_BINDING_ID",
 ]

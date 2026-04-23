@@ -2137,6 +2137,7 @@ class ReActAgent:
                 "[workspace-task-binding]\n"
                 f"workspace_task_id={task_binding['workspace_task_id']}\n"
                 f"attempt_id={task_binding.get('attempt_id', '')}\n"
+                f"workspace_agent_binding_id={task_binding.get('workspace_agent_binding_id', '')}\n"
                 f"root_goal_task_id={task_binding['root_goal_task_id']}\n"
                 f"workspace_id={task_binding['workspace_id']}\n"
                 "[/workspace-task-binding]\n\n"
