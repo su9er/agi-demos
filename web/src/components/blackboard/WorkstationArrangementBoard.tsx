@@ -31,6 +31,7 @@ import {
   RESERVED_CENTER_KEY,
   resolveColor,
 } from './arrangementUtils';
+import { HostedProjectionBadge } from './HostedProjectionBadge';
 import { KeyboardShortcutsPopover } from './KeyboardShortcutsPopover';
 import { useArrangementActions } from './useArrangementActions';
 import { useArrangementKeyboard } from './useArrangementKeyboard';
@@ -343,7 +344,12 @@ export function WorkstationArrangementBoard({
 
   return (
     <section className="flex flex-col h-full rounded-2xl border border-border-light bg-surface-light p-4 shadow-lg transition-colors duration-200 dark:border-border-dark dark:bg-surface-dark sm:p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-light pb-4 dark:border-border-dark">
+      <HostedProjectionBadge
+        labelKey="blackboard.arrangementSurfaceHint"
+        fallbackLabel="workspace arrangement projection"
+      />
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-b border-border-light pb-4 dark:border-border-dark">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold tracking-tight text-text-primary dark:text-text-inverse">
             {workspaceName}

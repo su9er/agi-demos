@@ -150,6 +150,9 @@ describe('WorkstationArrangementBoard', () => {
     renderBoard();
 
     expect(screen.getByText('Test Workspace')).toBeInTheDocument();
+    const boundaryBadge = screen.getByText('blackboard.arrangementSurfaceHint').closest('div');
+    expect(boundaryBadge).toHaveAttribute('data-blackboard-boundary', 'hosted');
+    expect(boundaryBadge).toHaveAttribute('data-blackboard-authority', 'non-authoritative');
     // The SVG grid should be present (aria-hidden img role)
     const svg = document.querySelector('svg');
     expect(svg).toBeInTheDocument();
