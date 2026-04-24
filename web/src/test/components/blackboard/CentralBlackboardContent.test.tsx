@@ -195,9 +195,6 @@ describe('CentralBlackboardContent', () => {
     render(<CentralBlackboardContent {...defaultProps({ activeTab: 'files' })} />);
 
     expect(screen.getByText('Shared files browser')).toBeInTheDocument();
-    const boundaryBadge = screen.getByText('blackboard.filesSurfaceHint').closest('div');
-    expect(boundaryBadge).toHaveAttribute('data-blackboard-boundary', OWNED);
-    expect(boundaryBadge).toHaveAttribute('data-blackboard-authority', AUTHORITATIVE);
   });
 
   it('renders PresenceBar when activeTab is status', () => {

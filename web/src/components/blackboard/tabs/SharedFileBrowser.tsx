@@ -19,6 +19,8 @@ import {
 import { blackboardFileService } from '@/services/blackboardFileService';
 import type { BlackboardFileItem } from '@/services/blackboardFileService';
 
+import { OwnedSurfaceBadge } from '../OwnedSurfaceBadge';
+
 export interface SharedFileBrowserProps {
   tenantId: string;
   projectId: string;
@@ -40,7 +42,7 @@ function isTextType(contentType: string): boolean {
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '-';
-  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024) return `${String(bytes)} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
@@ -264,6 +266,11 @@ export function SharedFileBrowser({ tenantId, projectId, workspaceId }: SharedFi
       onDragLeave={handleDragLeave}
       onDrop={(e) => void handleDrop(e)}
     >
+      <OwnedSurfaceBadge
+        labelKey="blackboard.filesSurfaceHint"
+        fallbackLabel="blackboard file workspace"
+      />
+
       {/* Breadcrumb */}
       <div className="flex items-center gap-1 text-sm text-text-secondary dark:text-text-muted">
         {breadcrumbs.map((crumb, i) => (
@@ -307,7 +314,14 @@ export function SharedFileBrowser({ tenantId, projectId, workspaceId }: SharedFi
           )}
           {t('blackboard.files.upload', 'Upload')}
         </button>
-        <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={(event) => {
+            void handleUpload(event);
+          }}
+        />
       </div>
 
       {/* Mkdir inline */}

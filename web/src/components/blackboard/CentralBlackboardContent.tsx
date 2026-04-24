@@ -22,7 +22,6 @@ import {
   statusBadgeTone,
 } from './blackboardUtils';
 import { HostedProjectionBadge } from './HostedProjectionBadge';
-import { OwnedSurfaceBadge } from './OwnedSurfaceBadge';
 import { CollaborationOverviewTab } from './tabs/CollaborationOverviewTab';
 import { ConversationRosterSection } from './tabs/ConversationRosterSection';
 import { DiscussionTab } from './tabs/DiscussionTab';
@@ -267,17 +266,11 @@ export function CentralBlackboardContent({
                 )}
 
                 {activeTab === 'files' && (
-                  <div className="space-y-4">
-                    <OwnedSurfaceBadge
-                      labelKey="blackboard.filesSurfaceHint"
-                      fallbackLabel="blackboard file workspace"
-                    />
-                    <SharedFileBrowser
-                      tenantId={tenantId}
-                      projectId={projectId}
-                      workspaceId={workspaceId}
-                    />
-                  </div>
+                  <SharedFileBrowser
+                    tenantId={tenantId}
+                    projectId={projectId}
+                    workspaceId={workspaceId}
+                  />
                 )}
 
                 {activeTab === 'status' && (
