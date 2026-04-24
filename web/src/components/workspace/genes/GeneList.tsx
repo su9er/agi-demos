@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { Button, Empty, Skeleton, Typography, Segmented } from 'antd';
 import { Plus } from 'lucide-react';
 
+import { HostedProjectionBadge } from '@/components/blackboard/HostedProjectionBadge';
+
 import { GeneCard } from './GeneCard';
 
 import type { CyberGene } from '@/types/workspace';
@@ -50,7 +52,12 @@ export const GeneList: React.FC<GeneListProps> = ({
 
   return (
     <div className="flex flex-col h-full w-full">
-      <div className="flex items-center justify-between mb-4">
+      <HostedProjectionBadge
+        labelKey="blackboard.genesSurfaceHint"
+        fallbackLabel="workspace gene projection"
+      />
+
+      <div className="mt-4 mb-4 flex items-center justify-between">
         <Typography.Title level={4} className="m-0">
           {t('workspaceDetail.genes.title')}
         </Typography.Title>

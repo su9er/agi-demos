@@ -21,7 +21,6 @@ import {
   buildBlackboardStats,
   statusBadgeTone,
 } from './blackboardUtils';
-import { HostedProjectionBadge } from './HostedProjectionBadge';
 import { CollaborationOverviewTab } from './tabs/CollaborationOverviewTab';
 import { ConversationRosterSection } from './tabs/ConversationRosterSection';
 import { DiscussionTab } from './tabs/DiscussionTab';
@@ -234,34 +233,22 @@ export function CentralBlackboardContent({
 
                 {activeTab === 'members' && (
                   <div className="rounded-xl border border-border-light bg-surface-light p-5 dark:border-border-dark dark:bg-surface-dark-alt">
-                    <HostedProjectionBadge
-                      labelKey="blackboard.membersSurfaceHint"
-                      fallbackLabel="workspace membership projection"
-                    />
-                    <div className="mt-4">
-                      <MemberPanel tenantId={tenantId} projectId={projectId} workspaceId={workspaceId} />
-                    </div>
+                    <MemberPanel tenantId={tenantId} projectId={projectId} workspaceId={workspaceId} />
                     <ConversationRosterSection projectId={projectId} workspaceId={workspaceId} />
                   </div>
                 )}
 
                 {activeTab === 'genes' && (
                   <div className="rounded-xl border border-border-light bg-surface-light p-5 dark:border-border-dark dark:bg-surface-dark-alt">
-                    <HostedProjectionBadge
-                      labelKey="blackboard.genesSurfaceHint"
-                      fallbackLabel="workspace gene projection"
+                    <GeneList
+                      genes={genes}
+                      onDelete={(geneId) => {
+                        void actions.handleDeleteGene(geneId);
+                      }}
+                      onToggleActive={(geneId, isActive) => {
+                        void actions.handleToggleGeneActive(geneId, isActive);
+                      }}
                     />
-                    <div className="mt-4">
-                      <GeneList
-                        genes={genes}
-                        onDelete={(geneId) => {
-                          void actions.handleDeleteGene(geneId);
-                        }}
-                        onToggleActive={(geneId, isActive) => {
-                          void actions.handleToggleGeneActive(geneId, isActive);
-                        }}
-                      />
-                    </div>
                   </div>
                 )}
 
@@ -312,17 +299,11 @@ export function CentralBlackboardContent({
 
                 {activeTab === 'settings' && (
                   <div className="rounded-xl border border-border-light bg-surface-light p-5 dark:border-border-dark dark:bg-surface-dark-alt">
-                    <HostedProjectionBadge
-                      labelKey="blackboard.settingsSurfaceHint"
-                      fallbackLabel="workspace settings projection"
+                    <WorkspaceSettingsPanel
+                      tenantId={tenantId}
+                      projectId={projectId}
+                      workspaceId={workspaceId}
                     />
-                    <div className="mt-4">
-                      <WorkspaceSettingsPanel
-                        tenantId={tenantId}
-                        projectId={projectId}
-                        workspaceId={workspaceId}
-                      />
-                    </div>
                   </div>
                 )}
         </div>

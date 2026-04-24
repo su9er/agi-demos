@@ -12,6 +12,7 @@ import {
   useWorkspaceActions,
 } from '@/stores/workspace';
 
+import { HostedProjectionBadge } from '@/components/blackboard/HostedProjectionBadge';
 import { LazyPopconfirm, useLazyMessage } from '@/components/ui/lazyAntd';
 
 import { AddAgentModal } from './AddAgentModal';
@@ -53,7 +54,12 @@ export const MemberPanel: FC<MemberPanelProps> = ({ tenantId, projectId, workspa
 
   return (
     <section className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-800 transition-colors duration-200">
-      <h3 className="font-semibold text-slate-900 dark:text-white mb-3">{t('workspaceDetail.members.title')}</h3>
+      <HostedProjectionBadge
+        labelKey="blackboard.membersSurfaceHint"
+        fallbackLabel="workspace membership projection"
+      />
+
+      <h3 className="mt-3 mb-3 font-semibold text-slate-900 dark:text-white">{t('workspaceDetail.members.title')}</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <h4 className="text-sm font-medium mb-2">{t('workspaceDetail.members.membersLabel')} ({members.length})</h4>
@@ -112,4 +118,3 @@ export const MemberPanel: FC<MemberPanelProps> = ({ tenantId, projectId, workspa
     </section>
   );
 };
-

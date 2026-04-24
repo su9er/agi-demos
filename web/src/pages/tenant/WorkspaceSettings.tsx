@@ -15,6 +15,7 @@ import {
 
 import { workspaceService } from '@/services/workspaceService';
 
+import { HostedProjectionBadge } from '@/components/blackboard/HostedProjectionBadge';
 import { LazyPopconfirm, useLazyMessage } from '@/components/ui/lazyAntd';
 
 import type { WorkspaceMember, WorkspaceMemberRole } from '@/types/workspace';
@@ -123,7 +124,7 @@ export const WorkspaceSettingsPanel: React.FC<{
       message?.success(t('workspaceSettings.members.addSuccess'));
       setNewMemberUserId('');
       setNewMemberRole('viewer');
-      loadWorkspaceSurface(tenantId, projectId, workspaceId);
+      void loadWorkspaceSurface(tenantId, projectId, workspaceId);
     } catch {
       message?.error(t('workspaceSettings.members.addFailed'));
     } finally {
@@ -146,7 +147,7 @@ export const WorkspaceSettingsPanel: React.FC<{
       try {
         await workspaceService.removeMember(tenantId, projectId, workspaceId, memberId);
         message?.success(t('workspaceSettings.members.removeSuccess'));
-        loadWorkspaceSurface(tenantId, projectId, workspaceId);
+        void loadWorkspaceSurface(tenantId, projectId, workspaceId);
       } catch {
         message?.error(t('workspaceSettings.members.removeFailed'));
       }
@@ -160,7 +161,7 @@ export const WorkspaceSettingsPanel: React.FC<{
       try {
         await workspaceService.updateMemberRole(tenantId, projectId, workspaceId, memberId, role);
         message?.success(t('workspaceSettings.members.roleUpdateSuccess'));
-        loadWorkspaceSurface(tenantId, projectId, workspaceId);
+        void loadWorkspaceSurface(tenantId, projectId, workspaceId);
       } catch {
         message?.error(t('workspaceSettings.members.roleUpdateFailed'));
       }
@@ -176,7 +177,11 @@ export const WorkspaceSettingsPanel: React.FC<{
     <div className="max-w-3xl mx-auto w-full flex flex-col gap-8 pb-8 pt-4">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+        <HostedProjectionBadge
+          labelKey="blackboard.settingsSurfaceHint"
+          fallbackLabel="workspace settings projection"
+        />
+        <h1 className="mt-3 text-2xl font-bold text-slate-900 dark:text-white">
           {t('workspaceSettings.title')}
         </h1>
         <p className="text-sm text-slate-500 mt-1">{t('workspaceSettings.description')}</p>
@@ -226,7 +231,9 @@ export const WorkspaceSettingsPanel: React.FC<{
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={handleSave}
+              onClick={() => {
+                void handleSave();
+              }}
               disabled={!isDirty || isSaving}
               className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -257,7 +264,9 @@ export const WorkspaceSettingsPanel: React.FC<{
             }}
             placeholder={t('workspaceSettings.members.addMemberPlaceholder')}
             className="flex-1"
-            onPressEnter={handleAddMember}
+            onPressEnter={() => {
+              void handleAddMember();
+            }}
           />
           <Select
             value={newMemberRole}
@@ -272,7 +281,9 @@ export const WorkspaceSettingsPanel: React.FC<{
           />
           <button
             type="button"
-            onClick={handleAddMember}
+            onClick={() => {
+              void handleAddMember();
+            }}
             disabled={isAddingMember || !newMemberUserId.trim()}
             className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
           >
@@ -316,9 +327,9 @@ export const WorkspaceSettingsPanel: React.FC<{
                     <td className="py-3 px-2">
                       <Select
                         value={member.role}
-                        onChange={(value: WorkspaceMemberRole) =>
-                          handleRoleChange(member.id, value)
-                        }
+                        onChange={(value: WorkspaceMemberRole) => {
+                          void handleRoleChange(member.id, value);
+                        }}
                         size="small"
                         style={{ width: 110 }}
                         options={ROLE_OPTIONS.map((opt) => ({
@@ -330,7 +341,9 @@ export const WorkspaceSettingsPanel: React.FC<{
                     <td className="py-3 px-2 text-right">
                       <LazyPopconfirm
                         title={t('workspaceSettings.members.removeConfirm')}
-                        onConfirm={() => handleRemoveMember(member.id)}
+                        onConfirm={() => {
+                          void handleRemoveMember(member.id);
+                        }}
                         okText={t('common.delete')}
                         cancelText={t('common.cancel')}
                         okButtonProps={{ danger: true }}
@@ -371,7 +384,9 @@ export const WorkspaceSettingsPanel: React.FC<{
           </div>
           <LazyPopconfirm
             title={t('workspaceSettings.dangerZone.deleteConfirm')}
-            onConfirm={handleDelete}
+            onConfirm={() => {
+              void handleDelete();
+            }}
             okText={t('common.delete')}
             cancelText={t('common.cancel')}
             okButtonProps={{ danger: true }}
